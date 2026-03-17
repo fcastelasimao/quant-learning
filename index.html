@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quant Learning Hub</title>
+  <style>
+    * { 
+      margin: 0; 
+      padding: 0; 
+      box-sizing: border-box; 
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+      color: #e0e0e0;
+      padding: 2rem;
+      min-height: 100vh;
+    }
+    
+    .container { 
+      max-width: 1400px; 
+      margin: 0 auto; 
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 3rem;
+      padding: 2rem;
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      border-radius: 20px;
+      border: 1px solid #475569;
+    }
+    
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6, #f59e0b);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .subtitle {
+      font-size: 1.1rem;
+      color: #94a3b8;
+      margin-bottom: 1rem;
+    }
+    
+    .stats {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      margin-top: 1.5rem;
+      flex-wrap: wrap;
+    }
+    
+    .stat {
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #3b82f6;
+    }
+    
+    .stat-label {
+      font-size: 0.85rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 0.25rem;
+    }
+    
+    .section-title {
+      font-size: 1.75rem;
+      margin: 3rem 0 1.5rem;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    .section-icon {
+      font-size: 2rem;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    
+    .card {
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      border-radius: 16px;
+      padding: 2rem;
+      border: 1px solid #475569;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+      transform: scaleX(0);
+      transition: transform 0.3s ease;
+    }
+    
+    .card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+      border-color: #3b82f6;
+    }
+    
+    .card:hover::before {
+      transform: scaleX(1);
+    }
+    
+    .card-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      display: block;
+    }
+    
+    .card-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      color: #f1f5f9;
+    }
+    
+    .card-desc {
+      font-size: 1rem;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+    
+    .card-badge {
+      display: inline-block;
+      background: #3b82f620;
+      color: #3b82f6;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-top: 1rem;
+      border: 1px solid #3b82f640;
+    }
+    
+    .quick-links {
+      background: #1e293b;
+      border-radius: 16px;
+      padding: 2rem;
+      border: 1px solid #475569;
+      margin-top: 3rem;
+    }
+    
+    .quick-links h3 {
+      color: #f1f5f9;
+      margin-bottom: 1rem;
+      font-size: 1.3rem;
+    }
+    
+    .links-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    
+    .quick-link {
+      color: #3b82f6;
+      text-decoration: none;
+      padding: 0.75rem;
+      background: #0f172a;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      transition: all 0.2s;
+      display: block;
+    }
+    
+    .quick-link:hover {
+      background: #334155;
+      border-color: #3b82f6;
+      transform: translateX(4px);
+    }
+    
+    @media (max-width: 768px) {
+      h1 { font-size: 2rem; }
+      .grid { grid-template-columns: 1fr; }
+      .stats { flex-direction: column; gap: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎯 Quant Finance Learning Hub</h1>
+      <p class="subtitle">Your complete roadmap to becoming a quantitative researcher</p>
+      
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-value" id="days-learning">0</div>
+          <div class="stat-label">Days Learning</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">12</div>
+          <div class="stat-label">Weeks Total</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">7</div>
+          <div class="stat-label">Quant Phases</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section-title">
+      <span class="section-icon">📚</span>
+      <span>Interactive Roadmaps</span>
+    </div>
+    <div class="grid">
+      <a href="roadmaps/quant_roadmap.html" class="card">
+        <span class="card-icon">📊</span>
+        <div class="card-title">Quant Finance Roadmap</div>
+        <div class="card-desc">
+          Master channel regime detection with HMMs, Kalman filters, GARCH models, and changepoint detection. 
+          Build a production system for VicTecs.
+        </div>
+        <span class="card-badge">7 Phases</span>
+      </a>
+      
+      <a href="roadmaps/python_roadmap.html" class="card">
+        <span class="card-icon">🐍</span>
+        <div class="card-title">Python Skills Roadmap</div>
+        <div class="card-desc">
+          From NumPy basics to production optimization. Learn vectorization, OOP, Numba JIT, 
+          testing, and software engineering practices.
+        </div>
+        <span class="card-badge">12 Weeks</span>
+      </a>
+      
+      <a href="#" class="card" onclick="alert('Coming soon: Integrated view showing both roadmaps synchronized'); return false;">
+        <span class="card-icon">🔄</span>
+        <div class="card-title">Integrated Timeline</div>
+        <div class="card-desc">
+          Both roadmaps side-by-side with synchronized progress tracking. 
+          See how Python skills map to quant concepts.
+        </div>
+        <span class="card-badge">Coming Soon</span>
+      </a>
+    </div>
+    
+    <div class="section-title">
+      <span class="section-icon">💻</span>
+      <span>Code & Projects</span>
+    </div>
+    <div class="grid">
+      <a href="code/channel-regime-detection/" class="card">
+        <span class="card-icon">🔬</span>
+        <div class="card-title">Channel Detector</div>
+        <div class="card-desc">
+          Main project: HMM-based regime detection system. 
+          Track bull/bear/sideways channels in real-time.
+        </div>
+        <span class="card-badge">Core Project</span>
+      </a>
+      
+      <a href="code/python-quant-patterns/" class="card">
+        <span class="card-icon">📦</span>
+        <div class="card-title">Reusable Patterns</div>
+        <div class="card-desc">
+          Library of tested, optimized code snippets. 
+          Rolling operations, HMM implementations, feature engineering.
+        </div>
+        <span class="card-badge">Code Library</span>
+      </a>
+      
+      <a href="https://github.com" target="_blank" class="card">
+        <span class="card-icon">🌐</span>
+        <div class="card-title">GitHub Portfolio</div>
+        <div class="card-desc">
+          Public repositories showcasing your work. 
+          Your calling card for job applications.
+        </div>
+        <span class="card-badge">Public Profile</span>
+      </a>
+    </div>
+    
+    <div class="section-title">
+      <span class="section-icon">📝</span>
+      <span>Knowledge Base</span>
+    </div>
+    <div class="grid">
+      <a href="notes/" class="card">
+        <span class="card-icon">🧠</span>
+        <div class="card-title">Digital Notes</div>
+        <div class="card-desc">
+          Obsidian vault with concepts, snippets, quick reference. 
+          Searchable, linked, always accessible.
+        </div>
+        <span class="card-badge">Obsidian</span>
+      </a>
+      
+      <a href="#" class="card" onclick="alert('Install Anki from apps.ankiweb.net'); return false;">
+        <span class="card-icon">🎴</span>
+        <div class="card-title">Anki Flashcards</div>
+        <div class="card-desc">
+          Spaced repetition for long-term retention. 
+          Python syntax, probability, interview prep.
+        </div>
+        <span class="card-badge">Daily Review</span>
+      </a>
+      
+      <a href="resources/" class="card">
+        <span class="card-icon">📚</span>
+        <div class="card-title">Resources Library</div>
+        <div class="card-desc">
+          Books, papers, courses, links. 
+          Green Book, Baxter & Rennie, Hull, video tutorials.
+        </div>
+        <span class="card-badge">Reference</span>
+      </a>
+    </div>
+    
+    <div class="quick-links">
+      <h3>⚡ Quick Links</h3>
+      <div class="links-grid">
+        <a href="https://github.com" target="_blank" class="quick-link">GitHub</a>
+        <a href="https://stackoverflow.com" target="_blank" class="quick-link">StackOverflow</a>
+        <a href="https://numpy.org/doc" target="_blank" class="quick-link">NumPy Docs</a>
+        <a href="https://pandas.pydata.org/docs" target="_blank" class="quick-link">Pandas Docs</a>
+        <a href="https://www.quantopian.com/lectures" target="_blank" class="quick-link">Quantopian Lectures</a>
+        <a href="https://www.reddit.com/r/algotrading" target="_blank" class="quick-link">r/algotrading</a>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Calculate days since you started (update the start date)
+    const startDate = new Date('2025-03-10'); // Change to your actual start date
+    const today = new Date();
+    const daysLearning = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
+    document.getElementById('days-learning').textContent = Math.max(0, daysLearning);
+  </script>
+</body>
+</html>

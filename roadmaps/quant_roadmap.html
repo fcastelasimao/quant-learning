@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Quant Researcher Roadmap · VicTecs</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #07080f; }
+  ::-webkit-scrollbar { width: 6px; } 
+  ::-webkit-scrollbar-track { background: #0b0c17; }
+  ::-webkit-scrollbar-thumb { background: #252540; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const roadmap = [
+  {
+    phase: "Phase 1",
+    title: "Financial Markets & Channel Foundations",
+    duration: "2–3 weeks",
+    accent: "#38bdf8",
+    goal: "Understand the domain before touching any models. Learn what bull/bear/sideways channels mean geometrically and statistically — not just intuitively.",
+    topics: [
+      {
+        title: "Market Structure & Regime Intuition",
+        tag: "Finance",
+        difficulty: "Beginner",
+        yourBackground: "No prior knowledge needed — start here",
+        description: "What bull, bear, and sideways markets mean. Asset classes: equities, futures, FX, bonds. How prices are quoted, bid/ask spreads, order types. Key indices: S&P 500, VIX (the fear index), credit spreads. Understanding VIX is critical — it is one of the strongest regime indicators and will feature as a key HMM input.",
+        resources: [
+          { label: "Book: 'A Random Walk Down Wall Street' — Malkiel", type: "book" },
+          { label: "Web: Investopedia — Market Regimes, VIX explained", type: "web" },
+          { label: "Book: 'Advances in Financial Machine Learning' — López de Prado (Ch. 1–2)", type: "book" },
+        ],
+        pythonTask: "Download SPY and VIX using yfinance. Plot both on a dual-axis chart. Manually annotate the 2008, 2020, and 2022 bear markets. Observe how VIX behaves in each phase.",
+      },
+      {
+        title: "Channel Geometry & Technical Structure",
+        tag: "Finance",
+        difficulty: "Beginner",
+        yourBackground: "New — but your employer thinks in these terms, so you must speak the language",
+        description: "A price channel is a range bounded by support (floor) and resistance (ceiling) within which price oscillates. Three channel types your model must distinguish: (1) Bull channel — upward-sloping support and resistance, price making higher highs and higher lows. (2) Bear channel — downward-sloping, lower lows and lower highs. (3) Sideways channel — horizontal boundaries, price mean-reverting. Channels can be formalised as a linear regression of price over a rolling window, with boundaries at ±kσ around the regression line. Channel width encodes volatility; channel slope encodes trend. A breakout occurs when price exits the channel boundaries — this is a regime transition.",
+        resources: [
+          { label: "Web: Investopedia — Price Channels, Support and Resistance", type: "web" },
+          { label: "Book: 'Technical Analysis of the Financial Markets' — Murphy (Ch. 4–5)", type: "book" },
+        ],
+        pythonTask: "Implement a rolling linear regression channel on SPY: fit a line through the last 60 days of log prices, draw ±2σ bands. Plot visually. Identify: (1) periods where price stays within the channel, (2) breakouts. Colour the channel green/red/grey based on slope sign and magnitude.",
+      },
+      {
+        title: "Financial Time Series Properties",
+        tag: "Finance + Stats",
+        difficulty: "Beginner",
+        yourBackground: "You know calculus and probability — this will feel natural",
+        description: "Log returns vs simple returns and why log returns are preferred. Stationarity and why raw prices are non-stationary. The four stylised facts every quant knows: (1) returns are barely autocorrelated, (2) squared returns ARE autocorrelated — volatility clustering, (3) fat tails, (4) negative skew. These directly motivate GARCH and regime-switching models.",
+        resources: [
+          { label: "Book: 'Analysis of Financial Time Series' — Tsay (Ch. 1–2)", type: "book" },
+          { label: "Web: statsmodels time series tutorial", type: "web" },
+        ],
+        pythonTask: "Compute SPY log returns. Plot: (1) return series, (2) ACF of returns, (3) ACF of squared returns, (4) QQ-plot vs Normal. Write a one-paragraph summary of the four stylised facts you observe and why each one matters for your modelling choices.",
+      },
+      {
+        title: "Data Sourcing, Cleaning & Pitfalls",
+        tag: "Engineering",
+        difficulty: "Beginner",
+        yourBackground: "New — but critical. Bad data destroys good models.",
+        description: "Always use adjusted close prices (corporate actions, splits, dividends distort raw prices). Survivorship bias: indices only contain today's survivors, making historical analysis optimistic. Missing data: forward-fill for prices, drop for returns. For channel detection specifically: OHLC (Open-High-Low-Close) data matters, not just close — highs and lows define channel boundaries naturally.",
+        resources: [
+          { label: "Web: yfinance documentation", type: "web" },
+          { label: "Book: 'Advances in Financial Machine Learning' — López de Prado (Ch. 2)", type: "book" },
+        ],
+        pythonTask: "Build a reusable data pipeline: download OHLC + adjusted close for any ticker, check for NaNs, forward-fill, compute log returns, run ADF stationarity test. Make it a reusable function get_clean_data(ticker, start, end) → DataFrame.",
+      },
+    ],
+  },
+  {
+    phase: "Phase 2",
+    title: "Probability & Stochastic Foundations",
+    duration: "3–4 weeks",
+    accent: "#4ade80",
+    goal: "Build the rigorous mathematical foundation. Much of this maps onto things you already know from your PhD.",
+    topics: [
+      {
+        title: "Markov Chains (Discrete Time)",
+        tag: "Maths",
+        difficulty: "Intermediate",
+        yourBackground: "You know measure theory and linear algebra — you will move quickly here",
+        description: "Transition matrices, stationary distributions, ergodicity, hitting times, Perron-Frobenius theorem. The Markov property formally. This is the conceptual core: a channel regime model IS a Markov chain on a hidden state space {bull channel, bear channel, sideways channel}, with transition probabilities encoding how likely each regime is to persist or switch.",
+        resources: [
+          { label: "Book: 'Markov Chains' — Norris (free PDF online)", type: "book" },
+          { label: "Course: MIT OCW 6.262 — Discrete Stochastic Processes", type: "course" },
+        ],
+        pythonTask: "Design a 3-state transition matrix for bull/bear/sideways channels with realistic persistence (e.g. P(bull→bull)=0.97). Simulate 2000 steps. Verify empirical stationary distribution matches the theoretical left eigenvector. Plot the simulated regime sequence as a colour-coded time series.",
+      },
+      {
+        title: "Continuous-Time Markov Processes & SDEs",
+        tag: "Maths",
+        difficulty: "Intermediate",
+        yourBackground: "Your mathematical physics background makes this very natural — SDEs are physics with noise",
+        description: "Generator matrices, Kolmogorov equations. Brownian motion and Itô's lemma. Geometric Brownian Motion (GBM) — the classic stock price model. Ornstein-Uhlenbeck (OU) process — mean-reverting, exactly what sideways channel price behaviour looks like. Key insight: price in a sideways channel ≈ OU process; price in a bull/bear channel ≈ GBM with drift. Your HMM is effectively detecting which SDE is governing price at each moment.",
+        resources: [
+          { label: "Book: 'Stochastic Calculus for Finance II' — Shreve (Ch. 1–3)", type: "book" },
+          { label: "Book: 'Brownian Motion and Stochastic Calculus' — Karatzas & Shreve", type: "book" },
+        ],
+        pythonTask: "Simulate GBM (drift=0.1, σ=0.15) and OU (θ=5, μ=100, σ=2). Overlay the rolling linear regression channel on each. Observe: OU process naturally stays within horizontal channel; GBM breaks channels and trends. This gives you the theoretical basis for your three regimes.",
+      },
+      {
+        title: "The Kalman Filter",
+        tag: "Maths + ML",
+        difficulty: "Intermediate",
+        yourBackground: "Think of it as Bayesian updating for linear Gaussian state-space models — elegant and directly useful for channel tracking",
+        description: "The Kalman filter tracks a hidden continuous state (e.g. the channel midpoint or slope) from noisy observations. For channel detection this is directly useful: estimate the latent trend line of price in real time, updating as each new data point arrives. The predict–update loop is the same structure as HMM forward filtering — learning Kalman first makes HMMs far easier to understand. Also useful for: pairs trading, volatility tracking, smoothing noisy feature signals.",
+        resources: [
+          { label: "Paper: Welch & Bishop — 'An Introduction to the Kalman Filter' (free PDF)", type: "paper" },
+          { label: "Book: 'Optimal Filtering' — Anderson & Moore", type: "book" },
+          { label: "Library: pykalman (Python)", type: "web" },
+        ],
+        pythonTask: "Implement a Kalman filter from scratch to track the latent trend of SPY log price. Compare the Kalman-smoothed trend to a simple 20-day moving average. Then use the Kalman estimate of channel slope as a feature: positive slope = potential bull channel, negative = bear, near-zero = sideways.",
+      },
+      {
+        title: "Bayesian Inference & The EM Algorithm",
+        tag: "Stats + ML",
+        difficulty: "Intermediate",
+        yourBackground: "Maps cleanly onto maximum likelihood and partition functions from physics",
+        description: "Prior, likelihood, posterior. MLE vs MAP. The Expectation-Maximisation (EM) algorithm in full generality: E-step computes soft regime assignments, M-step maximises expected log-likelihood given those assignments. EM is the engine behind Baum-Welch (HMM learning) and GMM fitting. Understanding it generally means you can adapt it to new model variants — e.g. an HMM where emission distributions are regression-based channel models.",
+        resources: [
+          { label: "Paper: Dempster, Laird & Rubin (1977) — 'Maximum Likelihood from Incomplete Data via the EM Algorithm'", type: "paper" },
+          { label: "Book: 'Pattern Recognition and ML' — Bishop (Ch. 9)", type: "book" },
+          { label: "Book: 'Bayesian Data Analysis' — Gelman et al. (Ch. 1–3)", type: "book" },
+        ],
+        pythonTask: "Implement EM for a 3-component GMM from scratch (numpy only). Fit it to SPY returns — components will separate into low/medium/high volatility clusters. Visualise convergence: plot the log-likelihood at each iteration and the final component distributions overlaid on the return histogram.",
+      },
+    ],
+  },
+  {
+    phase: "Phase 3",
+    title: "Volatility Modelling & Feature Engineering",
+    duration: "2–3 weeks",
+    accent: "#fb923c",
+    goal: "Build the observation vector you will feed into your HMM. For channel detection, features must encode trend, position-within-channel, volatility, and breakout risk simultaneously.",
+    topics: [
+      {
+        title: "GARCH Models",
+        tag: "Finance + Stats",
+        difficulty: "Intermediate",
+        yourBackground: "New but follows naturally from the stylised facts — volatility clustering demands a volatility model",
+        description: "GARCH(p,q) models conditional volatility: σ²_t = ω + α·ε²_{t-1} + β·σ²_{t-1}. GARCH-filtered returns (residuals ÷ conditional vol) are closer to i.i.d. — feeding these into HMMs instead of raw returns improves regime separation. GJR-GARCH captures the leverage effect. For channel detection: high GARCH volatility relative to channel width is a breakout warning signal.",
+        resources: [
+          { label: "Paper: Engle (1982) — 'Autoregressive Conditional Heteroscedasticity' (Nobel prize work)", type: "paper" },
+          { label: "Book: 'Analysis of Financial Time Series' — Tsay (Ch. 3)", type: "book" },
+          { label: "Library: arch (Python — the standard GARCH library)", type: "web" },
+        ],
+        pythonTask: "Fit GARCH(1,1) to SPY log returns using the arch library. Plot conditional volatility over time. Compute the ratio of GARCH vol to rolling channel width — high ratio = breakout risk. Plot this ratio against actual channel breakouts you identified in Phase 1.",
+      },
+      {
+        title: "Channel-Specific Feature Engineering",
+        tag: "Applied Finance",
+        difficulty: "Intermediate",
+        yourBackground: "The bridge between channel geometry and the HMM — the most novel part of your specific problem",
+        description: "Build the feature vector your HMM will observe: (1) Channel position: (price − lower_band) / (upper_band − lower_band) → 0 at support, 1 at resistance. (2) Channel slope: gradient of the regression line, normalised. (3) Channel width: upper_band − lower_band, normalised — encodes tightness. (4) Breakout indicator: |price − channel_midpoint| / channel_width. (5) Kalman-estimated trend slope. (6) VIX level and 5d change. (7) GARCH conditional vol / channel width ratio. These features directly encode the geometry your employer cares about.",
+        resources: [
+          { label: "Book: 'Advances in Financial Machine Learning' — López de Prado (Ch. 3–4)", type: "book" },
+          { label: "Paper: Ang & Bekaert (2004) — 'How Regimes Affect Asset Allocation'", type: "paper" },
+        ],
+        pythonTask: "Build a full feature matrix for SPY: channel position, channel slope, channel width, GARCH vol / channel width, Kalman slope, VIX. Normalise each. Plot a correlation matrix — drop features with |ρ| > 0.7. Visualise each feature coloured by manually-labelled regime and confirm they separate the three channel types.",
+      },
+    ],
+  },
+  {
+    phase: "Phase 4",
+    title: "Hidden Markov Models & Changepoint Detection",
+    duration: "4–5 weeks",
+    accent: "#e879f9",
+    goal: "Master the core toolset. Build HMMs from scratch, detect channel regimes on real data, and identify breakout transitions with changepoint methods.",
+    topics: [
+      {
+        title: "HMM Theory: The Three Problems",
+        tag: "Maths + ML",
+        difficulty: "Advanced",
+        yourBackground: "The hardest conceptual step — your Markov chain and EM foundations make it manageable",
+        description: "The three canonical HMM problems: (1) Evaluation — P(observations | model) via the Forward algorithm. (2) Decoding — most likely hidden state sequence via the Viterbi algorithm. (3) Learning — find parameters via Baum-Welch, which IS EM applied to HMMs. Hidden states = {bull channel, bear channel, sideways channel}. Observations = your feature vector. Use log-space arithmetic throughout to avoid numerical underflow.",
+        resources: [
+          { label: "Paper: Rabiner (1989) — 'A Tutorial on Hidden Markov Models' (the definitive reference)", type: "paper" },
+          { label: "Book: 'Pattern Recognition and ML' — Bishop (Ch. 13)", type: "book" },
+          { label: "Book: 'Statistical Methods in Bioinformatics' — Ewens & Grant (Ch. 8)", type: "book" },
+        ],
+        pythonTask: "Implement Forward algorithm, Viterbi, and Baum-Welch from scratch in numpy only. Test on a synthetic sequence generated from a known 3-state HMM — verify that your learned parameters recover the ground truth transition matrix and emission means.",
+      },
+      {
+        title: "Information Geometry & Why EM Works",
+        tag: "Maths",
+        difficulty: "Advanced",
+        yourBackground: "Your PhD applies directly here — noncommutative geometry and information geometry share deep structural connections",
+        description: "EM can be understood as alternating projections on a statistical manifold equipped with the Fisher metric. The E-step projects onto the constraint manifold, the M-step maximises within it — guaranteeing monotone likelihood increase. KL divergence acts as a Bregman divergence on this manifold. Your noncommutative geometry intuition is a genuine research edge: quantum analogues of these structures appear in quantum information theory, and quantum HMMs are an active research frontier.",
+        resources: [
+          { label: "Book: 'Information Geometry and Its Applications' — Amari", type: "book" },
+          { label: "Paper: Neal & Hinton (1998) — 'A View of the EM Algorithm that Justifies Incremental, Sparse, and Other Variants'", type: "paper" },
+        ],
+        pythonTask: "Visualise EM convergence on a 2D GMM: plot the log-likelihood surface and trace the path of 30 EM runs from different initialisations. Observe local optima. Measure variance in final log-likelihood — this motivates multiple restarts in HMM fitting.",
+      },
+      {
+        title: "HMM for Channel Regime Detection (Univariate → Multivariate)",
+        tag: "Applied Finance",
+        difficulty: "Advanced",
+        yourBackground: "This is the direct core deliverable for VicTecs",
+        description: "Fit a baseline Gaussian HMM on raw returns, then refit using your full channel feature vector. Compare regime boundaries. For multivariate HMM: each state has a mean vector and covariance matrix — the covariance encodes how features co-move within each regime. Use covariance_type='diag' for regularisation when data is limited. Interpret each state's mean vector as a regime fingerprint: bull channel = positive slope, low vol, mid position; bear = negative slope, high vol; sideways = zero slope, mean-reverting position.",
+        resources: [
+          { label: "Library: hmmlearn — GaussianHMM documentation", type: "web" },
+          { label: "Paper: Hamilton (1989) — 'A New Approach to the Economic Analysis of Nonstationary Time Series'", type: "paper" },
+          { label: "Paper: Guidolin & Timmermann (2007) — 'Asset Allocation under Multivariate Regime Switching'", type: "paper" },
+        ],
+        pythonTask: "Fit: (A) 3-state Gaussian HMM on raw returns; (B) 3-state multivariate HMM on your full feature vector. For each: plot Viterbi state sequence on the price chart with channel bands drawn. Visualise the learned mean vectors as a heatmap (features × states) — your regime fingerprint table. Do channel features produce cleaner, more interpretable regimes than raw returns alone?",
+      },
+      {
+        title: "Changepoint Detection for Channel Breakouts",
+        tag: "Maths + ML",
+        difficulty: "Advanced",
+        yourBackground: "Elevated from Phase 7 — breakout detection is central to the channel problem",
+        description: "A channel breakout is a structural break: the data-generating process changes abruptly. Two complementary approaches: (1) Offline changepoint detection (ruptures): given a full series, find the most likely breakpoint locations — useful for labelling historical data. (2) Online changepoint detection (BOCPD): detects changes in real time as data arrives, outputting a probability that a change just occurred — used in production. Full pipeline: when BOCPD signals a breakout, your HMM transitions to a new channel regime.",
+        resources: [
+          { label: "Paper: Adams & MacKay (2007) — 'Bayesian Online Changepoint Detection' (free arXiv)", type: "paper" },
+          { label: "Library: ruptures (offline changepoint detection, Python)", type: "web" },
+          { label: "Paper: Fearnhead & Liu (2007) — 'On-line Inference for Multiple Changepoint Problems'", type: "paper" },
+        ],
+        pythonTask: "Apply ruptures (Pelt algorithm) to SPY log returns to find historical breakpoints. Overlay them on your HMM regime plot — do they align with regime transitions? Then implement BOCPD on a synthetic OU→GBM switch. Measure detection lag in days.",
+      },
+      {
+        title: "Model Validation, Selection & Pitfalls",
+        tag: "Applied Finance",
+        difficulty: "Advanced",
+        yourBackground: "Critical — most quant models look great in-sample and fail out-of-sample",
+        description: "Look-ahead bias: never use future data to make past decisions. Walk-forward validation: train on first N years, test on next K — never k-fold. AIC/BIC for choosing number of states. Regime persistence: measure detection lag on the 2008 and 2020 channel breakdowns. Multiple initialisations: always run 50+ random restarts (Baum-Welch finds local optima). Label stability: do states maintain consistent meaning across re-fits?",
+        resources: [
+          { label: "Book: 'Advances in Financial Machine Learning' — López de Prado (Ch. 7–8)", type: "book" },
+          { label: "Paper: Bailey et al. (2016) — 'The Probability of Backtest Overfitting'", type: "paper" },
+        ],
+        pythonTask: "Walk-forward validation: train on 2000–2015, test on 2015–2025 with expanding window. For each test day measure: (1) days until bear channel detected after SPY breaks its 60-day channel downward, (2) AIC across 2/3/4 states. Plot the rolling log-likelihood — does it degrade over time?",
+      },
+    ],
+  },
+  {
+    phase: "Phase 5",
+    title: "Python Quant Stack",
+    duration: "Ongoing — introduce each library when its theory is covered",
+    accent: "#818cf8",
+    goal: "Become fluent in production-grade quant Python. Each library enters when you need it, not as an abstract list.",
+    topics: [
+      {
+        title: "Core Scientific Stack",
+        tag: "Programming",
+        difficulty: "Beginner",
+        yourBackground: "You already know Python — this is learning vectorised idioms and avoiding loops",
+        description: "NumPy: vectorised operations, broadcasting, linear algebra, log-space arithmetic. Pandas: time series indexing, rolling windows, resample, merge_asof for aligning series with different frequencies. Matplotlib: multi-panel charts, twin axes, fill_between for channel bands. SciPy: stats and optimise for MLE. Core mindset: a for-loop over 5000 time steps is always replaceable with a vectorised operation.",
+        resources: [
+          { label: "Book: 'Python for Data Analysis' — Wes McKinney", type: "book" },
+          { label: "Web: NumPy, Pandas official documentation", type: "web" },
+        ],
+        pythonTask: "Without any for-loops: compute a rolling 60-day linear regression slope using pd.rolling().apply(np.polyfit). Replicate using np.lib.stride_tricks for maximum speed. Benchmark both with %timeit. This is your channel slope feature.",
+      },
+      {
+        title: "Quant-Specific Libraries",
+        tag: "Programming",
+        difficulty: "Intermediate",
+        yourBackground: "Introduce each when you reach the relevant phase — context makes them stick",
+        description: "yfinance (OHLC data — Phase 1). arch (GARCH — Phase 3). hmmlearn (HMM — Phase 4). pykalman (Kalman filter — Phase 2). PyMC (Bayesian inference — Phase 2). statsmodels (ACF/PACF, ADF, Markov Switching). ruptures (changepoint detection — Phase 4). vectorbt or zipline-reloaded (backtesting — Phase 6). pyfolio (performance analytics — Phase 6).",
+        resources: [
+          { label: "Library: hmmlearn, arch, pykalman, ruptures documentation", type: "web" },
+          { label: "Library: vectorbt — fast vectorised backtesting", type: "web" },
+        ],
+        pythonTask: "Build a ChannelRegimeDetector class: __init__(n_states, window, features). fit(prices_df) builds features and fits HMM. predict_proba(date) returns current regime probabilities. plot() produces a 4-panel chart: price+channel bands / regime posteriors / feature heatmap / GARCH vol.",
+      },
+      {
+        title: "C++ for Performance",
+        tag: "Programming",
+        difficulty: "Advanced",
+        yourBackground: "You already know C++ — a significant advantage over most quant researchers",
+        description: "In production, real-time channel regime detection on tick data requires C++ hot paths. Eigen for linear algebra (maps directly from numpy). pybind11 for Python/C++ bindings. The HMM forward pass is a sequence of matrix-vector multiplies — in C++/Eigen this is 10–50× faster than Python. The Kalman filter predict-update loop is similarly hot.",
+        resources: [
+          { label: "Library: Eigen (C++ linear algebra, header-only)", type: "web" },
+          { label: "Library: pybind11 — Python/C++ bindings", type: "web" },
+        ],
+        pythonTask: "Implement the HMM forward algorithm and Kalman update step in C++ using Eigen. Wrap both with pybind11. Benchmark against hmmlearn and pykalman on sequences of 1k / 10k / 100k steps. Report speedup and discuss when the C++ overhead stops being worth it.",
+      },
+    ],
+  },
+  {
+    phase: "Phase 6",
+    title: "From Channel Regimes to Trading Decisions",
+    duration: "Month 2–3",
+    accent: "#34d399",
+    goal: "Turn regime signals into actionable, realistic strategies — including all the costs and lags that kill naive backtests.",
+    topics: [
+      {
+        title: "Channel Regime-Conditional Portfolio Construction",
+        tag: "Applied Finance",
+        difficulty: "Advanced",
+        yourBackground: "New domain — builds directly on HMM posterior probabilities",
+        description: "Use posterior probabilities P(bull/bear/sideways channel | data) to allocate. Simple version: long equities (SPY) in bull channel, long bonds (TLT) in bear, cash in sideways. Within-channel strategy: in sideways channel, run mean-reversion (buy near support, sell near resistance using channel position feature). In bull/bear channels, run trend-following. Mean-variance optimisation per regime using regime-conditional covariance matrices from your HMM.",
+        resources: [
+          { label: "Book: 'Active Portfolio Management' — Grinold & Kahn", type: "book" },
+          { label: "Paper: Ang & Bekaert (2004) — 'How Regimes Affect Asset Allocation'", type: "paper" },
+        ],
+        pythonTask: "Build two strategies: (A) regime-switching allocation (SPY/TLT/cash by regime posterior); (B) channel mean-reversion in sideways states (long when position < 0.2, short when > 0.8). Compute daily returns for both. Compare Sharpe, max drawdown, and regime-conditional performance.",
+      },
+      {
+        title: "Realistic Backtesting with Transaction Costs",
+        tag: "Applied Finance",
+        difficulty: "Advanced",
+        yourBackground: "The most common failure mode for beginners — especially acute for channel strategies with high turnover",
+        description: "Channel strategies can trigger many trades: price bouncing inside a sideways channel. Transaction costs: bid-ask (0.01–0.05% for liquid ETFs), market impact, borrow cost for shorts. Always execute at next-day open (1-day lag). Regime confirmation filter: only trade after posterior > 0.7 for N consecutive days. Measure turnover as portfolio weight changes per year. The ratio Sharpe(gross)/Sharpe(net) tells you how robust the strategy is to cost assumptions.",
+        resources: [
+          { label: "Book: 'Advances in Financial Machine Learning' — López de Prado (Ch. 10–14)", type: "book" },
+          { label: "Library: vectorbt — handles costs and slippage natively", type: "web" },
+        ],
+        pythonTask: "Add to your backtest: (1) 1-day execution lag, (2) 0.05% cost per trade, (3) confirmation filter (3 consecutive days with same regime posterior > 0.65). Count trades per year. Compare gross vs net Sharpe. How much does the confirmation filter reduce turnover?",
+      },
+      {
+        title: "Performance Attribution & Risk Metrics",
+        tag: "Applied Finance",
+        difficulty: "Intermediate",
+        yourBackground: "Mostly statistics — maps onto things you know",
+        description: "Sharpe ratio, Sortino (penalises downside vol only), Calmar (return / max drawdown), max drawdown and recovery time. Alpha and beta vs benchmark. For channel strategies: report performance broken down by regime — how much alpha comes from bull channel timing vs sideways mean-reversion vs bear channel protection? Regime detection accuracy: compare your model labels to manually-labelled ground truth.",
+        resources: [
+          { label: "Book: 'Quantitative Risk Management' — McNeil, Frey & Embrechts", type: "book" },
+          { label: "Library: pyfolio (performance and risk analysis)", type: "web" },
+        ],
+        pythonTask: "Run pyfolio.create_full_tear_sheet() on your strategy returns. Manually compute regime-conditional Sharpe: separately calculate Sharpe during bull/bear/sideways periods. Which regime contributes most to alpha? Which has the worst drawdowns?",
+      },
+    ],
+  },
+  {
+    phase: "Phase 7",
+    title: "Advanced Extensions",
+    duration: "Month 3+",
+    accent: "#fbbf24",
+    goal: "Frontier territory — once the core is solid and your employer wants to push further.",
+    topics: [
+      {
+        title: "Hamilton Markov Switching & MS-GARCH",
+        tag: "Finance + Stats",
+        difficulty: "Expert",
+        yourBackground: "The econometrics version of HMMs — used heavily in academic finance",
+        description: "Hamilton's Markov Switching model lets the AR dynamics themselves switch across regimes. Markov Switching GARCH: volatility dynamics change between channel regimes — bull channels have different vol persistence than bear channels. This is more powerful than a vanilla HMM fitted to GARCH residuals because the vol model and regime model are jointly estimated.",
+        resources: [
+          { label: "Paper: Hamilton (1989) — same as Phase 4", type: "paper" },
+          { label: "Library: statsmodels.tsa.regime_switching", type: "web" },
+          { label: "Paper: Gray (1996) — 'Modeling the Conditional Distribution of Interest Rates as a Regime-Switching Process'", type: "paper" },
+        ],
+        pythonTask: "Fit a Hamilton Markov Switching Autoregression to SPY using statsmodels. Compare its channel regime boundaries to your hmmlearn HMM. Which detects the 2020 COVID channel breakdown earlier? Report detection lag in trading days.",
+      },
+      {
+        title: "Online Learning & Real-Time Channel Tracking",
+        tag: "Engineering",
+        difficulty: "Expert",
+        yourBackground: "Requires combining your C++ skills with Kalman and HMM theory",
+        description: "In production you need real-time regime updates as each new bar arrives. Online forward filtering: update P(s_t | y_1:t) incrementally — no retraining, just a matrix-vector multiply per bar. Combine with online Kalman for real-time channel boundary tracking. BOCPD for instantaneous breakout detection. Full production pipeline: new bar arrives → Kalman updates channel estimate → HMM forward step updates regime posterior → BOCPD checks for breakout → signal emitted.",
+        resources: [
+          { label: "Paper: Adams & MacKay (2007) — 'Bayesian Online Changepoint Detection'", type: "paper" },
+          { label: "Library: filterpy (Kalman + particle filters)", type: "web" },
+        ],
+        pythonTask: "Implement the full online pipeline: process SPY bars one at a time, updating Kalman channel estimate and HMM regime posterior at each step. Plot how the bull/bear/sideways posterior evolves in real time through the March 2020 crash and recovery. Measure the lag between the channel breakout and posterior exceeding 0.8.",
+      },
+      {
+        title: "Deep Probabilistic & Neural Channel Models",
+        tag: "ML",
+        difficulty: "Expert",
+        yourBackground: "Your noncommutative geometry background gives unusual geometric intuition here",
+        description: "Deep Kalman Filters: replace linear Gaussian state-space with neural networks — channel boundaries become learned nonlinear functions of a latent state. Input-Output HMMs: regime transition probabilities depend on external inputs (VIX level, macro variables). Variational autoencoders for unsupervised channel regime discovery. These are research frontier tools — relevant when classical HMMs have saturated their capacity.",
+        resources: [
+          { label: "Paper: Krishnan, Shalit & Sontag (2017) — 'Structured Inference Networks for Nonlinear State Space Models'", type: "paper" },
+          { label: "Library: Pyro (probabilistic deep learning on PyTorch)", type: "web" },
+        ],
+        pythonTask: "Implement an Input-Output HMM where transition probabilities are a softmax function of VIX level. Hypothesis: high VIX increases probability of transitioning into bear channel. Fit and compare transition matrices at VIX=15 vs VIX=35. Does the IO-HMM produce more persistent regimes?",
+      },
+    ],
+  },
+];
+
+const tagColors = {
+  "Finance": { bg: "#0c2233", text: "#38bdf8" },
+  "Finance + Stats": { bg: "#0c2218", text: "#4ade80" },
+  "Maths": { bg: "#1f1a0c", text: "#fbbf24" },
+  "Stats + ML": { bg: "#1a0c2a", text: "#c084fc" },
+  "Maths + ML": { bg: "#2a0c2a", text: "#e879f9" },
+  "Applied Finance": { bg: "#0c2a1a", text: "#34d399" },
+  "Programming": { bg: "#0c0c2a", text: "#818cf8" },
+  "Engineering": { bg: "#0c1a0c", text: "#86efac" },
+  "ML": { bg: "#2a0c1a", text: "#f9a8d4" },
+};
+
+const difficultyDot = {
+  "Beginner": "#4ade80",
+  "Intermediate": "#fb923c",
+  "Advanced": "#e879f9",
+  "Expert": "#f87171",
+};
+
+const resourceIcons = { book: "📚", web: "🌐", course: "🎓", paper: "📄" };
+
+function App() {
+  const [expandedPhase, setExpandedPhase] = useState(0);
+  const [expandedTopic, setExpandedTopic] = useState(null);
+  const [completed, setCompleted] = useState(new Set());
+
+  const toggleDone = (key, e) => {
+    e.stopPropagation();
+    setCompleted(prev => {
+      const n = new Set(prev);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
+  };
+
+  const total = roadmap.reduce((a, p) => a + p.topics.length, 0);
+  const pct = Math.round((completed.size / total) * 100);
+
+  return (
+    <div style={{ fontFamily: "'EB Garamond', 'Palatino Linotype', Georgia, serif", background: "#07080f", minHeight: "100vh", color: "#d4d4e8" }}>
+      <div style={{ background: "#0b0c17", borderBottom: "1px solid #151528", padding: "0.85rem 1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", position: "sticky", top: 0, zIndex: 100 }}>
+        <div>
+          <div style={{ fontSize: "0.62rem", letterSpacing: "0.25em", color: "#38bdf8", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase" }}>VicTecs · Channel Regime Detection · v3</div>
+          <div style={{ fontSize: "1rem", color: "#e0e0f8" }}>Quant Researcher Roadmap</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <span style={{ fontSize: "0.75rem", color: "#fbbf24", fontFamily: "'JetBrains Mono', monospace" }}>{pct}% · {completed.size}/{total}</span>
+          <div style={{ width: "100px", height: "4px", background: "#1a1a2e", borderRadius: "999px", overflow: "hidden" }}>
+            <div style={{ width: `${pct}%`, height: "100%", borderRadius: "999px", background: "linear-gradient(90deg, #38bdf8, #e879f9, #fbbf24)", transition: "width 0.5s ease" }} />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: "2.5rem 1.5rem 1.5rem", maxWidth: "900px", margin: "0 auto", textAlign: "center" }}>
+        <h1 style={{ fontSize: "clamp(1.6rem, 3.5vw, 2.6rem)", fontWeight: "normal", color: "#f0f0fc", margin: "0 0 0.6rem", lineHeight: 1.25 }}>From PhD Mathematician to Quant Researcher</h1>
+        <p style={{ color: "#4a4a6a", fontSize: "0.9rem", fontStyle: "italic", margin: "0 0 0.3rem" }}>Bull, Bear & Sideways Channel Detection · Hidden Markov Models</p>
+        <p style={{ color: "#2a2a42", fontSize: "0.72rem", fontFamily: "'JetBrains Mono', monospace", margin: "0 0 1.5rem" }}>7 phases · {total} topics · {total} Python exercises</p>
+
+        <div style={{ display: "flex", justifyContent: "center", gap: "1.2rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
+          {Object.entries(difficultyDot).map(([label, color]) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.7rem", color: "#5a5a7a" }}>
+              <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: color }} />
+              {label}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0.35rem" }}>
+          {roadmap.map((p, i) => {
+            const done = p.topics.filter((_, ti) => completed.has(`${i}-${ti}`)).length;
+            const isActive = expandedPhase === i;
+            return (
+              <button key={i} onClick={() => { setExpandedPhase(i); setExpandedTopic(null); }}
+                style={{ background: isActive ? `${p.accent}1a` : "#0d0e1c", border: `1px solid ${isActive ? p.accent + "80" : "#1a1a30"}`, borderRadius: "8px", padding: "0.35rem 0.8rem", cursor: "pointer", fontSize: "0.68rem", color: isActive ? p.accent : "#3a3a5a", fontFamily: "'JetBrains Mono', monospace", transition: "all 0.2s", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                <span style={{ color: isActive ? p.accent : "#2a2a42" }}>{i + 1}</span>
+                <span>{p.title.split(" ").slice(2).join(" ") || p.title.split(" ").slice(0,3).join(" ")}</span>
+                {done > 0 && <span style={{ color: "#4ade80" }}>{done}/{p.topics.length}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ maxWidth: "900px", margin: "0 auto", padding: "0 1.5rem 3rem", display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+        {roadmap.map((phase, pi) => {
+          const isOpen = expandedPhase === pi;
+          const doneCount = phase.topics.filter((_, ti) => completed.has(`${pi}-${ti}`)).length;
+          const phasePct = Math.round((doneCount / phase.topics.length) * 100);
+
+          return (
+            <div key={pi} style={{ borderRadius: "11px", overflow: "hidden", border: `1px solid ${isOpen ? phase.accent + "40" : "#111122"}`, transition: "border-color 0.3s" }}>
+              <div onClick={() => setExpandedPhase(isOpen ? null : pi)} style={{ background: isOpen ? `linear-gradient(135deg, #0e0f1e, ${phase.accent}10)` : "#0c0d18", padding: "0.95rem 1.3rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.9rem" }}>
+                <div style={{ width: "38px", height: "38px", borderRadius: "9px", flexShrink: 0, border: `1.5px solid ${phase.accent}50`, background: `${phase.accent}10`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", color: phase.accent, fontFamily: "'JetBrains Mono', monospace" }}>
+                  {phasePct === 100 ? "✓" : pi + 1}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.62rem", color: phase.accent + "cc", letterSpacing: "0.1em", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", marginBottom: "0.2rem" }}>{phase.phase} · {phase.duration}</div>
+                  <div style={{ fontSize: "0.98rem", color: "#dcdcf4" }}>{phase.title}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0 }}>
+                  <div>
+                    <div style={{ width: "48px", height: "3px", background: "#161628", borderRadius: "999px", overflow: "hidden" }}>
+                      <div style={{ width: `${phasePct}%`, height: "100%", background: phase.accent, borderRadius: "999px", transition: "width 0.4s" }} />
+                    </div>
+                    <div style={{ fontSize: "0.58rem", color: "#3a3a52", textAlign: "right", marginTop: "0.15rem", fontFamily: "'JetBrains Mono', monospace" }}>{doneCount}/{phase.topics.length}</div>
+                  </div>
+                  <span style={{ color: "#3a3a52", fontSize: "0.9rem", transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.3s", display: "inline-block" }}>▾</span>
+                </div>
+              </div>
+
+              {isOpen && (
+                <div style={{ background: "#080910", padding: "0.7rem 1.3rem 1.3rem" }}>
+                  <div style={{ borderLeft: `2px solid ${phase.accent}50`, paddingLeft: "0.75rem", margin: "0 0 0.9rem", fontSize: "0.81rem", color: "#4a4a62", fontStyle: "italic" }}>{phase.goal}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                    {phase.topics.map((topic, ti) => {
+                      const key = `${pi}-${ti}`;
+                      const isTopicOpen = expandedTopic === key;
+                      const isDone = completed.has(key);
+                      const tagStyle = tagColors[topic.tag] || { bg: "#0f0f1e", text: "#6a6a8a" };
+
+                      return (
+                        <div key={ti} style={{ borderRadius: "7px", border: `1px solid ${isDone ? "#0f1f0f" : isTopicOpen ? "#1c1c32" : "#0f0f20"}`, overflow: "hidden", opacity: isDone ? 0.5 : 1, transition: "all 0.2s" }}>
+                          <div onClick={() => setExpandedTopic(isTopicOpen ? null : key)} style={{ background: isTopicOpen ? "#0c0d1c" : "#0a0b16", padding: "0.6rem 0.85rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.55rem" }}>
+                            <button onClick={(e) => toggleDone(key, e)} style={{ width: "15px", height: "15px", borderRadius: "50%", flexShrink: 0, border: `1.5px solid ${isDone ? "#4ade60" : "#252540"}`, background: isDone ? "#4ade6015" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#4ade80", fontSize: "0.5rem", transition: "all 0.2s" }}>{isDone ? "✓" : ""}</button>
+                            <div style={{ width: "6px", height: "6px", borderRadius: "50%", flexShrink: 0, background: difficultyDot[topic.difficulty] }} />
+                            <span style={{ fontSize: "0.87rem", flex: 1, color: isDone ? "#2a3a2a" : "#cccce6", textDecoration: isDone ? "line-through" : "none" }}>{topic.title}</span>
+                            <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexShrink: 0 }}>
+                              <span style={{ fontSize: "0.58rem", padding: "0.08rem 0.38rem", borderRadius: "4px", background: tagStyle.bg, color: tagStyle.text, fontFamily: "'JetBrains Mono', monospace", whiteSpace: "nowrap" }}>{topic.tag}</span>
+                              <span style={{ color: "#252535", fontSize: "0.75rem", transform: isTopicOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s", display: "inline-block" }}>▾</span>
+                            </div>
+                          </div>
+
+                          {isTopicOpen && (
+                            <div style={{ background: "#06070d", padding: "0.9rem 1rem", borderTop: "1px solid #0f0f1e" }}>
+                              <div style={{ display: "flex", gap: "0.4rem", alignItems: "flex-start", background: "#080f08", border: "1px solid #152015", borderRadius: "5px", padding: "0.38rem 0.65rem", fontSize: "0.77rem", color: "#3a6a3a", marginBottom: "0.8rem", lineHeight: 1.5 }}>
+                                <span style={{ flexShrink: 0, color: "#2a4a2a" }}>↳</span>
+                                <span><strong style={{ color: "#4a7a4a" }}>Your background: </strong>{topic.yourBackground}</span>
+                              </div>
+                              <p style={{ color: "#8080a0", fontSize: "0.83rem", lineHeight: 1.72, margin: "0 0 0.9rem" }}>{topic.description}</p>
+                              <div style={{ marginBottom: "0.9rem" }}>
+                                <div style={{ fontSize: "0.6rem", color: "#2a2a42", textTransform: "uppercase", letterSpacing: "0.15em", fontFamily: "'JetBrains Mono', monospace", marginBottom: "0.35rem" }}>Resources</div>
+                                {topic.resources.map((r, ri) => (
+                                  <div key={ri} style={{ display: "flex", gap: "0.45rem", fontSize: "0.77rem", color: "#4a4a62", padding: "0.15rem 0", alignItems: "flex-start" }}>
+                                    <span style={{ flexShrink: 0 }}>{resourceIcons[r.type]}</span>
+                                    <span>{r.label}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{ background: "#08091a", border: `1px solid ${phase.accent}22`, borderRadius: "6px", padding: "0.72rem" }}>
+                                <div style={{ fontSize: "0.6rem", color: phase.accent + "aa", textTransform: "uppercase", letterSpacing: "0.15em", fontFamily: "'JetBrains Mono', monospace", marginBottom: "0.3rem" }}>🐍 Python Exercise</div>
+                                <p style={{ fontSize: "0.8rem", color: "#6a6a82", margin: 0, lineHeight: 1.65 }}>{topic.pythonTask}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ textAlign: "center", paddingBottom: "2rem", color: "#181828", fontSize: "0.65rem", fontFamily: "'JetBrains Mono', monospace" }}>
+        click phase header · coloured dot = difficulty · ○ to mark complete
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

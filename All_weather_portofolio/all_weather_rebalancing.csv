@@ -1,0 +1,6 @@
+Ticker,Current Weight,Target Weight,Drift (%),Action,$ Amount,Current Price,Current Shares
+QQQ,30.0,30.0,0.0,HOLD,0.0,614.31,4.8835
+TLT,40.0,40.0,-0.0,HOLD,0.0,86.54,46.2213
+LQD,15.0,15.0,-0.0,HOLD,0.0,109.41,13.7103
+GLD,7.5,7.5,0.0,HOLD,0.0,396.31,1.8925
+DJP,7.5,7.5,0.0,HOLD,0.0,37.61,19.9415

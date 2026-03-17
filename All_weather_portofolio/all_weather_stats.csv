@@ -1,0 +1,14 @@
+Strategy,Metric,Value
+,Period (years),19.2
+All Weather (Rebalanced),CAGR (%),7.9
+All Weather (Rebalanced),Max Drawdown (%),-25.86
+All Weather (Rebalanced),Sharpe Ratio,0.867
+All Weather (Rebalanced),Final Value ($),42940.01
+Buy & Hold All Weather,CAGR (%),10.37
+Buy & Hold All Weather,Max Drawdown (%),-29.7
+Buy & Hold All Weather,Sharpe Ratio,0.954
+Buy & Hold All Weather,Final Value ($),66332.68
+S&P 500 Buy & Hold,CAGR (%),10.75
+S&P 500 Buy & Hold,Max Drawdown (%),-50.78
+S&P 500 Buy & Hold,Sharpe Ratio,0.746
+S&P 500 Buy & Hold,Final Value ($),70781.81

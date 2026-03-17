@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.DS_Store
+
+# Data files you don't need on GitHub
+portfolio_holdings.json
+results/
+
+# Python environments
+.env
+*.egg-info/
