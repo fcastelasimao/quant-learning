@@ -24,12 +24,12 @@ BACKTEST_END   = "2026-01-01"       # format: YYYY-MM-DD
 REBALANCE_THRESHOLD = 0.05          # Rebalance if any asset drifts > this
                                     # fraction from its target weight
 
-RUN_LABEL = "original_allweather"   # Used to name the results folder.
-                                    # Change before each run to keep results
-                                    # organised. Examples:
-                                    #   "original_allweather"
-                                    #   "no_commodities"
-                                    #   "optimised_calmar"
+RUN_LABEL = "Pareto_range_4_to_10_step_1"                         # Used to name the results folder.
+                                                                        # Change before each run to keep results
+                                                                        # organised. Examples:
+                                                                        #   "original_allweather"
+                                                                        #   "no_commodities"
+                                                                        #   "optimised_calmar"
 
 BENCHMARK_TICKER = "SPY"            # S&P 500 benchmark for comparison
 HOLDINGS_FILE    = "portfolio_holdings.json"
@@ -64,8 +64,6 @@ assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
 # OPTIMISER PARAMETERS
 # ===========================================================================
 
-RUN_OPTIMISER = False               # Set to True to run the optimiser
-
 # Which optimisation method to use. Options:
 #
 #   "random"
@@ -87,9 +85,10 @@ RUN_OPTIMISER = False               # Set to True to run the optimiser
 #       Fast and deterministic. Works because Sharpe is a smooth function.
 #       Does NOT work for max drawdown (discontinuous -- near-zero gradients).
 
+RUN_OPTIMISER = False               # Set to True to run the optimiser
 OPT_METHOD     = "calmar"
 OPT_MIN_WEIGHT = 0.05               # minimum weight per asset (0.0 to 1.0)
-OPT_MAX_WEIGHT = 0.60               # maximum weight per asset (0.0 to 1.0)
+OPT_MAX_WEIGHT = 0.45               # maximum weight per asset (0.0 to 1.0)
 OPT_MIN_CAGR   = 0.0                # minimum acceptable CAGR in percent
 OPT_N_TRIALS   = 2000               # random/calmar trials -- higher = better, slower
 OPT_RANDOM_SEED = 42                # set to None for different results each run
@@ -98,18 +97,17 @@ OPT_RANDOM_SEED = 42                # set to None for different results each run
 # PARETO FRONTIER
 # ===========================================================================
 
-RUN_PARETO        = False
-PARETO_CAGR_RANGE = np.arange(2.0, 12.0, 1.0)  # CAGR targets to sweep (%)
+RUN_PARETO        = True
+PARETO_CAGR_RANGE = np.arange(4.0, 10.0, 1.0)  # CAGR targets to sweep (%)
 
 # ===========================================================================
 # WALK-FORWARD VALIDATION
 # ===========================================================================
 
-RUN_WALK_FORWARD = False
-WF_TRAIN_YEARS   = 8    # years used to optimise weights
-WF_TEST_YEARS    = 4    # years used to evaluate out-of-sample
+RUN_WALK_FORWARD = True
+WF_TRAIN_YEARS   = 4    # years used to optimise weights
+WF_TEST_YEARS    = 2    # years used to evaluate out-of-sample
 WF_STEP_YEARS    = 4    # how far to slide the window each step
-
 
 # ===========================================================================
 # VALIDATION

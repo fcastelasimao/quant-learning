@@ -154,17 +154,12 @@ def build_log_row(results_dir: str,
                   stats_list: list[StrategyStats],
                   weights: dict,
                   label: str) -> dict:
-    """
-    Build one summary row for master_log.csv from a list of StrategyStats.
-    Separated from the file-writing logic so each function does one job.
-    """
     row = {
         "Timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
         "Label":          label,
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
         "Tickers":        " | ".join(f"{t}={w:.1%}" for t, w in weights.items()),
-        "Results Folder": results_dir,
     }
     for s in stats_list:
         prefix = s.name.replace(" ", "_").replace("&", "and")
@@ -173,8 +168,10 @@ def build_log_row(results_dir: str,
         row[f"{prefix}_Sharpe"]          = s.sharpe
         row[f"{prefix}_Calmar"]          = s.calmar
         row[f"{prefix}_Final_Value ($)"] = s.final_value
-    return row
 
+    # Results Folder last so it doesn't push stat columns out of alignment
+    row["Results Folder"] = results_dir
+    return row
 
 def append_to_master_log(results_dir: str,
                          stats_list: list[StrategyStats],
