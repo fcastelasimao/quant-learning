@@ -92,7 +92,7 @@ holdings_file = "portfolio_holdings.json"
 # OPTIMISER PARAMETERS -- only used when RUN_OPTIMISER = True
 # ===========================================================================
 
-RUN_OPTIMISER = False               # Set to True to run the optimiser
+RUN_OPTIMISER = True               # Set to True to run the optimiser
 
 # Minimum and maximum weight allowed per asset during optimisation.
 # Prevents the optimiser from putting 0% or 100% in a single asset.
