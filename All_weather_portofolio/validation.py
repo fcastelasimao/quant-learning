@@ -23,6 +23,7 @@ import pandas as pd
 from backtest import run_backtest, compute_cagr, compute_max_drawdown, compute_calmar
 from optimiser import optimise_random
 
+import config
 
 # ===========================================================================
 # WALK-FORWARD VALIDATION
@@ -130,10 +131,23 @@ def run_walk_forward(prices: pd.DataFrame,
 
         # Optimise on training data only
         print(f"    Optimising on training data ({train_years} years)...")
-        opt_weights, _ = optimise_random(
-            train_prices, train_bench, allocation,
-            min_weight, max_weight, 0.0, n_trials, "calmar", random_seed
-        )
+        if config.WF_OPT_METHOD == "differential_evolution":
+            opt_weights, _ = optimise_allocation(
+                train_prices, train_bench, allocation,
+                method      = "differential_evolution",
+                min_weight  = min_weight,
+                max_weight  = max_weight,
+                min_cagr    = 0.0,
+                n_trials    = n_trials,
+                random_seed = random_seed,
+            )
+            opt_weights = np.array(list(opt_weights.values()))
+        else:
+            opt_weights, _ = optimise_random(
+                train_prices, train_bench, allocation,
+                min_weight, max_weight, 0.0, n_trials,
+                config.WF_OPT_METHOD, random_seed
+            )
         if opt_weights is None:
             print(f"    Optimiser failed -- skipping window.")
             continue
@@ -333,7 +347,7 @@ def run_pareto_frontier(prices: pd.DataFrame,
     so you can pick the allocation that matches your risk tolerance.
     """
     print(f"\nRunning Pareto frontier analysis...")
-    print(f"  CAGR targets:      {list(cagr_targets)}")
+    print(f"  CAGR targets:      {', '.join(f'{x:.1f}%' for x in cagr_targets)}")
     print(f"  Trials per target: {n_trials}\n")
 
     tickers       = list(allocation.keys())

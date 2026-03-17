@@ -90,7 +90,8 @@ def compute_sharpe(monthly_ret_series: pd.Series) -> float:
     r = monthly_ret_series.dropna() / 100
     if len(r) == 0 or r.std() < 1e-10:
         return 0.0
-    return (r.mean() / r.std()) * np.sqrt(12)
+    return (r.mean() / r.std()) * np.sqrt(config.SHARPE_ANNUALISATION)
+
 
 
 def compute_calmar(cagr: float, max_drawdown: float) -> float:
@@ -159,8 +160,8 @@ def run_backtest(prices: pd.DataFrame,
 
     tickers = list(allocation.keys())
 
-    monthly = prices[tickers].resample("ME").last().dropna()
-    bench   = benchmark_prices.resample("ME").last().dropna()
+    monthly = prices[tickers].resample(config.DATA_FREQUENCY).last().dropna()
+    bench   = benchmark_prices.resample(config.DATA_FREQUENCY).last().dropna()
 
     common  = monthly.index.intersection(bench.index)
     monthly = monthly.loc[common]

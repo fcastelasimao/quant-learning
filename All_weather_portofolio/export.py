@@ -66,6 +66,8 @@ def save_run_config(allocation: dict, results_dir: str):
         "backtest_end":            config.BACKTEST_END,
         "initial_portfolio_value": config.INITIAL_PORTFOLIO_VALUE,
         "rebalance_threshold":     config.REBALANCE_THRESHOLD,
+        "data_frequency":      config.DATA_FREQUENCY,
+        "sharpe_annualisation": config.SHARPE_ANNUALISATION,
         "benchmark_ticker":        config.BENCHMARK_TICKER,
         "optimiser": {
             "run_optimiser": config.RUN_OPTIMISER,
@@ -85,6 +87,7 @@ def save_run_config(allocation: dict, results_dir: str):
             "train_years":      config.WF_TRAIN_YEARS,
             "test_years":       config.WF_TEST_YEARS,
             "step_years":       config.WF_STEP_YEARS,
+            "opt_method":       config.WF_OPT_METHOD,
         },
         "target_allocation": allocation,
     }
@@ -159,6 +162,7 @@ def build_log_row(results_dir: str,
         "Label":          label,
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
+        "Data Frequency": config.DATA_FREQUENCY,
         "Tickers":        " | ".join(f"{t}={w:.1%}" for t, w in weights.items()),
     }
     for s in stats_list:

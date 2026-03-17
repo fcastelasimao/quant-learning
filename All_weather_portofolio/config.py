@@ -18,18 +18,24 @@ import numpy as np
 
 INITIAL_PORTFOLIO_VALUE = 10_000    # Starting portfolio value in USD
 
-BACKTEST_START = "2006-01-01"       # format: YYYY-MM-DD
+BACKTEST_START = "2004-01-01"       # format: YYYY-MM-DD
 BACKTEST_END   = "2026-01-01"       # format: YYYY-MM-DD
 
 REBALANCE_THRESHOLD = 0.05          # Rebalance if any asset drifts > this
                                     # fraction from its target weight
 
-RUN_LABEL = "Pareto_range_4_to_10_step_1"                         # Used to name the results folder.
+RUN_LABEL = "TIP_5asset_final_v2"                                       # Used to name the results folder.
                                                                         # Change before each run to keep results
                                                                         # organised. Examples:
                                                                         #   "original_allweather"
                                                                         #   "no_commodities"
                                                                         #   "optimised_calmar"
+
+DATA_FREQUENCY        = "ME"    # "ME" for monthly, "W" for weekly
+                                # monthly recommended for live rebalancing
+                                # weekly gives more granular backtest data
+SHARPE_ANNUALISATION  = 12      # periods per year for Sharpe annualisation
+                                # 12 for monthly ("ME"), 52 for weekly ("W")
 
 BENCHMARK_TICKER = "SPY"            # S&P 500 benchmark for comparison
 HOLDINGS_FILE    = "portfolio_holdings.json"
@@ -49,12 +55,13 @@ HOLDINGS_FILE    = "portfolio_holdings.json"
 #   QQQ  -- March 1999
 
 TARGET_ALLOCATION = {
-    "SPY":  0.083,  # US Large Cap stocks
-    "QQQ":  0.055,  # US Tech stocks
-    "TLT":  0.316,  # Long-Term Government Bonds
-    "LQD":  0.108,  # Investment Grade Corporate Bonds
-    "GLD":  0.295,  # Gold
-    "DJP":  0.143,  # Commodities
+    "SPY":  0.062,  # US Large Cap stocks
+    "QQQ":  0.303,  # US Tech stocks
+    "TLT":  0.146,  # Long-Term Government Bonds
+    #"LQD":  0.046,  # Investment Grade Corporate Bonds
+    "TIP":  0.062,  # Inflation-Protected Bonds
+    "GLD":  0.427,  # Gold
+    #"DJP":  0.046,  # Commodities
 }
 
 assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
@@ -86,28 +93,31 @@ assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
 #       Does NOT work for max drawdown (discontinuous -- near-zero gradients).
 
 RUN_OPTIMISER = False               # Set to True to run the optimiser
-OPT_METHOD     = "calmar"
+OPT_METHOD     = "differential_evolution"
 OPT_MIN_WEIGHT = 0.05               # minimum weight per asset (0.0 to 1.0)
-OPT_MAX_WEIGHT = 0.45               # maximum weight per asset (0.0 to 1.0)
+OPT_MAX_WEIGHT = 0.40               # maximum weight per asset (0.0 to 1.0)
 OPT_MIN_CAGR   = 0.0                # minimum acceptable CAGR in percent
-OPT_N_TRIALS   = 2000               # random/calmar trials -- higher = better, slower
+OPT_N_TRIALS   = 10_000             # random/calmar trials -- higher = better, slower
 OPT_RANDOM_SEED = 42                # set to None for different results each run
 
 # ===========================================================================
 # PARETO FRONTIER
 # ===========================================================================
 
-RUN_PARETO        = True
-PARETO_CAGR_RANGE = np.arange(4.0, 10.0, 1.0)  # CAGR targets to sweep (%)
+RUN_PARETO        = False
+PARETO_CAGR_RANGE = np.arange(4.0, 14.0, 1.0)  # CAGR targets to sweep (%)
 
 # ===========================================================================
 # WALK-FORWARD VALIDATION
 # ===========================================================================
 
-RUN_WALK_FORWARD = True
+RUN_WALK_FORWARD = False
 WF_TRAIN_YEARS   = 4    # years used to optimise weights
 WF_TEST_YEARS    = 2    # years used to evaluate out-of-sample
 WF_STEP_YEARS    = 4    # how far to slide the window each step
+WF_OPT_METHOD = "calmar"    # "calmar" for speed, "differential_evolution"
+                             # for a more faithful test of the DE process
+                             # Note: DE walk-forward takes ~3-4x longer
 
 # ===========================================================================
 # VALIDATION
@@ -143,4 +153,12 @@ def validate_config():
     assert OPT_METHOD in ("random", "calmar", "differential_evolution", "sharpe_slsqp"), \
         f"Unknown OPT_METHOD: '{OPT_METHOD}'. " \
         f"Choose from: random, calmar, differential_evolution, sharpe_slsqp"
+    assert (DATA_FREQUENCY == "ME" and SHARPE_ANNUALISATION == 12) or \
+       (DATA_FREQUENCY == "W"  and SHARPE_ANNUALISATION == 52), \
+    f"DATA_FREQUENCY '{DATA_FREQUENCY}' and " \
+    f"SHARPE_ANNUALISATION {SHARPE_ANNUALISATION} are mismatched. " \
+    f"Use ME/12 for monthly or W/52 for weekly."
+    assert WF_OPT_METHOD in ("random", "calmar", "differential_evolution", "sharpe_slsqp"), \
+    f"Unknown WF_OPT_METHOD: '{WF_OPT_METHOD}'. " \
+    f"Choose from: random, calmar, differential_evolution, sharpe_slsqp"
     print("Config validation passed.\n")

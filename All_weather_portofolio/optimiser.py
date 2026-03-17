@@ -193,7 +193,7 @@ def optimise_allocation(prices: pd.DataFrame,
             popsize  = 10,
             tol      = 1e-6,
             seed     = random_seed,
-            disp     = False,
+            disp     = True,
         )
 
         if not result.success and result.fun >= 1e5:
@@ -201,7 +201,9 @@ def optimise_allocation(prices: pd.DataFrame,
 
         raw_weights  = result.x
         best_weights = raw_weights / raw_weights.sum()
-        best_score   = result.fun
+        best_weights = np.clip(best_weights, min_weight, max_weight)
+        best_weights = best_weights / best_weights.sum()
+        best_score = de_objective(best_weights)
 
     # ------------------------------------------------------------------
     elif method == "sharpe_slsqp":
