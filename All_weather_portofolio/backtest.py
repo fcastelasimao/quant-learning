@@ -119,14 +119,17 @@ def compute_calmar(cagr: float, max_drawdown: float) -> float:
 def run_backtest(prices: pd.DataFrame,
                  benchmark_prices: pd.Series,
                  allocation: dict,
-                 portfolio_value: Optional[float] = None) -> pd.DataFrame:
+                 portfolio_value: Optional[float] = None,
+                 tlt_prices: Optional[pd.Series] = None) -> pd.DataFrame:
     """
-    Simulate three strategies over a price history and return monthly values.
+    Simulate four strategies over a price history and return monthly values.
 
     Strategies simulated:
       1. Rebalanced portfolio  -- rebalances to `allocation` every month
       2. Buy & Hold            -- same starting weights, never rebalanced
       3. S&P 500 buy & hold    -- everything in SPY on day one, never touched
+      4. 60/40 buy & hold      -- 60% SPY / 40% TLT, never rebalanced
+                                  (only included when tlt_prices is provided)
 
     Parameters
     ----------
@@ -134,11 +137,13 @@ def run_backtest(prices: pd.DataFrame,
     benchmark_prices : daily price Series for the benchmark (SPY)
     allocation       : dict of {ticker: weight}, weights must sum to 1.0
     portfolio_value  : starting value in USD (defaults to config value)
+    tlt_prices       : daily price Series for TLT; enables the 60/40 strategy
 
     Returns
     -------
     pd.DataFrame indexed by month-end date with columns:
         All Weather Value | Buy & Hold All Weather | S&P 500 Value
+        60/40 Value (if tlt_prices provided)
         B&H <ticker> Weight (%) for each ticker
         Monthly Ret (%) columns for each strategy
 
@@ -160,12 +165,18 @@ def run_backtest(prices: pd.DataFrame,
 
     tickers = list(allocation.keys())
 
-    monthly = prices[tickers].resample(config.DATA_FREQUENCY).last().dropna()
-    bench   = benchmark_prices.resample(config.DATA_FREQUENCY).last().dropna()
+    monthly     = prices[tickers].resample(config.DATA_FREQUENCY).last().dropna()
+    bench       = benchmark_prices.resample(config.DATA_FREQUENCY).last().dropna()
+    tlt_monthly = (tlt_prices.resample(config.DATA_FREQUENCY).last().dropna()
+                   if tlt_prices is not None else None)
 
     common  = monthly.index.intersection(bench.index)
+    if tlt_monthly is not None:
+        common = common.intersection(tlt_monthly.index)
     monthly = monthly.loc[common]
     bench   = bench.loc[common]
+    if tlt_monthly is not None:
+        tlt_monthly = tlt_monthly.loc[common]
 
     if monthly.empty:
         raise ValueError("No overlapping monthly data found. Check date range.")
@@ -177,6 +188,12 @@ def run_backtest(prices: pd.DataFrame,
                    for t, w in allocation.items()}
     bh_holdings = {t: (portfolio_value * w) / float(first_row[t])
                    for t, w in allocation.items()}
+
+    sixty_forty_spy = None
+    sixty_forty_tlt = None
+    if tlt_monthly is not None:
+        sixty_forty_spy = portfolio_value * 0.60 / float(bench.iloc[0])
+        sixty_forty_tlt = portfolio_value * 0.40 / float(tlt_monthly.iloc[0])
 
     records = []
     for date, row in monthly.iterrows():
@@ -193,6 +210,12 @@ def run_backtest(prices: pd.DataFrame,
             "Buy & Hold All Weather": round(bh_value, 2),
             "S&P 500 Value":          round(spy_value, 2),
         }
+
+        if sixty_forty_spy is not None:
+            sixty_forty_value = (sixty_forty_spy * float(bench.loc[date])
+                                 + sixty_forty_tlt * float(tlt_monthly.loc[date]))
+            record["60/40 Value"] = round(sixty_forty_value, 2)
+
         for t in tickers:
             record[f"B&H {t} Weight (%)"] = round(bh_weights[t] * 100, 1)
 
@@ -206,6 +229,8 @@ def run_backtest(prices: pd.DataFrame,
     df = pd.DataFrame(records).set_index("Date")
     for col in ["All Weather Value", "Buy & Hold All Weather", "S&P 500 Value"]:
         df[f"{col} Monthly Ret (%)"] = df[col].pct_change() * 100
+    if "60/40 Value" in df.columns:
+        df["60/40 Value Monthly Ret (%)"] = df["60/40 Value"].pct_change() * 100
 
     return df
 
@@ -237,7 +262,7 @@ def compute_stats(backtest: pd.DataFrame) -> list[StrategyStats]:
             period_years = round(years, 1),
         )
 
-    return [
+    stats = [
         make_stats("AW_R",
                    "All Weather Value",
                    "All Weather Value Monthly Ret (%)"),
@@ -248,3 +273,10 @@ def compute_stats(backtest: pd.DataFrame) -> list[StrategyStats]:
                    "S&P 500 Value",
                    "S&P 500 Value Monthly Ret (%)"),
     ]
+
+    if "60/40 Value" in backtest.columns:
+        stats.append(make_stats("60/40",
+                                "60/40 Value",
+                                "60/40 Value Monthly Ret (%)"))
+
+    return stats

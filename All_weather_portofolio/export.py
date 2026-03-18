@@ -174,13 +174,14 @@ METRIC_COLS = [
     "Fin_Val ($)",
 ]
 
-STRATEGY_NAMES = ["AW_R", "B&H_AW", "SPY"]
+STRATEGY_NAMES = ["AW_R", "B&H_AW", "SPY", "60/40"]
 
-# Colours for the three strategy header groups (subtle dark-friendly palette)
+# Colours for the strategy header groups (subtle dark-friendly palette)
 STRATEGY_COLOURS = {
     "AW_R":   "1F4E79",   # dark blue
     "B&H_AW": "7B3F00",   # dark amber/brown
     "SPY":    "3D1A1A",   # dark red
+    "60/40":  "1A4731",   # dark green
 }
 
 HEADER_FONT_COLOUR = "FFFFFF"   # white text on coloured headers

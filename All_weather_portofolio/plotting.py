@@ -58,9 +58,10 @@ def plot_backtest(backtest: pd.DataFrame,
     ax2 = fig.add_subplot(gs[1])
 
     COLORS = {
-        "aw":  "#58a6ff",   # blue  -- All Weather rebalanced
-        "bh":  "#f0b429",   # amber -- Buy & Hold All Weather
-        "spy": "#f78166",   # coral -- S&P 500
+        "aw":   "#58a6ff",   # blue  -- All Weather rebalanced
+        "bh":   "#f0b429",   # amber -- Buy & Hold All Weather
+        "spy":  "#f78166",   # coral -- S&P 500
+        "6040": "#3fb950",   # green -- 60/40
     }
 
     for ax in [ax1, ax2]:
@@ -76,13 +77,16 @@ def plot_backtest(backtest: pd.DataFrame,
     ax1.plot(backtest.index, backtest["S&P 500 Value"],
              color=COLORS["spy"], lw=1.6, linestyle="--", alpha=0.85,
              label="S&P 500 (SPY)")
+    ax1.plot(backtest.index, backtest["60/40 Value"],
+             color=COLORS["6040"], lw=1.6, linestyle="-.", alpha=0.85,
+             label="60/40 (SPY/TLT, never rebalanced)")
     ax1.fill_between(backtest.index, backtest["All Weather Value"],
                      alpha=0.08, color=COLORS["aw"])
 
     ax1.set_title(
-        f"Portfolio Backtest -- {label}  "
+        f"Portfolio Backtest — {label}\n"
         f"({config.BACKTEST_START} to {config.BACKTEST_END})",
-        fontsize=13, pad=10
+        fontsize=11, pad=10
     )
     ax1.set_ylabel("Portfolio Value ($)", fontsize=10)
     ax1.yaxis.set_major_formatter(
@@ -90,15 +94,17 @@ def plot_backtest(backtest: pd.DataFrame,
     ax1.legend(fontsize=9, facecolor="#21262d", edgecolor="#30363d",
                labelcolor="white", loc="upper left")
 
-    s_aw, s_bh, s_spy = stats_list
+    s_aw, s_bh, s_spy, s_6040 = stats_list
     ax1.text(
         0.99, 0.06,
-        f"Rebalanced: ${s_aw.final_value:,.0f}   Calmar={s_aw.calmar:.2f}     "
-        f"Buy & Hold: ${s_bh.final_value:,.0f}     "
-        f"S&P 500: ${s_spy.final_value:,.0f}",
+        f"All Weather (Rebal.): ${s_aw.final_value:,.0f}   Calmar={s_aw.calmar:.2f}\n"
+        f"Buy & Hold AW:        ${s_bh.final_value:,.0f}\n"
+        f"S&P 500:              ${s_spy.final_value:,.0f}\n"
+        f"60/40:                ${s_6040.final_value:,.0f}   Calmar={s_6040.calmar:.2f}",
         transform=ax1.transAxes, ha="right", va="bottom",
         color="#8b949e", fontsize=8.5,
-        bbox=dict(boxstyle="round,pad=0.4", facecolor="#21262d",
+        family="monospace",
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="#21262d",
                   edgecolor="#30363d", alpha=0.9)
     )
 
@@ -106,38 +112,44 @@ def plot_backtest(backtest: pd.DataFrame,
     def annual_returns(col: str) -> pd.Series:
         return backtest[col].resample("YE").last().pct_change().dropna() * 100
 
-    aw_ann  = annual_returns("All Weather Value")
-    bh_ann  = annual_returns("Buy & Hold All Weather")
-    spy_ann = annual_returns("S&P 500 Value")
+    aw_ann          = annual_returns("All Weather Value")
+    bh_ann          = annual_returns("Buy & Hold All Weather")
+    spy_ann         = annual_returns("S&P 500 Value")
+    sixty_forty_ann = annual_returns("60/40 Value")
 
     years_idx = aw_ann.index
     x         = np.arange(len(years_idx))
-    width     = 0.26
+    width     = 0.19
 
-    ax2.bar(x - width, aw_ann.reindex(years_idx, fill_value=0).values,
+    ax2.bar(x - width * 1.5, aw_ann.reindex(years_idx, fill_value=0).values,
             width, label="All Weather (Rebal.)",
             color=[COLORS["aw"] if v >= 0 else "#f85149"
                    for v in aw_ann.reindex(years_idx, fill_value=0).values],
             alpha=0.85)
-    ax2.bar(x, bh_ann.reindex(years_idx, fill_value=0).values,
+    ax2.bar(x - width * 0.5, bh_ann.reindex(years_idx, fill_value=0).values,
             width, label="Buy & Hold AW",
             color=[COLORS["bh"] if v >= 0 else "#b08800"
                    for v in bh_ann.reindex(years_idx, fill_value=0).values],
             alpha=0.85)
-    ax2.bar(x + width, spy_ann.reindex(years_idx, fill_value=0).values,
+    ax2.bar(x + width * 0.5, spy_ann.reindex(years_idx, fill_value=0).values,
             width, label="S&P 500",
             color=[COLORS["spy"] if v >= 0 else "#da3633"
                    for v in spy_ann.reindex(years_idx, fill_value=0).values],
             alpha=0.70)
+    ax2.bar(x + width * 1.5, sixty_forty_ann.reindex(years_idx, fill_value=0).values,
+            width, label="60/40",
+            color=[COLORS["6040"] if v >= 0 else "#1a7a35"
+                   for v in sixty_forty_ann.reindex(years_idx, fill_value=0).values],
+            alpha=0.85)
 
     ax2.set_xticks(x)
     ax2.set_xticklabels([d.year for d in years_idx], rotation=45, fontsize=8)
     ax2.axhline(0, color="#8b949e", lw=0.8)
     ax2.set_ylabel("Annual Return (%)", fontsize=10)
-    ax2.set_title("Annual Returns by Year -- All Three Strategies",
+    ax2.set_title("Annual Returns by Year -- All Four Strategies",
                   fontsize=11, pad=8)
     ax2.legend(fontsize=8, facecolor="#21262d", edgecolor="#30363d",
-               labelcolor="white", ncol=3)
+               labelcolor="white", ncol=4)
 
     save_path = os.path.join(results_dir, "backtest.png")
     plt.savefig(save_path, dpi=150, bbox_inches="tight",

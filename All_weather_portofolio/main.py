@@ -39,7 +39,7 @@ def main():
     # ---- Fetch price data ----
     # Deduplicate in case benchmark ticker is already in target_allocation
     all_tickers = list(dict.fromkeys(
-        list(config.TARGET_ALLOCATION.keys()) + [config.BENCHMARK_TICKER]
+        list(config.TARGET_ALLOCATION.keys()) + [config.BENCHMARK_TICKER, "TLT"]
     ))
     prices = fetch_prices(all_tickers, config.BACKTEST_START, config.BACKTEST_END)
 
@@ -83,6 +83,7 @@ def main():
         run_walk_forward(
             prices           = port_prices,
             benchmark_prices = bench_prices,
+            tlt_prices       = prices["TLT"],
             allocation       = allocation,
             train_years      = config.WF_TRAIN_YEARS,
             test_years       = config.WF_TEST_YEARS,
@@ -127,7 +128,8 @@ def main():
 
     # ---- Backtest ----
     print_header(f"RUNNING BACKTEST ({config.BACKTEST_START} to {config.BACKTEST_END})")
-    backtest   = run_backtest(port_prices, bench_prices, allocation)
+    backtest   = run_backtest(port_prices, bench_prices, allocation,
+                              tlt_prices=prices["TLT"])
     stats_list = compute_stats(backtest)
     print_stats(stats_list)
 

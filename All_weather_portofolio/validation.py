@@ -15,6 +15,7 @@ CSVs and plots as output.
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,7 +40,8 @@ def run_walk_forward(prices: pd.DataFrame,
                      max_weight: float,
                      n_trials: int,
                      random_seed: int,
-                     results_dir: str):
+                     results_dir: str,
+                     tlt_prices: Optional[pd.Series] = None):
     """
     Walk-forward validation to detect whether optimised weights are robust
     or simply overfitted to the historical training period.
@@ -120,6 +122,13 @@ def run_walk_forward(prices: pd.DataFrame,
                            (benchmark_prices.index >= w["test_start"]) &
                            (benchmark_prices.index <  w["test_end"])]
 
+        train_tlt = (tlt_prices[(tlt_prices.index >= w["train_start"]) &
+                                 (tlt_prices.index <  w["train_end"])]
+                     if tlt_prices is not None else None)
+        test_tlt  = (tlt_prices[(tlt_prices.index >= w["test_start"]) &
+                                 (tlt_prices.index <  w["test_end"])]
+                     if tlt_prices is not None else None)
+
         if train_prices.empty or test_prices.empty:
             print(f"    Skipping -- insufficient data.")
             continue
@@ -149,7 +158,8 @@ def run_walk_forward(prices: pd.DataFrame,
         opt_allocation = dict(zip(list(allocation.keys()), opt_weights))
 
         # Evaluate optimised weights in-sample (train)
-        bt_train     = run_backtest(train_prices, train_bench, opt_allocation)
+        bt_train     = run_backtest(train_prices, train_bench, opt_allocation,
+                                    tlt_prices=train_tlt)
         series_tr    = bt_train["All Weather Value"]
         years_tr     = (series_tr.index[-1] - series_tr.index[0]).days / 365.25
         train_cagr   = round(compute_cagr(series_tr, years_tr), 2)
@@ -157,7 +167,8 @@ def run_walk_forward(prices: pd.DataFrame,
         train_calmar = round(compute_calmar(train_cagr, train_mdd), 3)
 
         # Evaluate optimised weights out-of-sample (test)
-        bt_test      = run_backtest(test_prices, test_bench, opt_allocation)
+        bt_test      = run_backtest(test_prices, test_bench, opt_allocation,
+                                    tlt_prices=test_tlt)
         series_te    = bt_test["All Weather Value"]
         years_te     = (series_te.index[-1] - series_te.index[0]).days / 365.25
         test_cagr    = round(compute_cagr(series_te, years_te), 2)
@@ -165,7 +176,8 @@ def run_walk_forward(prices: pd.DataFrame,
         test_calmar  = round(compute_calmar(test_cagr, test_mdd), 3)
 
         # Evaluate original allocation out-of-sample (baseline comparison)
-        bt_orig      = run_backtest(test_prices, test_bench, allocation)
+        bt_orig      = run_backtest(test_prices, test_bench, allocation,
+                                    tlt_prices=test_tlt)
         series_or    = bt_orig["All Weather Value"]
         orig_cagr    = round(compute_cagr(series_or, years_te), 2)
         orig_mdd     = round(compute_max_drawdown(series_or), 2)

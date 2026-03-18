@@ -18,7 +18,7 @@ import numpy as np
 
 INITIAL_PORTFOLIO_VALUE = 10_000    # Starting portfolio value in USD
 
-BACKTEST_START = "2020-01-01"       # format: YYYY-MM-DD
+BACKTEST_START = "2004-01-01"       # format: YYYY-MM-DD
 BACKTEST_END   = "2026-01-01"       # format: YYYY-MM-DD
 
 REBALANCE_THRESHOLD = 0.05          # Rebalance if any asset drifts > this
