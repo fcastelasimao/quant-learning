@@ -43,8 +43,7 @@ def fetch_prices(tickers: list[str],
     holdings on a non-trading day. Backfilling would introduce lookahead
     bias by using future prices to fill past dates.
     """
-    print(f"Fetching price data for: {', '.join(tickers)}")
-    print(f"Period: {start_date} -> {end_date}\n")
+    print(f"Fetching data | {' '.join(tickers)} | {start_date} to {end_date}")
 
     raw = yf.download(tickers, start=start_date, end=end_date,
                       progress=False, auto_adjust=True)

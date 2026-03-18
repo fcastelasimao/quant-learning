@@ -6,6 +6,29 @@ Last updated: 2026-03-17
 
 ## 🔴 Immediate (fix before next run)
 
+- [ ] **Test sensitivity of results to GLD/QQQ concentration**
+  Core concern: the DE result (GLD 42.7%, QQQ 30.3%) may reflect
+  backtest-fitted concentration in two exceptional 2004-2026 performers
+  rather than genuine All Weather diversification.
+
+  Tests in progress / planned:
+  - [ ] Run backtest with DE weights but `BACKTEST_END = "2020-01-01"` --
+        cuts before the final GLD/QQQ surge. If CAGR drops below 8% and
+        Calmar drops below 0.35, the recent surge is driving the headline numbers.
+  - [ ] Run backtest with DE weights but `BACKTEST_END = "2023-01-01"` --
+        includes the 2022 crash but cuts before the 2023-2025 recovery.
+
+  Key question: if OPT_MAX_WEIGHT = 0.30 produces a Calmar above 0.40
+  with a more balanced allocation, that is the version to trust for
+  forward-looking use. A marginal Calmar improvement from concentrating
+  in GLD/QQQ is not worth the concentration risk.
+
+  Compare the following across all three runs:
+    - CAGR and Calmar on full 2004-2026 period
+    - CAGR and Calmar on 2004-2020 subperiod
+    - GLD + QQQ combined weight (lower is more robust)
+    - Walk-forward Window 4 Calmar (2020-2022)
+
 - [ ] **GLD weight still exceeds OPT_MAX_WEIGHT after DE clipping**
   After clip-and-renormalise, GLD ends up at 42.7% despite `OPT_MAX_WEIGHT = 0.40`.
   Root cause: with SPY, TIP, TLT near minimum weights, renormalisation pulls GLD above
@@ -87,6 +110,27 @@ Last updated: 2026-03-17
   all offer real live prices with no real money). Follow the monthly
   rebalancing instructions and track performance for 6-12 months.
   This is the minimum live evidence needed before using real money.
+
+- [ ] **Consider improving rebalancing timing to reduce timing luck**
+  Three options in increasing order of complexity and robustness:
+
+  1. **Month-start (`"MS"`)** -- change `"ME"` to `"MS"` in `config.py` and
+     `backtest.py`. One line each. Avoids month-end window dressing at zero cost.
+
+  2. **Mid-month (15th)** -- resample on the 15th of each month rather than
+     the last trading day. Avoids both turn-of-month and month-end distortions.
+     Requires a small custom resampling function in `backtest.py`.
+
+  3. **Overlapping portfolios (Newfound Research method)** -- split the portfolio
+     into 4 equal sub-portfolios, each rebalancing once a month on a different
+     week. Effectively rebalances 1/4 of the portfolio each week. Eliminates
+     timing luck almost entirely while keeping total turnover identical to a
+     single monthly rebalance. Requires running 4 parallel backtests and
+     averaging the results -- significant implementation effort.
+
+  Low priority for current asset universe (SPY, QQQ, TLT, TIP, GLD are all
+  highly liquid -- timing distortions are negligible). Worth revisiting before
+  publishing results or launching a product where methodology will be scrutinised.
 
 ---
 
@@ -206,3 +250,8 @@ so far. Future experiments to consider when extending the project:
 - [x] Final allocation confirmed:
       SPY 6.2% | QQQ 30.3% | TLT 14.6% | TIP 6.2% | GLD 42.7%
       CAGR 11.26% | Max DD -20.78% | Sharpe 1.078 | Calmar 0.542
+- [x] Identified that GLD (42.7%) and QQQ (30.3%) exceptional 2004-2026
+      performance is likely driving headline results -- concentration risk
+      flagged and sensitivity tests initiated
+- [x] Run DE with `OPT_MAX_WEIGHT = 0.30` -- forces genuine diversification,
+        prevents any single asset dominating. Currently running.

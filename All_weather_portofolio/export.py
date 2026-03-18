@@ -8,14 +8,14 @@ Contains:
   - save_run_config       save all parameters as JSON for reproducibility
   - export_results        save backtest CSV, stats CSV, allocation CSV
   - build_log_row         build one summary row from a list of StrategyStats
-  - append_to_master_log  append that row to results/master_log.csv
+  - append_to_master_log  append that row to results/master_log.xlsx
   - print_header          print a section divider to terminal
   - print_rebalancing     print formatted rebalancing instructions
   - print_stats           print formatted performance statistics
 
-The print functions live here rather than in main.py because they are
-output formatting -- closely related to export -- and keeping them here
-avoids main.py becoming a dumping ground for miscellaneous functions.
+Master log is now an Excel file (master_log.xlsx) with grouped/merged
+headers so strategy names appear once above their metrics columns.
+Requires openpyxl >= 3.1.0.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ import os
 from datetime import datetime
 
 import pandas as pd
+from openpyxl.styles import (Alignment, Font, PatternFill, Border, Side)
+from openpyxl.utils import get_column_letter
 
 from backtest import StrategyStats
 import config
@@ -66,12 +68,11 @@ def save_run_config(allocation: dict, results_dir: str):
         "backtest_end":            config.BACKTEST_END,
         "initial_portfolio_value": config.INITIAL_PORTFOLIO_VALUE,
         "rebalance_threshold":     config.REBALANCE_THRESHOLD,
-        "data_frequency":      config.DATA_FREQUENCY,
-        "sharpe_annualisation": config.SHARPE_ANNUALISATION,
+        "data_frequency":          config.DATA_FREQUENCY,
+        "sharpe_annualisation":    config.SHARPE_ANNUALISATION,
         "benchmark_ticker":        config.BENCHMARK_TICKER,
         "optimiser": {
-            "run_optimiser": config.RUN_OPTIMISER,
-            "method":        config.OPT_METHOD if config.RUN_OPTIMISER else "not run",
+            "method":       config.OPT_METHOD if config.RUN_MODE == "optimise" else "not run",
             "min_weight":    config.OPT_MIN_WEIGHT,
             "max_weight":    config.OPT_MAX_WEIGHT,
             "min_cagr":      config.OPT_MIN_CAGR,
@@ -79,16 +80,15 @@ def save_run_config(allocation: dict, results_dir: str):
             "random_seed":   config.OPT_RANDOM_SEED,
         },
         "pareto": {
-            "run_pareto":  config.RUN_PARETO,
-            "cagr_range":  list(config.PARETO_CAGR_RANGE) if config.RUN_PARETO else [],
+            "cagr_range": list(config.PARETO_CAGR_RANGE) if config.RUN_MODE == "pareto" else [],
         },
         "walk_forward": {
-            "run_walk_forward": config.RUN_WALK_FORWARD,
-            "train_years":      config.WF_TRAIN_YEARS,
-            "test_years":       config.WF_TEST_YEARS,
-            "step_years":       config.WF_STEP_YEARS,
-            "opt_method":       config.WF_OPT_METHOD,
+            "train_years": config.WF_TRAIN_YEARS,
+            "test_years":  config.WF_TEST_YEARS,
+            "step_years":  config.WF_STEP_YEARS,
+            "opt_method":  config.WF_OPT_METHOD,
         },
+        "run_mode": config.RUN_MODE,
         "target_allocation": allocation,
     }
 
@@ -108,13 +108,12 @@ def export_results(backtest: pd.DataFrame,
                    results_dir: str):
     """
     Export all results to results_dir:
-      backtest_history.csv        -- monthly portfolio values
+      backtest_history.csv         -- monthly portfolio values
       rebalancing_instructions.csv
-      stats.csv                   -- CAGR, drawdown, Sharpe, Calmar per strategy
-      allocation.csv              -- weights used in this run
-      run_config.json             -- all parameters for reproduction
+      stats.csv                    -- CAGR, drawdown, Sharpe, Calmar per strategy
+      allocation.csv               -- weights used in this run
+      run_config.json              -- all parameters for reproduction
     """
-    # Stats CSV -- built from StrategyStats dataclasses, no string parsing needed
     stats_rows = []
     for s in stats_list:
         stats_rows.extend([
@@ -150,51 +149,239 @@ def export_results(backtest: pd.DataFrame,
 
 
 # ===========================================================================
-# MASTER LOG
+# MASTER LOG -- EXCEL
 # ===========================================================================
+
+# Column definitions for the master log.
+# META_COLS   : columns that appear once per run, before the strategy groups
+# METRIC_COLS : per-strategy metric columns that are grouped under a header
+# STRATEGY_NAMES : the three strategy labels (must match StrategyStats.name)
+
+META_COLS = [
+    "Timestamp",
+    "Label",
+    "Backtest Start",
+    "Backtest End",
+    "Data Freq",
+    "Tickers",
+]
+
+METRIC_COLS = [
+    "CAGR (%)",
+    "Max_DD (%)",
+    "Sharpe",
+    "Calmar",
+    "Fin_Val ($)",
+]
+
+STRATEGY_NAMES = ["AW_R", "B&H_AW", "SPY"]
+
+# Colours for the three strategy header groups (subtle dark-friendly palette)
+STRATEGY_COLOURS = {
+    "AW_R":   "1F4E79",   # dark blue
+    "B&H_AW": "7B3F00",   # dark amber/brown
+    "SPY":    "3D1A1A",   # dark red
+}
+
+HEADER_FONT_COLOUR = "FFFFFF"   # white text on coloured headers
+
+
+def _all_flat_columns() -> list[str]:
+    """Return the full ordered list of flat column names used in the data rows."""
+    cols = list(META_COLS) + ["Results Folder"]
+    cols.remove("Results Folder")           # will be added at end
+    for strategy in STRATEGY_NAMES:
+        for metric in METRIC_COLS:
+            cols.append(f"{strategy}_{metric}")
+    cols.append("Results Folder")
+    return cols
+
 
 def build_log_row(results_dir: str,
                   stats_list: list[StrategyStats],
                   weights: dict,
                   label: str) -> dict:
+    """Build one flat dict representing a single run for the master log."""
     row = {
         "Timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
         "Label":          label,
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
-        "Data Frequency": config.DATA_FREQUENCY,
+        "Data Freq":      config.DATA_FREQUENCY,
         "Tickers":        " | ".join(f"{t}={w:.1%}" for t, w in weights.items()),
     }
     for s in stats_list:
-        prefix = s.name.replace(" ", "_").replace("&", "and")
-        row[f"{prefix}_CAGR (%)"]        = s.cagr
-        row[f"{prefix}_Max_DD (%)"]      = s.max_drawdown
-        row[f"{prefix}_Sharpe"]          = s.sharpe
-        row[f"{prefix}_Calmar"]          = s.calmar
-        row[f"{prefix}_Final_Value ($)"] = s.final_value
+        row[f"{s.name}_CAGR (%)"]    = s.cagr
+        row[f"{s.name}_Max_DD (%)"]  = s.max_drawdown
+        row[f"{s.name}_Sharpe"]      = s.sharpe
+        row[f"{s.name}_Calmar"]      = s.calmar
+        row[f"{s.name}_Fin_Val ($)"] = s.final_value
 
-    # Results Folder last so it doesn't push stat columns out of alignment
     row["Results Folder"] = results_dir
     return row
+
+
+def _write_excel_log(log_path: str, rows: list[dict]):
+    """
+    Write all rows to master_log.xlsx with two header rows:
+      Row 1: merged strategy group headers  (AW_R | B&H_AW | SPY)
+      Row 2: individual metric headers      (CAGR, Max_DD, Sharpe, ...)
+      Row 3+: data
+
+    Meta columns (Timestamp, Label, etc.) span both header rows via merge.
+    """
+    flat_cols = _all_flat_columns()
+
+    # Build a plain DataFrame with flat column names for the data rows
+    df = pd.DataFrame(rows, columns=flat_cols)
+
+    # Write using openpyxl directly so we can add the two-row header
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Master Log"
+
+    # --- Build header row 1 (group labels) and row 2 (metric labels) ---
+    # We'll track which Excel column index each flat column sits in
+    col_index = {}   # flat_col_name -> excel column number (1-based)
+
+    excel_col = 1
+
+    # Meta columns: merge row 1 and row 2 vertically
+    thin = Side(style="thin", color="444444")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    meta_style = PatternFill("solid", fgColor="1A1A2E")
+    meta_font  = Font(bold=True, color="C9D1D9")
+    center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for col_name in META_COLS:
+        cell1 = ws.cell(row=1, column=excel_col, value=col_name)
+        cell2 = ws.cell(row=2, column=excel_col, value="")
+        ws.merge_cells(start_row=1, start_column=excel_col,
+                       end_row=2,   end_column=excel_col)
+        cell1.fill      = meta_style
+        cell1.font      = meta_font
+        cell1.alignment = center
+        cell1.border    = border
+        col_index[col_name] = excel_col
+        excel_col += 1
+
+    # Strategy groups: row 1 = merged group label, row 2 = individual metrics
+    for strategy in STRATEGY_NAMES:
+        group_start = excel_col
+        colour      = STRATEGY_COLOURS.get(strategy, "333333")
+        group_fill  = PatternFill("solid", fgColor=colour)
+        group_font  = Font(bold=True, color=HEADER_FONT_COLOUR)
+        metric_fill = PatternFill("solid", fgColor="161B22")
+        metric_font = Font(bold=False, color="C9D1D9")
+
+        for metric in METRIC_COLS:
+            flat_name = f"{strategy}_{metric}"
+            col_index[flat_name] = excel_col
+
+            # Row 2: metric name
+            cell2 = ws.cell(row=2, column=excel_col, value=metric)
+            cell2.fill      = metric_fill
+            cell2.font      = metric_font
+            cell2.alignment = center
+            cell2.border    = border
+
+            excel_col += 1
+
+        # Row 1: merged group label spanning all metrics for this strategy
+        group_end = excel_col - 1
+        cell1 = ws.cell(row=1, column=group_start, value=strategy)
+        ws.merge_cells(start_row=1, start_column=group_start,
+                       end_row=1,   end_column=group_end)
+        cell1.fill      = group_fill
+        cell1.font      = group_font
+        cell1.alignment = center
+        cell1.border    = border
+
+    # Results Folder: merge rows 1+2 like meta cols
+    rf_col = excel_col
+    cell1  = ws.cell(row=1, column=rf_col, value="Results Folder")
+    ws.merge_cells(start_row=1, start_column=rf_col,
+                   end_row=2,   end_column=rf_col)
+    cell1.fill      = meta_style
+    cell1.font      = meta_font
+    cell1.alignment = center
+    cell1.border    = border
+    col_index["Results Folder"] = rf_col
+
+    # --- Write data rows ---
+    data_fill_even = PatternFill("solid", fgColor="FFFFFF")
+    data_fill_odd  = PatternFill("solid", fgColor="F2F2F2")
+    data_font      = Font(color="000000")
+    num_align      = Alignment(horizontal="right")
+    left_align     = Alignment(horizontal="left")
+
+    for row_idx, row_data in enumerate(rows):
+        excel_row = row_idx + 3   # rows 1 and 2 are headers
+        fill      = data_fill_even if row_idx % 2 == 0 else data_fill_odd
+
+        for flat_col, ec in col_index.items():
+            value = row_data.get(flat_col, "")
+            cell  = ws.cell(row=excel_row, column=ec, value=value)
+            cell.fill   = fill
+            cell.font   = data_font
+            cell.border = border
+            # Right-align numbers, left-align text
+            if isinstance(value, (int, float)):
+                cell.alignment = num_align
+                # Format floats to 3 decimal places
+                if isinstance(value, float):
+                    cell.number_format = "0.000"
+            else:
+                cell.alignment = left_align
+
+    # --- Column widths ---
+    ws.column_dimensions[get_column_letter(col_index["Timestamp"])].width    = 16
+    ws.column_dimensions[get_column_letter(col_index["Label"])].width        = 30
+    ws.column_dimensions[get_column_letter(col_index["Backtest Start"])].width = 13
+    ws.column_dimensions[get_column_letter(col_index["Backtest End"])].width   = 13
+    ws.column_dimensions[get_column_letter(col_index["Data Freq"])].width      = 10
+    ws.column_dimensions[get_column_letter(col_index["Tickers"])].width        = 45
+    ws.column_dimensions[get_column_letter(col_index["Results Folder"])].width = 55
+    for strategy in STRATEGY_NAMES:
+        for metric in METRIC_COLS:
+            flat = f"{strategy}_{metric}"
+            ws.column_dimensions[get_column_letter(col_index[flat])].width = 11
+
+    # Freeze the two header rows and the meta columns
+    freeze_col = get_column_letter(len(META_COLS) + 1)
+    ws.freeze_panes = f"{freeze_col}3"
+
+    wb.save(log_path)
+
 
 def append_to_master_log(results_dir: str,
                          stats_list: list[StrategyStats],
                          weights: dict,
                          label: str):
     """
-    Append one row to results/master_log.csv.
-    Creates the file with a header on the first run, appends on subsequent runs.
-    Each row represents one complete run, making all runs comparable side by side.
+    Append one row to results/master_log.xlsx.
+    Rewrites the full file each time to maintain correct formatting.
+    On first run creates the file; on subsequent runs reads existing data,
+    appends the new row, and rewrites.
     """
-    log_path = os.path.join("results", "master_log.csv")
-    row      = build_log_row(results_dir, stats_list, weights, label)
-    log_df   = pd.DataFrame([row])
+    log_path  = os.path.join("results", "master_log.xlsx")
+    flat_cols = _all_flat_columns()
+    new_row   = build_log_row(results_dir, stats_list, weights, label)
 
+    os.makedirs("results", exist_ok=True)
+
+    existing_rows = []
     if os.path.exists(log_path):
-        log_df.to_csv(log_path, mode="a", header=False, index=False)
-    else:
-        os.makedirs("results", exist_ok=True)
-        log_df.to_csv(log_path, mode="w", header=True, index=False)
+        # Read existing data rows (skip the two header rows)
+        existing_df   = pd.read_excel(log_path, header=None, skiprows=2)
+        existing_df.columns = flat_cols[:len(existing_df.columns)]
+        for _, r in existing_df.iterrows():
+            existing_rows.append(r.to_dict())
+
+    all_rows = existing_rows + [new_row]
+    _write_excel_log(log_path, all_rows)
 
     print(f"  Master log updated -> {log_path}")
 
@@ -230,9 +417,10 @@ def print_rebalancing(instructions: pd.DataFrame, total_value: float):
     if hold_tickers:
         print(f"\n  HOLD: {', '.join(hold_tickers)}")
 
-    print(f"\n  Full breakdown:")
-    print(instructions[["Ticker", "Current Weight", "Target Weight",
-                         "Drift (%)", "Action", "$ Amount"]].to_string(index=False))
+    if not needs_action.empty:
+        print(f"\n  Full breakdown:")
+        print(instructions[["Ticker", "Current Weight", "Target Weight",
+                            "Drift (%)", "Action", "$ Amount"]].to_string(index=False))
 
 
 def print_stats(stats_list: list[StrategyStats]):

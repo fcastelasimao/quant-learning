@@ -238,13 +238,13 @@ def compute_stats(backtest: pd.DataFrame) -> list[StrategyStats]:
         )
 
     return [
-        make_stats("All Weather (Rebalanced)",
+        make_stats("AW_R",
                    "All Weather Value",
                    "All Weather Value Monthly Ret (%)"),
-        make_stats("Buy & Hold All Weather",
+        make_stats("B&H_AW",
                    "Buy & Hold All Weather",
                    "Buy & Hold All Weather Monthly Ret (%)"),
-        make_stats("S&P 500 Buy & Hold",
+        make_stats("SPY",
                    "S&P 500 Value",
                    "S&P 500 Value Monthly Ret (%)"),
     ]

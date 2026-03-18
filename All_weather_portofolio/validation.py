@@ -98,14 +98,9 @@ def run_walk_forward(prices: pd.DataFrame,
               "Try reducing WF_TRAIN_YEARS or WF_TEST_YEARS.")
         return
 
-    print(f"  Found {len(windows)} windows:\n")
-    for i, w in enumerate(windows):
-        print(f"  Window {i+1}: "
-              f"train {w['train_start'].strftime('%Y-%m')} -> "
-              f"{w['train_end'].strftime('%Y-%m')}  |  "
-              f"test  {w['test_start'].strftime('%Y-%m')} -> "
-              f"{w['test_end'].strftime('%Y-%m')}")
-    print()
+    print(f"  {len(windows)} windows | "
+          f"{windows[0]['train_start'].strftime('%Y-%m')} to "
+          f"{windows[-1]['test_end'].strftime('%Y-%m')}\n")
 
     records = []
     for i, w in enumerate(windows):
@@ -130,7 +125,6 @@ def run_walk_forward(prices: pd.DataFrame,
             continue
 
         # Optimise on training data only
-        print(f"    Optimising on training data ({train_years} years)...")
         if config.WF_OPT_METHOD == "differential_evolution":
             opt_weights, _ = optimise_allocation(
                 train_prices, train_bench, allocation,

@@ -33,6 +33,26 @@ from backtest import run_backtest, compute_cagr, compute_max_drawdown, \
 # SHARED SCORING FUNCTION
 # ===========================================================================
 
+def _project_weights(weights: np.ndarray,
+                     min_weight: float,
+                     max_weight: float,
+                     max_iter: int = 100) -> np.ndarray:
+    """
+    Project weights onto the simplex with per-asset box constraints.
+    Iteratively clips and renormalises until all weights satisfy both
+    the sum-to-1 constraint and the per-asset bounds simultaneously.
+    A single clip-and-renormalise is not sufficient because renormalisation
+    can push clipped weights back above the maximum.
+    Guaranteed to converge in practice for feasible constraint sets.
+    """
+    w = weights.copy()
+    for _ in range(max_iter):
+        w = np.clip(w, min_weight, max_weight)
+        w = w / w.sum()
+        if w.max() <= max_weight + 1e-8 and w.min() >= min_weight - 1e-8:
+            break
+    return w
+
 def _score_allocation(weights_array: np.ndarray,
                       tickers: list[str],
                       prices: pd.DataFrame,
@@ -113,9 +133,8 @@ def optimise_random(prices: pd.DataFrame,
             best_score   = score
             best_weights = weights
 
-        if (i + 1) % 500 == 0:
-            display = -best_score if best_score < 1e5 else float("nan")
-            print(f"  Trial {i+1:>5}/{n_trials} | Best Calmar so far: {display:.3f}")
+    display = -best_score if best_score < 1e5 else float("nan")
+    print(f"  Optimiser complete | Best Calmar: {display:.3f}") 
 
     return best_weights, best_score
 
@@ -151,17 +170,11 @@ def optimise_allocation(prices: pd.DataFrame,
     n       = len(tickers)
     bounds  = [(min_weight, max_weight)] * n
 
-    print(f"\nRunning optimiser -- method: {method}")
-    print(f"  Assets:        {', '.join(tickers)}")
-    print(f"  Weight bounds: [{min_weight:.0%}, {max_weight:.0%}] per asset")
-    print(f"  Min CAGR:      {min_cagr}%")
-    print(f"  Random seed:   {random_seed}\n")
+    print(f"\nOptimising ({method}) | {' '.join(tickers)} | bounds [{min_weight:.0%}, {max_weight:.0%}]\n")
+
 
     # ------------------------------------------------------------------
     if method in ("random", "calmar"):
-        print(f"  Objective:  maximise Calmar ratio (CAGR / |max drawdown|)")
-        print(f"  Trials:     {n_trials}\n")
-
         best_weights, best_score = optimise_random(
             prices, benchmark_prices, allocation,
             min_weight, max_weight, min_cagr, n_trials, method, random_seed
@@ -178,8 +191,6 @@ def optimise_allocation(prices: pd.DataFrame,
         # gradients and explores the search space much more efficiently than
         # random search. Each candidate's weights are normalised before scoring
         # so the sum-to-1 constraint is always satisfied.
-        print(f"  Objective:  maximise Calmar ratio (CAGR / |max drawdown|)")
-        print(f"  Algorithm:  Differential Evolution (scipy)\n")
 
         def de_objective(w):
             w_norm = w / w.sum()    # normalise to sum to 1
@@ -193,17 +204,14 @@ def optimise_allocation(prices: pd.DataFrame,
             popsize  = 10,
             tol      = 1e-6,
             seed     = random_seed,
-            disp     = True,
+            disp     = False,
         )
 
         if not result.success and result.fun >= 1e5:
             print(f"WARNING: DE did not converge cleanly: {result.message}")
 
-        raw_weights  = result.x
-        best_weights = raw_weights / raw_weights.sum()
-        best_weights = np.clip(best_weights, min_weight, max_weight)
-        best_weights = best_weights / best_weights.sum()
-        best_score = de_objective(best_weights)
+        best_weights = _project_weights(result.x, min_weight, max_weight)
+        best_score   = de_objective(best_weights)
 
     # ------------------------------------------------------------------
     elif method == "sharpe_slsqp":
@@ -211,8 +219,6 @@ def optimise_allocation(prices: pd.DataFrame,
         # for Sharpe because Sharpe (mean/std of returns) is smooth and
         # differentiable -- small weight changes produce non-zero gradients.
         # It does NOT work for max drawdown (single worst moment, discontinuous).
-        print(f"  Objective:  maximise Sharpe ratio (return / volatility)")
-        print(f"  Algorithm:  SLSQP gradient-based (scipy)\n")
 
         constraints = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
         w0          = np.array(list(allocation.values()))

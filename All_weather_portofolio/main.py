@@ -9,7 +9,7 @@ understand what the program does at a high level, read this file.
 If you want to understand HOW something works, read the relevant module.
 
 Run with:
-    python main.py
+    python main.py§
 """
 
 import config
@@ -50,7 +50,7 @@ def main():
     # Runs before backtest so the optimised weights are used throughout
     allocation = dict(config.TARGET_ALLOCATION)  # work on a copy, not the global
 
-    if config.RUN_OPTIMISER:
+    if config.RUN_MODE == "optimise":
         optimised = optimise_allocation(
             prices           = port_prices,
             benchmark_prices = bench_prices,
@@ -63,10 +63,9 @@ def main():
             random_seed      = config.OPT_RANDOM_SEED,
         )
         allocation.update(optimised)
-        print(f"\nTarget allocation updated to optimised weights.")
 
     # ---- Pareto frontier (optional) ----
-    if config.RUN_PARETO:
+    if config.RUN_MODE == "pareto":
         run_pareto_frontier(
             prices           = port_prices,
             benchmark_prices = bench_prices,
@@ -80,7 +79,7 @@ def main():
         )
 
     # ---- Walk-forward validation (optional) ----
-    if config.RUN_WALK_FORWARD:
+    if config.RUN_MODE == "walk_forward":
         run_walk_forward(
             prices           = port_prices,
             benchmark_prices = bench_prices,

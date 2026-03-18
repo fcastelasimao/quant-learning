@@ -10,3 +10,7 @@ results/
 # Python environments
 .env
 *.egg-info/
+
+
+#Claude environments
+.claude/
