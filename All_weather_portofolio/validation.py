@@ -21,7 +21,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from backtest import run_backtest, compute_cagr, compute_max_drawdown, compute_calmar
+from backtest import (run_backtest, compute_cagr, compute_max_drawdown,
+                      compute_calmar, compute_ulcer_index, compute_sortino)
 from optimiser import optimise_random, optimise_allocation
 
 import config
@@ -104,6 +105,9 @@ def run_walk_forward(prices: pd.DataFrame,
          a. In-sample train Calmar vs out-of-sample test Calmar (overfitting check)
          b. Optimised test Calmar vs original allocation test Calmar (value-add check)
 
+    Asset class group constraints (ASSET_CLASS_GROUPS and ASSET_CLASS_MAX_WEIGHT
+    from config) are applied automatically to the optimiser in every window.
+
     Key output -- the overfit ratio
     --------------------------------
     overfit_ratio = test_calmar / train_calmar
@@ -111,14 +115,19 @@ def run_walk_forward(prices: pd.DataFrame,
       >= 0.8  low overfitting, allocation is robust
       0.6-0.8 moderate -- treat with caution
       < 0.6   high overfitting -- do not use for live trading
-
-    If the optimised allocation also beats the original on the test period,
-    the optimisation is adding genuine value beyond the training period.
     """
     print(f"\nRunning walk-forward validation...")
     print(f"  Train window: {train_years} years")
     print(f"  Test window:  {test_years} years")
     print(f"  Step size:    {step_years} years\n")
+
+    # Read asset class constraints from config
+    asset_class_groups     = getattr(config, "ASSET_CLASS_GROUPS",     None)
+    asset_class_max_weight = getattr(config, "ASSET_CLASS_MAX_WEIGHT", None)
+
+    if asset_class_groups and asset_class_max_weight:
+        caps = ", ".join(f"{g}: {v:.0%}" for g, v in asset_class_max_weight.items())
+        print(f"  Asset class caps: {caps}\n")
 
     all_dates    = prices.index
     start_date   = all_dates[0]
@@ -183,6 +192,7 @@ def run_walk_forward(prices: pd.DataFrame,
             continue
 
         # Optimise on training data only
+        # Asset class caps are passed through to both DE and random methods
         if config.WF_OPT_METHOD == "differential_evolution":
             opt_alloc_dict = optimise_allocation(
                 train_prices, train_bench, allocation,
@@ -198,8 +208,10 @@ def run_walk_forward(prices: pd.DataFrame,
             opt_weights, _ = optimise_random(
                 train_prices, train_bench, allocation,
                 min_weight, max_weight, 0.0, n_trials,
-                config.WF_OPT_METHOD, random_seed
+                config.WF_OPT_METHOD, random_seed,
+                asset_class_groups, asset_class_max_weight
             )
+
         if opt_weights is None:
             print(f"    Optimiser failed -- skipping window.")
             continue
@@ -208,6 +220,13 @@ def run_walk_forward(prices: pd.DataFrame,
 
         weights_str = "  |  ".join(f"{t}: {v:.1%}" for t, v in opt_allocation.items())
         print(f"    Target allocation: {weights_str}")
+
+        # Print asset class totals per window if caps are active
+        if asset_class_groups and asset_class_max_weight:
+            for group, group_tickers in asset_class_groups.items():
+                total = sum(opt_allocation.get(t, 0.0) for t in group_tickers)
+                cap   = asset_class_max_weight.get(group, 1.0)
+                print(f"    {group:<15s} {total:.1%}  (cap: {cap:.0%})")
 
         # Record weights for walk_forward_weights.csv
         weights_records.append({
@@ -236,8 +255,15 @@ def run_walk_forward(prices: pd.DataFrame,
         test_mdd     = round(compute_max_drawdown(series_te), 2)
         test_calmar  = round(compute_calmar(test_cagr, test_mdd), 3)
 
+        # In-sample Ulcer and Sortino
+        train_monthly_rets = bt_train["All Weather Value Monthly Ret (%)"]
+        train_ulcer        = compute_ulcer_index(series_tr)
+        train_sortino      = compute_sortino(train_monthly_rets)
+
         # Additional test-period statistics
         test_monthly_rets = bt_test["All Weather Value Monthly Ret (%)"]
+        test_ulcer        = compute_ulcer_index(series_te)
+        test_sortino      = compute_sortino(test_monthly_rets)
         test_win_rate     = _win_rate(test_monthly_rets)
         test_worst_month  = round(float(test_monthly_rets.min()), 2)
         test_best_month   = round(float(test_monthly_rets.max()), 2)
@@ -275,9 +301,13 @@ def run_walk_forward(prices: pd.DataFrame,
             "Train CAGR (%)":            train_cagr,
             "Train MaxDD (%)":           train_mdd,
             "Train Calmar":              train_calmar,
+            "Train Ulcer Index":         train_ulcer,
+            "Train Sortino":             train_sortino,
             "Test CAGR (%)":             test_cagr,
             "Test MaxDD (%)":            test_mdd,
             "Test Calmar":               test_calmar,
+            "Test Ulcer Index":          test_ulcer,
+            "Test Sortino":              test_sortino,
             "Original Test CAGR (%)":      orig_cagr,
             "Original Test MaxDD (%)":     orig_mdd,
             "Original Test Calmar":        orig_calmar,
@@ -435,16 +465,12 @@ def run_pareto_frontier(prices: pd.DataFrame,
     Sweep across minimum CAGR constraints and map the full risk-return tradeoff.
 
     For each CAGR target, finds the allocation that maximises Calmar while
-    meeting that CAGR floor. Plotting CAGR vs max drawdown for all these
-    points produces the efficient frontier -- the set of portfolios where
-    you cannot reduce drawdown without also reducing return.
-
-    The current allocation is marked on the chart so you can see where it
-    sits relative to the frontier and whether there is room for improvement.
-
-    Also saves pareto_frontier.csv with the weights for each frontier point,
-    so you can pick the allocation that matches your risk tolerance.
+    meeting that CAGR floor. Asset class group constraints from config are
+    applied automatically.
     """
+    asset_class_groups     = getattr(config, "ASSET_CLASS_GROUPS",     None)
+    asset_class_max_weight = getattr(config, "ASSET_CLASS_MAX_WEIGHT", None)
+
     print(f"\nRunning Pareto frontier analysis...")
     print(f"  CAGR targets:      {', '.join(f'{x:.1f}%' for x in cagr_targets)}")
     print(f"  Trials per target: {n_trials}\n")
@@ -456,7 +482,8 @@ def run_pareto_frontier(prices: pd.DataFrame,
         print(f"  Optimising for CAGR >= {min_cagr:.1f}%...")
         best_weights, _ = optimise_random(
             prices, benchmark_prices, allocation,
-            min_weight, max_weight, min_cagr, n_trials, "calmar", random_seed
+            min_weight, max_weight, min_cagr, n_trials, "calmar", random_seed,
+            asset_class_groups, asset_class_max_weight
         )
         if best_weights is None:
             print(f"    No valid allocation found -- skipping.")

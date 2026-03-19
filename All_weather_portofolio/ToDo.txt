@@ -1,70 +1,180 @@
 # All Weather Portfolio -- TODO List
 
-Last updated: 2026-03-17
+Last updated: 2026-03-19
 
 ---
 
-## 🔴 Immediate (fix before next run)
+## 🔴 Pre-Paper-Trading (complete before using real or paper money)
 
-- [ ] **Test sensitivity of results to GLD/QQQ concentration**
-  Core concern: the DE result (GLD 42.7%, QQQ 30.3%) may reflect
-  backtest-fitted concentration in two exceptional 2004-2026 performers
-  rather than genuine All Weather diversification.
+These items represent the gap between a research backtest and a live strategy.
+Do not skip them -- each one addresses a known distortion in the current results.
 
-  Tests in progress / planned:
-  - [ ] Run backtest with DE weights but `BACKTEST_END = "2020-01-01"` --
-        cuts before the final GLD/QQQ surge. If CAGR drops below 8% and
-        Calmar drops below 0.35, the recent surge is driving the headline numbers.
-  - [ ] Run backtest with DE weights but `BACKTEST_END = "2023-01-01"` --
-        includes the 2022 crash but cuts before the 2023-2025 recovery.
+- [ ] **Switch to total return prices (dividends + interest)**
+  Currently the backtest uses price returns only. This materially understates
+  performance, particularly for bond-heavy allocations.
+  - TLT at 3% average coupon yield over 20 years adds ~80% cumulative return
+  - SHY currently yielding ~4-5% -- enormous drag to ignore
+  - GLD pays no dividend -- correct to exclude, no change needed
+  Fix: change `data.py` to pass `auto_adjust=True` to yfinance. One line.
+  After implementing, re-run the full 2006-2026 backtest to establish a new
+  corrected baseline. All previous results will be slightly understated.
+  Verify a spot-check: TLT total return vs price return for a known period.
 
-  Key question: if OPT_MAX_WEIGHT = 0.30 produces a Calmar above 0.40
-  with a more balanced allocation, that is the version to trust for
-  forward-looking use. A marginal Calmar improvement from concentrating
-  in GLD/QQQ is not worth the concentration risk.
+- [ ] **Add transaction costs to backtest**
+  Every monthly rebalancing trade is currently assumed free. Real costs:
+  - Brokerage commission: ~£0-5 per trade (most modern brokers free)
+  - Bid-ask spread: ~0.01-0.05% on liquid ETFs like SPY, TLT, GLD
+  - Stamp duty: 0.5% on UK equity purchases (ETFs listed in London)
+  - FX conversion: ~0.5-1.5% if buying USD-denominated ETFs from a GBP account
+  Add `TRANSACTION_COST_PCT = 0.001` to `config.py` (0.1% per round trip is
+  conservative but realistic for a UK retail investor). Subtract from portfolio
+  value on each rebalancing step in `run_backtest()` in `backtest.py`.
+  Key question: does the strategy still beat 60/40 after costs on small portfolios?
 
-  Compare the following across all three runs:
-    - CAGR and Calmar on full 2004-2026 period
-    - CAGR and Calmar on 2004-2020 subperiod
-    - GLD + QQQ combined weight (lower is more robust)
-    - Walk-forward Window 4 Calmar (2020-2022)
+- [ ] **Model tax drag**
+  Monthly rebalancing is a tax event in most jurisdictions. Each rebalancing
+  trade that realises a gain is taxable:
+  - UK: Capital Gains Tax at 18-24% above the £3,000 annual allowance (2026)
+  - Tax-sheltered wrappers (ISA, SIPP) eliminate this entirely -- consider
+    noting that this strategy is best implemented inside an ISA or SIPP
+  Add a note to the README and config.py clarifying that results assume a
+  tax-sheltered account. For taxable accounts, model a conservative 15% drag
+  on realised gains per year.
 
-- [ ] **GLD weight still exceeds OPT_MAX_WEIGHT after DE clipping**
-  After clip-and-renormalise, GLD ends up at 42.7% despite `OPT_MAX_WEIGHT = 0.40`.
-  Root cause: with SPY, TIP, TLT near minimum weights, renormalisation pulls GLD above
-  the cap. A proper fix requires projecting onto the simplex rather than clip-and-renormalise.
-  For now, either accept 42.7% GLD or lower `OPT_MAX_WEIGHT = 0.35` and re-run DE.
+- [ ] **Test with total return prices then re-run the original Dalio 5-ETF allocation**
+  Dalio's original weights as the purest baseline:
+  ```python
+  TARGET_ALLOCATION = {
+      "SPY": 0.30,   # Stocks
+      "TLT": 0.40,   # Long-term bonds
+      "IEF": 0.15,   # Intermediate bonds
+      "GLD": 0.075,  # Gold
+      "GSG": 0.075,  # Commodities
+  }
+  ```
+  Run `RUN_MODE = "full_backtest"` on 2006-2026 with total return prices.
+  Key question: how much does 20 years of engineering actually add over
+  simply buying the original Dalio allocation unchanged?
 
-- [ ] **Delete and regenerate master_log.csv cleanly**
-  The current file has mixed column structures from old and new code versions.
-  Delete `results/master_log.csv` and let it regenerate on the next run.
-  All historical results are preserved in their individual results folders.
+- [ ] **Add slippage model**
+  Market orders fill at worse than the last price, especially for less liquid
+  instruments. Add `SLIPPAGE_PCT = 0.0005` (0.05% per trade) to `config.py`.
+  For GSG and IWD which are less liquid than SPY/TLT, consider higher slippage.
+  Combine with transaction costs into a single `_apply_trade_costs()` helper
+  in `backtest.py` so both can be toggled independently.
+
+- [ ] **Stress test with historical scenario analysis**
+  The backtest captures 2008 and 2022 but not all relevant scenarios.
+  Add a `RUN_MODE = "scenario"` that slices the backtest to specific periods
+  and reports metrics for each:
+  - 2008-2009 financial crisis (Sep 2008 - Mar 2009)
+  - 2010-2012 European debt crisis
+  - 2013 Taper Tantrum (bond-only shock)
+  - 2018 Q4 equity correction
+  - 2020 Covid crash (Feb-Mar 2020)
+  - 2022 rate shock (Jan-Dec 2022)
+  This gives a richer picture of drawdown behaviour than max drawdown alone
+  and is the kind of analysis a professional would present to a client.
+
+- [ ] **Add fractional share support to rebalancing instructions**
+  Currently rebalancing shows dollar amounts but not share counts, which
+  is what a broker requires. Add share count calculation to `portfolio.py`:
+  ```python
+  shares_to_trade = dollar_amount / current_price
+  ```
+  For small portfolios (<£5,000) some trades may be <1 share -- flag these
+  as "fractional share required" and note whether the user's broker supports it.
+  Interactive Brokers supports fractional shares; many UK brokers do not.
+
+- [ ] **Minimum portfolio size analysis**
+  At £10,000 with 8 assets, each position is ~£1,000-2,500. With a 5%
+  rebalancing threshold and transaction costs, determine the minimum portfolio
+  size below which rebalancing costs erode returns to the point where
+  buy-and-hold is strictly superior. Document this clearly in the README.
+
+---
+
+## 🟡 Strategy -- Immediate Experiments
+
+- [ ] **Run the 8-asset allocation with total return prices**
+  After implementing total return in `data.py`, re-run the current validated
+  allocation (full_backtest 2006-2026) to establish the corrected baseline.
+  Compare IS Calmar, OOS Calmar, and full-period Calmar against the price-only
+  results. Expected: meaningfully higher CAGR, similar drawdown metrics.
+
+- [ ] **Test additional ETFs -- evaluate one at a time**
+  Each addition should be justified by a macro thesis, not just backtest
+  performance. Test each independently against the current 8-asset baseline:
+
+  - [ ] **EFA or VEA (developed markets ex-US equity)**
+    Thesis: reduces US concentration risk, which is at all-time highs by
+    valuation. Replace some QQQ or IWD weight.
+    Concern: adds currency risk; recent decade heavily underperformed US equity.
+
+  - [ ] **TIP (inflation-linked bonds) -- reinstate from 5-asset version**
+    Thesis: direct inflation hedge alongside GSG commodities. Provides a
+    different mechanism of inflation protection than GSG.
+    Concern: got hit in 2022 despite being inflation-linked (rate rise outpaced
+    inflation compensation). Test whether adding it improves 2022 specifically.
+
+  - [ ] **VNQ (REITs)**
+    Thesis: real asset, inflation hedge, different return stream from equities.
+    Concern: highly rate-sensitive, collapsed in 2022 alongside bonds.
+    Likely to correlate with TLT in exactly the wrong scenarios.
+
+  - [ ] **PDBC (commodity futures, better roll structure than GSG)**
+    Thesis: superior commodity exposure with less roll decay than GSG.
+    Concern: inception November 2014, significantly limits backtest.
+    Test on 2015-2026 only, then compare GSG vs PDBC on that subperiod.
+
+- [ ] **Remove assets the optimiser consistently minimises**
+  Across all walk-forward windows and optimisation runs, IWD was consistently
+  pushed to minimum weight. Assess the macro thesis independently:
+  - IWD (value equity): does value factor exposure add to All Weather?
+    If conviction is low, replace IWD weight with SPY or remove entirely.
+  - Decision rule: only remove if macro thesis is lost, not just because
+    the optimiser down-weights it on the IS period.
+
+- [ ] **Weekly frequency comparison**
+  Run the 8-asset manual allocation at weekly frequency to check whether
+  monthly data smooths over intra-month drawdowns:
+  ```python
+  DATA_FREQUENCY       = "W"
+  SHARPE_ANNUALISATION = 52
+  RUN_MODE             = "full_backtest"
+  ```
+  Key question: does max drawdown worsen meaningfully at weekly granularity?
+  Does the Ulcer Index change? If yes, the monthly backtest is overstating
+  the smoothness of the ride.
+
+- [ ] **Run optimiser with multiple seeds to test DE stability**
+  Currently all optimise runs used `OPT_RANDOM_SEED = 42`. Run with seeds
+  42, 123, 7, 0, 999. If Calmar varies by more than 0.05 across seeds,
+  DE is not converging reliably and results cannot be trusted.
+  Consider increasing `OPT_N_TRIALS` if instability is found.
 
 ---
 
 ## 🟡 Code Quality
 
 - [ ] **Add `rebalancing_instructions` tests**
-  The function in `portfolio.py` has meaningful logic (drift calculation,
-  BUY/SELL/HOLD decision, dollar amounts) worth testing directly.
-  Create `tests/test_portfolio.py` with at least these cases:
+  `portfolio.py` has meaningful logic worth testing: drift calculation,
+  BUY/SELL/HOLD decision, dollar amounts. Create `test_portfolio.py`:
   - All assets within threshold → all HOLD
-  - One asset overweight → SELL action triggered
-  - One asset underweight → BUY action triggered
-  - Dollar amounts calculated correctly
+  - One asset overweight → SELL triggered
+  - One asset underweight → BUY triggered
+  - Dollar amounts correct
+  - Threshold boundary: asset at exactly threshold → HOLD
 
 - [ ] **Add retry logic to `data.py`**
-  yfinance occasionally returns malformed data on the first download after
-  opening a fresh terminal. The second run always succeeds because the cache
-  is warm. Add a retry loop (up to 3 attempts, 3-second pause between) with
-  a minimum row count validation to eliminate this intermittent failure:
+  yfinance occasionally returns malformed data on first call after a fresh
+  terminal. Add retry loop (3 attempts, 3-second pause between):
   ```python
-  import time
   for attempt in range(3):
       try:
-          raw = yf.download(...)
+          prices = yf.download(...)
           if len(prices) < 100:
-              raise ValueError(f"Too few rows ({len(prices)})")
+              raise ValueError(f"Too few rows: {len(prices)}")
           return prices
       except Exception as e:
           if attempt < 2:
@@ -73,127 +183,125 @@ Last updated: 2026-03-17
               raise
   ```
 
-- [ ] **Fix `validation.py` docstring -- section label above `run_walk_forward`**
-  The section comment still implies it may be a Pareto section from an older
-  version. Confirm the header reads `# WALK-FORWARD VALIDATION` and nothing else.
+- [ ] **Update test_stats.py to cover new stat helpers**
+  Prompt 1 added five new functions to `backtest.py` that have no tests:
+  - `compute_avg_drawdown`
+  - `compute_max_drawdown_duration`
+  - `compute_avg_recovery_time`
+  - `compute_ulcer_index`
+  - `compute_sortino`
+  Add at least 3 tests per function (normal case, edge case, zero case).
+  Target: bring test count from 21 to ~40.
 
-- [ ] **`optimiser.py` -- `de_objective` called with already-normalised weights**
-  After clipping, `best_score = de_objective(best_weights)` is called, but
-  `de_objective` internally calls `w / w.sum()` again on already-summed weights.
-  This is harmless (normalising a normalised vector is a no-op) but is misleading.
-  Either pass `best_weights` directly to `_score_allocation` or document the
-  idempotency clearly.
+- [ ] **Fix walk-forward overfit ratio summary statistic**
+  The mean overfit ratio is currently distorted by outlier windows where
+  the test period was unusually benign (Window 1 ratios of 7-17x). This
+  makes the summary statistic misleading.
+  Options:
+  1. Clamp individual overfit ratios to max 2.0 before averaging
+  2. Report median overfit ratio instead of mean
+  3. Report both, clearly labelled
+  The verdict logic ("Allocation appears robust") should use the clamped
+  or median value, not the raw mean.
+
+- [ ] **Remove unused import in export.py**
+  `from openpyxl import load_workbook` is imported but never used.
+  Remove it.
 
 ---
 
-## 🟢 Strategy -- Next Experiments
+## 🟢 Rebalancing Methodology
 
-- [ ] **Weekly frequency comparison**
-  The full analysis has been run with monthly data (`DATA_FREQUENCY = "ME"`).
-  Now run the same workflow with weekly data to see if drawdown figures change:
-  ```python
-  DATA_FREQUENCY       = "W"
-  SHARPE_ANNUALISATION = 52
-  RUN_LABEL            = "TIP_5asset_weekly_walkforward"
-  ```
-  Run walk-forward → DE optimiser → final backtest.
-  Key question: does weekly resampling reveal intra-month drawdowns that monthly
-  data smooths over? Does the optimal allocation change?
+- [ ] **Consider rebalancing timing to reduce timing luck**
+  Three options in increasing complexity:
 
-- [ ] **Run walk-forward with multiple random seeds**
-  All walk-forward runs used `OPT_RANDOM_SEED = 42`. Run with seeds
-  0, 1, 2, 42, 123 and compare mean overfit ratios. If results vary
-  dramatically, the finding is not stable and more trials are needed.
+  1. **Month-start (`"MS"`)** -- change `"ME"` to `"MS"` in `config.py`.
+     Avoids month-end window dressing. One-line change.
 
-- [ ] **Paper trading account setup**
-  Set up a paper trading account (Interactive Brokers, Alpaca, or Webull --
-  all offer real live prices with no real money). Follow the monthly
-  rebalancing instructions and track performance for 6-12 months.
-  This is the minimum live evidence needed before using real money.
-
-- [ ] **Consider improving rebalancing timing to reduce timing luck**
-  Three options in increasing order of complexity and robustness:
-
-  1. **Month-start (`"MS"`)** -- change `"ME"` to `"MS"` in `config.py` and
-     `backtest.py`. One line each. Avoids month-end window dressing at zero cost.
-
-  2. **Mid-month (15th)** -- resample on the 15th of each month rather than
-     the last trading day. Avoids both turn-of-month and month-end distortions.
+  2. **Mid-month (15th)** -- resample on the 15th of each month.
+     Avoids both turn-of-month and month-end distortions.
      Requires a small custom resampling function in `backtest.py`.
 
-  3. **Overlapping portfolios (Newfound Research method)** -- split the portfolio
-     into 4 equal sub-portfolios, each rebalancing once a month on a different
-     week. Effectively rebalances 1/4 of the portfolio each week. Eliminates
-     timing luck almost entirely while keeping total turnover identical to a
-     single monthly rebalance. Requires running 4 parallel backtests and
-     averaging the results -- significant implementation effort.
+  3. **Overlapping portfolios (Newfound Research method)** -- split into
+     4 sub-portfolios rebalancing on different weeks. Eliminates timing
+     luck while keeping total turnover identical. Significant effort.
 
-  Low priority for current asset universe (SPY, QQQ, TLT, TIP, GLD are all
-  highly liquid -- timing distortions are negligible). Worth revisiting before
-  publishing results or launching a product where methodology will be scrutinised.
+  Low priority given highly liquid ETFs. Worth revisiting before publishing.
 
----
-
-## 🟢 Strategy -- Future Asset Experiments
-
-The current final allocation (TIP 5-asset, DE-optimised) is the best found
-so far. Future experiments to consider when extending the project:
-
-- [ ] **Test with international equity diversification**
-  Add VT (Vanguard Total World, from June 2008) alongside or replacing QQQ
-  to reduce US-concentration risk. Note: VT limits backtest start to 2008.
-
-- [ ] **Test PDBC as DJP replacement**
-  PDBC has a better commodity futures roll structure than DJP but starts
-  November 2014 -- limits backtest significantly. Worth testing in a
-  separate experiment with a shorter backtest period.
-
-- [ ] **60/40 benchmark addition**
-  Add a 60% SPY / 40% TLT buy-and-hold benchmark to `backtest.py` as a
-  third comparison alongside SPY. This is the classic institutional benchmark
-  and a more direct competitor to All Weather than pure SPY.
-  Files to change: `backtest.py`, `plotting.py`, `export.py`, `validation.py`.
-  Do this as a separate experiment after weekly comparison is complete.
+- [ ] **Threshold rebalancing vs calendar rebalancing comparison**
+  Currently: rebalance every month regardless of drift.
+  Alternative: rebalance only when an asset drifts beyond threshold.
+  Test: run backtest with `REBALANCE_THRESHOLD = 0.10` (10% drift trigger)
+  vs current monthly rebalancing. Expect: fewer trades, lower costs, slightly
+  higher drawdown. May be better for taxable accounts.
 
 ---
 
-## 🔵 Product (longer term, before selling)
+## 🔵 Paper Trading Setup
 
-- [ ] **Web interface**
-  No normal user will run a Python script. Minimum viable product requires:
+- [ ] **Choose broker and open paper trading account**
+  Recommended options for UK retail investor:
+  - Interactive Brokers (IBKR): best for paper trading, free, real market data
+  - Trading 212 (paper mode): simpler UI, good for learning
+  - eToro virtual portfolio: easiest but limited instruments
+  Requirement: must support all 8 ETFs (SPY, QQQ, IWD, TLT, IEF, SHY, GLD, GSG).
+  Note: some UK brokers restrict US-listed ETFs (MiFID II). Check before opening.
+
+- [ ] **Decide on UK-listed equivalents if needed**
+  MiFID II restricts UK retail investors from buying US-listed ETFs directly
+  through some brokers. UK-listed equivalents:
+  - SPY → CSPX (iShares Core S&P 500, London-listed)
+  - QQQ → EQQQ (Invesco NASDAQ 100, London-listed)
+  - TLT → IDTL (iShares $ Treasury Bond 20+yr, London-listed)
+  - GLD → IGLN (iShares Physical Gold, London-listed)
+  Run a spot-check backtest comparing US vs UK-listed versions on a
+  common period to confirm tracking error is acceptable.
+
+- [ ] **Define paper trading protocol**
+  - Run `RUN_MODE = "oos_evaluate"` at month-end to get rebalancing instructions
+  - Execute trades in paper account within 2 trading days of month-end
+  - Log actual fill prices vs model prices to measure real-world slippage
+  - Track paper account performance against the model for 3-6 months
+  - If paper vs model divergence is consistently <0.5% per month, proceed
+    to live trading
+
+- [ ] **Define go/no-go criteria for live trading**
+  Do not move to live money without clear criteria:
+  - Paper trading period: minimum 3 months (6 preferred)
+  - Paper vs model tracking error: <1% cumulative over the period
+  - Maximum paper drawdown not exceeded vs model prediction: <2% gap
+  - Personal conviction in the macro thesis still intact
+  - Tax wrapper confirmed: ISA or SIPP preferred to avoid CGT on rebalancing
+
+---
+
+## 🔵 Product (longer term, before monetising)
+
+- [ ] **Web interface (FastAPI + React)**
+  Minimum viable product:
   - Enter current holdings
   - See monthly rebalancing instructions
   - View performance charts
-  Suggested stack: FastAPI backend, simple HTML/JS or React frontend.
-  This is ~80% of the remaining work before the tool is sellable.
+  This is ~80% of remaining work before the tool is usable by non-developers.
 
 - [ ] **User accounts and data persistence**
   Replace local `portfolio_holdings.json` with per-user storage.
-  SQLite for a simple single-server deployment, PostgreSQL for multi-user.
+  SQLite for single-server, PostgreSQL for multi-user.
 
 - [ ] **Automated monthly reminders**
-  Email or push notification to tell users it is time to rebalance.
-  Simplest implementation: a cron job that runs `main.py` and emails
-  the rebalancing instructions.
-
-- [ ] **Transaction costs in backtest**
-  Every rebalance is currently assumed free. Add `TRANSACTION_COST` to
-  `config.py` to get a more realistic picture:
-  ```python
-  TRANSACTION_COST = 0.0005   # 0.05% per trade (buy and sell)
-  ```
-  This requires changes to `run_backtest` in `backtest.py` to subtract
-  cost from the portfolio value on each rebalancing step.
+  Email or push notification at month-end with rebalancing instructions.
+  Simplest: cron job running `main.py` and emailing output.
 
 - [ ] **Legal disclaimers and terms of service**
   Before charging money:
   - Statement that you are not a financial advisor
   - Past performance disclaimer
   - Terms of service covering liability
-  Consult a lawyer before launching.
+  Consult a lawyer. In the UK, providing financial advice without FCA
+  authorisation is a criminal offence.
 
 - [ ] **Pricing model decision**
-  Options: monthly subscription (£5-15/month is typical for this category),
+  Options: monthly subscription (£5-15/month typical for this category),
   one-time purchase, or freemium with paid optimiser/validation features.
 
 ---
@@ -202,56 +310,46 @@ so far. Future experiments to consider when extending the project:
 
 - [x] Split single file into 9 modules (config, data, backtest, portfolio,
       optimiser, validation, plotting, export, main)
-- [x] Remove all global variable reads from functions -- explicit parameters
 - [x] Replace stats dict hack with StrategyStats dataclass
-- [x] Add four stat helpers (compute_cagr, compute_max_drawdown, compute_sharpe, compute_calmar)
+- [x] Add four stat helpers (CAGR, MaxDD, Sharpe, Calmar)
+- [x] Add five new stat helpers (AvgDD, MaxDDDuration, AvgRecovery, Ulcer, Sortino)
 - [x] Add four optimisation methods (random, calmar, differential_evolution, sharpe_slsqp)
-- [x] Fix random search best_score initialisation (was 0.0, now np.inf)
+- [x] Add asset class group caps (ASSET_CLASS_GROUPS, ASSET_CLASS_MAX_WEIGHT)
 - [x] Add Pareto frontier analysis
-- [x] Add walk-forward validation with overfit ratio and chart
+- [x] Add walk-forward validation with overfit ratio, chart, and CSV
 - [x] Add versioned results folders (timestamped, never overwritten)
-- [x] Add master_log.csv for cross-run comparison
-- [x] Add run_config.json for reproducibility
-- [x] Add validate_config() -- catches bad parameters at startup
+- [x] Add master_log.xlsx with grouped strategy headers (replaced CSV)
+- [x] Add run_config.json for full reproducibility
+- [x] Add validate_config() with comprehensive parameter checking
 - [x] Add OPT_RANDOM_SEED for reproducibility
 - [x] Add DATA_FREQUENCY and SHARPE_ANNUALISATION as config parameters
-- [x] Fix config validation ordering -- frequency assert now before success print
-- [x] Add WF_OPT_METHOD parameter with validation
-- [x] Add WF_OPT_METHOD to run_config.json
-- [x] Add Data Frequency column to master log
-- [x] Fix Results Folder column position in master log (was shifting stat columns)
-- [x] Fix np.float64 display in Pareto output
-- [x] Add DE clip-and-renormalise to enforce OPT_MAX_WEIGHT after optimisation
-- [x] Add rescore after clipping so reported Calmar matches actual clipped weights
-- [x] Add retry logic stub noted as TODO (not yet implemented -- see above)
-- [x] Write unit tests -- 24 tests, all passing
-- [x] Add conftest.py with shared fixtures
-- [x] Parametrize CAGR and Calmar tests
-- [x] Add TOLERANCE constant to test file
-- [x] Strengthen test_cagr_negative_growth to check exact value
-- [x] Replace redundant drawdown test with dip_at_start edge case
-- [x] Add test_sharpe_annualisation and test_sharpe_higher_return_means_higher_sharpe
-- [x] Add test_calmar_inversely_proportional_to_drawdown
-- [x] Add test_calmar_positive_drawdown_input
-- [x] Write README.md
+- [x] Refactor RUN_MODE to enforce IS/OOS boundary:
+      backtest / optimise / walk_forward / pareto → BACKTEST_START to OOS_START
+      oos_evaluate → OOS_START to BACKTEST_END
+      full_backtest → BACKTEST_START to BACKTEST_END
+- [x] Add OOS_START to config.py, validate_config(), master log, run_config.json
+- [x] Add Run Mode column to master log
+- [x] Auto-generate RUN_LABEL from parameters via _build_run_label()
+- [x] Add 60/40 (SPY/TLT annually rebalanced) as fourth strategy in backtest
+- [x] Add third panel to backtest chart: Buy & Hold allocation drift over time
+- [x] Migrate master_log from CSV to Excel with grouped strategy headers
+- [x] Repair master_log.xlsx three-generation column misalignment
+- [x] Fix append_to_master_log() positional column assignment bug
+- [x] Update METRIC_COLS in export.py to include all 10 metrics
+- [x] Add walk_forward and pareto modes to skip spurious backtest pipeline
+- [x] Add OOS_START to save_run_config() in export.py
 - [x] Set up GitHub repository
-- [x] Run three walk-forward configurations (5yr/2yr/5yr, 6yr/2yr/4yr, 4yr/2yr/4yr)
-- [x] Run original 6-asset DE -- found QQQ+GLD heavy allocation (Calmar 0.524)
-- [x] Identify that SPY, LQD, DJP consistently hit minimum weight
-- [x] Identify TIP as key missing asset for inflation protection
-- [x] Run full TIP experiment sequence:
-      - 4-asset TIP walk-forward
-      - 5-asset TIP+SPY walk-forward
-      - 5-asset DE optimiser (Calmar 0.561)
-      - Walk-forward on DE weights (validated)
-      - Final clean backtest -- TIP_5asset_final_v2
-- [x] Confirm DE weights beat SPY on all risk-adjusted metrics over 21 years
-- [x] Confirm Window 4 (2020-2022) Calmar 2.691 with DE weights -- TIP working
-- [x] Final allocation confirmed:
-      SPY 6.2% | QQQ 30.3% | TLT 14.6% | TIP 6.2% | GLD 42.7%
-      CAGR 11.26% | Max DD -20.78% | Sharpe 1.078 | Calmar 0.542
-- [x] Identified that GLD (42.7%) and QQQ (30.3%) exceptional 2004-2026
-      performance is likely driving headline results -- concentration risk
-      flagged and sensitivity tests initiated
-- [x] Run DE with `OPT_MAX_WEIGHT = 0.30` -- forces genuine diversification,
-        prevents any single asset dominating. Currently running.
+- [x] Write unit tests (21 tests, all passing)
+- [x] Add conftest.py with shared fixtures
+- [x] Completed 8-asset experiment sequence:
+      - IS baseline backtest (manual weights, 2006-2020)
+      - IS optimisation with DE (Calmar 0.467)
+      - Walk-forward validation (4 windows, moderate overfitting confirmed)
+      - OOS evaluation (manual weights, 2020-2026, Calmar 0.441)
+      - Full backtest (2006-2026, Calmar 0.354)
+- [x] Validated that 8-asset manual allocation beats 60/40 on all risk-adjusted
+      metrics OOS (Calmar 0.441 vs 0.263, MaxDD -18.38% vs -26.37%)
+- [x] Confirmed DE optimiser does not reliably beat manual allocation on this
+      dataset -- walk-forward win rate 1-3/4 across all cap configurations
+- [x] Identified that B&H consistently beats rebalanced on Calmar in trending
+      markets -- framed correctly as AW_R vs 60/40 comparison, not vs B&H

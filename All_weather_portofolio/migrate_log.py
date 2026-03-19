@@ -49,8 +49,8 @@ COLUMN_RENAMES = {
     "SandP_500_Buy_and_Hold_Final_Value ($)":     "SPY_Fin_Val ($)",
 }
 
-META_COLS      = ["Timestamp", "Label", "Backtest Start", "Backtest End",
-                  "Data Freq", "Tickers"]
+META_COLS      = ["Timestamp", "Label", "Run Mode", "Backtest Start", "Backtest End",
+                  "OOS Start", "Data Freq", "Tickers"]
 STRATEGY_NAMES = ["AW_R", "B&H_AW", "SPY"]
 METRIC_COLS    = ["CAGR (%)", "Max_DD (%)", "Sharpe", "Calmar", "Fin_Val ($)"]
 
@@ -164,8 +164,10 @@ def write_excel_log(log_path: str, rows: list):
 
     ws.column_dimensions[get_column_letter(col_index["Timestamp"])].width      = 16
     ws.column_dimensions[get_column_letter(col_index["Label"])].width          = 30
+    ws.column_dimensions[get_column_letter(col_index["Run Mode"])].width       = 14
     ws.column_dimensions[get_column_letter(col_index["Backtest Start"])].width = 13
     ws.column_dimensions[get_column_letter(col_index["Backtest End"])].width   = 13
+    ws.column_dimensions[get_column_letter(col_index["OOS Start"])].width      = 13
     ws.column_dimensions[get_column_letter(col_index["Data Freq"])].width      = 10
     ws.column_dimensions[get_column_letter(col_index["Tickers"])].width        = 45
     ws.column_dimensions[get_column_letter(col_index["Results Folder"])].width = 55
@@ -202,6 +204,10 @@ print(f"Columns before rename: {list(df.columns)}")
 
 df = df.rename(columns=COLUMN_RENAMES)
 print(f"Columns after rename:  {list(df.columns)}")
+
+# Populate new META_COLS that did not exist in old log rows
+df["Run Mode"]  = ""
+df["OOS Start"] = ""
 
 flat_cols    = all_flat_columns()
 missing_cols = [c for c in flat_cols if c not in df.columns]

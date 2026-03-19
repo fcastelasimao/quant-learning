@@ -40,22 +40,27 @@ def style_ax(ax):
 def plot_backtest(backtest: pd.DataFrame,
                   stats_list: list[StrategyStats],
                   results_dir: str,
-                  label: str):
+                  label: str,
+                  allocation: dict):
     """
-    Two-panel dark-theme backtest chart saved to results_dir/backtest.png.
+    Three-panel dark-theme backtest chart saved to results_dir/backtest.png.
 
     Panel 1 -- Portfolio value over time for all three strategies.
                Includes a final-value annotation with Calmar ratio.
 
     Panel 2 -- Annual returns bar chart for all three strategies.
                Positive bars use the strategy colour, negative bars use red/amber.
+
+    Panel 3 -- Buy & Hold allocation drift over time as a stacked area chart.
+               Shows how each asset's share of the unmanaged portfolio evolves.
     """
-    fig = plt.figure(figsize=(15, 13))
+    fig = plt.figure(figsize=(15, 19))
     fig.patch.set_facecolor("#0d1117")
 
-    gs  = fig.add_gridspec(2, 1, height_ratios=[3, 2], hspace=0.48)
+    gs  = fig.add_gridspec(3, 1, height_ratios=[3, 2, 2], hspace=0.55)
     ax1 = fig.add_subplot(gs[0])
     ax2 = fig.add_subplot(gs[1])
+    ax3 = fig.add_subplot(gs[2])
 
     COLORS = {
         "aw":   "#58a6ff",   # blue  -- All Weather rebalanced
@@ -64,7 +69,7 @@ def plot_backtest(backtest: pd.DataFrame,
         "6040": "#3fb950",   # green -- 60/40
     }
 
-    for ax in [ax1, ax2]:
+    for ax in [ax1, ax2, ax3]:
         style_ax(ax)
 
     # ── Panel 1: Portfolio value over time ──────────────────────────────────
@@ -150,6 +155,25 @@ def plot_backtest(backtest: pd.DataFrame,
                   fontsize=11, pad=8)
     ax2.legend(fontsize=8, facecolor="#21262d", edgecolor="#30363d",
                labelcolor="white", ncol=4)
+
+    # ── Panel 3: Buy & Hold allocation drift (stacked area) ─────────────────
+    PALETTE = ["#58a6ff", "#3fb950", "#d2a8ff", "#f0b429",
+               "#f78166", "#79c0ff", "#56d364", "#e3b341"]
+
+    weight_arrays = [backtest[f"B&H {t} Weight (%)"].values for t in allocation]
+
+    ax3.stackplot(backtest.index, *weight_arrays,
+                  labels=list(allocation.keys()),
+                  colors=PALETTE[:len(allocation)], alpha=0.85)
+    ax3.set_ylim(0, 100)
+    ax3.set_ylabel("Portfolio Weight (%)", fontsize=10)
+    ax3.set_title("Buy & Hold Allocation Drift Over Time",
+                  fontsize=11, pad=8)
+    ax3.yaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda x, _: f"{x:.0f}%"))
+    ax3.legend(fontsize=8, facecolor="#21262d", edgecolor="#30363d",
+               labelcolor="white", loc="upper left",
+               ncol=len(allocation))
 
     save_path = os.path.join(results_dir, "backtest.png")
     plt.savefig(save_path, dpi=150, bbox_inches="tight",

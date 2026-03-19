@@ -18,8 +18,9 @@ import numpy as np
 
 INITIAL_PORTFOLIO_VALUE = 10_000    # Starting portfolio value in USD
 
-BACKTEST_START = "2004-01-01"       # format: YYYY-MM-DD
+BACKTEST_START = "2006-01-01"       # format: YYYY-MM-DD
 BACKTEST_END   = "2026-01-01"       # format: YYYY-MM-DD
+OOS_START      = "2020-01-01"       # IS ends here; OOS begins here
 
 REBALANCE_THRESHOLD = 0.05          # Rebalance if any asset drifts > this
                                     # fraction from its target weight
@@ -34,33 +35,38 @@ BENCHMARK_TICKER = "SPY"            # S&P 500 benchmark for comparison
 
 HOLDINGS_FILE    = "portfolio_holdings.json"
 
-#RUN_MODE = "optimise"
-#RUN_MODE = "walk_forward"
-#RUN_MODE = "pareto"             
-RUN_MODE = "backtest_only"
+#RUN_MODE = "optimise"          # BACKTEST_START to OOS_START
+#RUN_MODE = "walk_forward"      # BACKTEST_START to OOS_START
+#RUN_MODE = "pareto"            # BACKTEST_START to OOS_START
+#RUN_MODE = "oos_evaluate"      # OOS_START to BACKTEST_END  
+RUN_MODE = "full_backtest"     # BACKTEST_START to BACKTEST_END
+#RUN_MODE = "backtest"           # BACKTEST_START to OOS_START 
 
 # ===========================================================================
 # TARGET ALLOCATION
 # ===========================================================================
 # Weights must sum to 1.0 -- the assert below will catch mistakes immediately.
 # ETF inception dates (earliest usable backtest start):
-#   VTI  -- May 2001            DJP  -- February 2006
-#   TLT  -- July 2002           LQD  -- July 2002
-#   IEF  -- July 2002           QQQ  -- March 1999
-#   GLD  -- November 2004
+#   SPY  -- January 1993        QQQ  -- March 1999
+#   TLT  -- July 2002           IEF  -- July 2002
+#   SHY  -- July 2002           GLD  -- November 2004
+#   IWD  -- January 2000        GSG  -- July 2006  <-- limits start to 2006
 
 TARGET_ALLOCATION = {
-    "SPY":  0.142,  # US Large Cap stocks
-    "QQQ":  0.143,  # US Tech stocks
-    "TLT":  0.143,    # Long-Term Government Bonds
-    "TIP":  0.143,  # Inflation-Protected Bonds
-    "GLD":  0.143,  # Gold
-    "SHY":  0.143,    # Short-Term Government Bonds (cash proxy)
-    "IWD":  0.143,    # US Small Cap stocks§
+    "SPY": 0.10,    # Stocks -- broad US equity
+    "QQQ": 0.15,    # Stocks -- US tech
+    "IWD": 0.10,    # Stocks -- US value equity
+    "TLT": 0.25,    # Long bonds -- long-term government
+    "IEF": 0.10,    # Intermediate bonds -- 7-10yr government
+    "SHY": 0.05,    # Intermediate bonds -- short-term anchor
+    "GLD": 0.15,    # Gold
+    "GSG": 0.10,    # Commodities -- broad basket
 }
 
 assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
     f"TARGET_ALLOCATION weights must sum to 1.0, got {sum(TARGET_ALLOCATION.values()):.4f}"
+
+
 
 # ===========================================================================
 # OPTIMISER PARAMETERS
@@ -89,10 +95,28 @@ assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
 
 OPT_METHOD     = "differential_evolution"
 OPT_MIN_WEIGHT = 0.05               # minimum weight per asset (0.0 to 1.0)
-OPT_MAX_WEIGHT = 0.30               # maximum weight per asset (0.0 to 1.0)
+OPT_MAX_WEIGHT = 0.25               # maximum weight per asset (0.0 to 1.0)
 OPT_MIN_CAGR   = 0.0                # minimum acceptable CAGR in percent
 OPT_N_TRIALS   = 10_000             # random/calmar trials -- higher = better, slower
 OPT_RANDOM_SEED = 42                # set to None for different results each run
+#OPT_RANDOM_SEED = 123  
+#OPT_RANDOM_SEED = 7     
+
+ASSET_CLASS_GROUPS = {
+    "stocks":             ["SPY", "QQQ", "IWD"],
+    "long_bonds":         ["TLT"],
+    "intermediate_bonds": ["IEF", "SHY"],
+    "gold":               ["GLD"],
+    "commodities":        ["GSG"],
+}
+
+ASSET_CLASS_MAX_WEIGHT = {
+    "stocks":             0.40,   # total stocks cannot exceed 40%
+    "long_bonds":         0.40,   # total long bonds cannot exceed 40%
+    "intermediate_bonds": 0.25,   # total intermediate bonds cannot exceed 25%
+    "gold":               0.20,   # gold cannot exceed 20%
+    "commodities":        0.20,   # commodities cannot exceed 20%
+}
 
 # ===========================================================================
 # PARETO FRONTIER
@@ -115,8 +139,18 @@ WF_OPT_METHOD = "differential_evolution"    # "calmar" for speed, "differential_
 # RUN LABEL  (auto-generated from parameters -- no need to edit manually)
 # ===========================================================================
 
-def _build_run_label() -> str:
-    """Return a descriptive folder-name label derived from the current parameters."""
+def _build_run_label(price_start: str, price_end: str) -> str:
+    """
+    Return a self-describing folder-name label for this run.
+
+    Parameters
+    ----------
+    price_start : the actual start date used for this run (not always BACKTEST_START)
+    price_end   : the actual end date used for this run   (not always BACKTEST_END)
+
+    Both are derived in main.py from RUN_MODE + the three date constants so the
+    label always matches what was actually run, not the global config dates.
+    """
     _method_abbr = {
         "differential_evolution": "de",
         "sharpe_slsqp":           "sharpe",
@@ -125,14 +159,19 @@ def _build_run_label() -> str:
     }
     _freq_abbr = {"ME": "M", "W": "W"}
 
-    n       = len(TARGET_ALLOCATION)
-    tickers = "-".join(TARGET_ALLOCATION.keys())
-    freq    = _freq_abbr.get(DATA_FREQUENCY, DATA_FREQUENCY)
-    start   = BACKTEST_START[:4]
-    end     = BACKTEST_END[:4]
+    n     = len(TARGET_ALLOCATION)
+    freq  = _freq_abbr.get(DATA_FREQUENCY, DATA_FREQUENCY)
+    start = price_start[:4]
+    end   = price_end[:4]
 
-    if RUN_MODE == "backtest_only":
-        return f"bt_{n}assets_{tickers}_{freq}_{start}_{end}"
+    if RUN_MODE == "backtest":
+        return f"backtest_{n}assets_{freq}_{start}_{end}"
+
+    if RUN_MODE == "oos_evaluate":
+        return f"oos_evaluate_{n}assets_{freq}_{start}_{end}"
+
+    if RUN_MODE == "full_backtest":
+        return f"full_backtest_{n}assets_{freq}_{start}_{end}"
 
     if RUN_MODE == "optimise":
         method = _method_abbr.get(OPT_METHOD, OPT_METHOD)
@@ -150,9 +189,6 @@ def _build_run_label() -> str:
         return f"pareto_{n}assets_{freq}_{start}_{end}"
 
     return f"run_{n}assets_{freq}_{start}_{end}"  # fallback
-
-
-RUN_LABEL = _build_run_label()
 
 # ===========================================================================
 # VALIDATION
@@ -177,11 +213,14 @@ def validate_config():
     assert INITIAL_PORTFOLIO_VALUE > 0, \
         "INITIAL_PORTFOLIO_VALUE must be positive"
     assert datetime.strptime(BACKTEST_START, "%Y-%m-%d") < \
+           datetime.strptime(OOS_START,      "%Y-%m-%d") < \
            datetime.strptime(BACKTEST_END,   "%Y-%m-%d"), \
-        f"BACKTEST_START ({BACKTEST_START}) must be before BACKTEST_END ({BACKTEST_END})"
-    assert RUN_MODE in ("optimise", "walk_forward", "pareto", "backtest_only"), \
-    f"Unknown RUN_MODE: '{RUN_MODE}'. " \
-    f"Choose from: optimise, walk_forward, pareto, backtest_only"
+        "BACKTEST_START < OOS_START < BACKTEST_END must hold"
+    assert RUN_MODE in (
+        "backtest", "optimise", "walk_forward",
+        "pareto", "oos_evaluate", "full_backtest"
+    ), (f"Unknown RUN_MODE: '{RUN_MODE}'. Choose from: backtest, optimise, "
+        f"walk_forward, pareto, oos_evaluate, full_backtest")
     assert OPT_METHOD in ("random", "calmar", "differential_evolution", "sharpe_slsqp"), \
         f"Unknown OPT_METHOD: '{OPT_METHOD}'. " \
         f"Choose from: random, calmar, differential_evolution, sharpe_slsqp"
@@ -197,6 +236,6 @@ def validate_config():
         assert WF_TRAIN_YEARS > 0 and WF_TEST_YEARS > 0 and WF_STEP_YEARS > 0, \
         "Walk-forward year parameters must all be positive"
         assert WF_TRAIN_YEARS + WF_TEST_YEARS <= \
-           (datetime.strptime(BACKTEST_END,   "%Y-%m-%d") -
+           (datetime.strptime(OOS_START,      "%Y-%m-%d") -
             datetime.strptime(BACKTEST_START, "%Y-%m-%d")).days / 365.25, \
-        "WF_TRAIN_YEARS + WF_TEST_YEARS exceeds the total backtest period"
+        "WF_TRAIN_YEARS + WF_TEST_YEARS exceeds the in-sample period (BACKTEST_START to OOS_START)"

@@ -42,13 +42,18 @@ class StrategyStats:
       - Stats accessed by attribute (s.cagr) not fragile string (s["  CAGR (%) "])
       - Type-checked by static analysis tools
     """
-    name:         str
-    cagr:         float     # compound annual growth rate (%)
-    max_drawdown: float     # peak-to-trough decline (%, negative number)
-    sharpe:       float     # annualised Sharpe ratio
-    calmar:       float     # CAGR / |max drawdown| -- balanced risk/return
-    final_value:  float     # portfolio value at end of period ($)
-    period_years: float     # length of the backtest period
+    name:              str
+    cagr:              float     # compound annual growth rate (%)
+    max_drawdown:      float     # peak-to-trough decline (%, negative number)
+    sharpe:            float     # annualised Sharpe ratio
+    calmar:            float     # CAGR / |max drawdown| -- balanced risk/return
+    final_value:       float     # portfolio value at end of period ($)
+    period_years:      float     # length of the backtest period
+    avg_drawdown:      float     # mean drawdown across all underwater periods (%)
+    max_dd_duration:   int       # longest consecutive months below peak
+    avg_recovery_time: float     # average months to recover from a drawdown
+    ulcer_index:       float     # RMS of all drawdown percentages
+    sortino:           float     # downside-only Sharpe ratio
 
 
 # ===========================================================================
@@ -110,6 +115,95 @@ def compute_calmar(cagr: float, max_drawdown: float) -> float:
     if max_drawdown == 0.0:
         return 0.0
     return cagr / abs(max_drawdown)
+
+
+def compute_avg_drawdown(series: pd.Series) -> float:
+    """
+    Average of all drawdown values (not just the maximum).
+    Computed as the mean of (value - running_peak) / running_peak * 100
+    across all time steps where the portfolio is below its peak.
+    Returns 0.0 if the portfolio never draws down.
+    Returns a negative number. Closer to 0 is better.
+    """
+    peak = series.cummax()
+    dd_series = ((series - peak) / peak) * 100
+    underwater = dd_series[dd_series < 0]
+    if underwater.empty:
+        return 0.0
+    return round(underwater.mean(), 2)
+
+
+def compute_max_drawdown_duration(series: pd.Series) -> int:
+    """
+    Maximum number of consecutive periods spent below a previous peak.
+    Returns an integer (number of monthly periods).
+    A value of 0 means the portfolio never drew down.
+    """
+    peak = series.cummax()
+    underwater = (series < peak)
+    max_duration = 0
+    current = 0
+    for u in underwater:
+        if u:
+            current += 1
+            max_duration = max(max_duration, current)
+        else:
+            current = 0
+    return max_duration
+
+
+def compute_avg_recovery_time(series: pd.Series) -> float:
+    """
+    Average number of months to recover from each distinct drawdown episode.
+    A drawdown episode starts when the portfolio falls below its peak and
+    ends when it returns to or exceeds that peak.
+    Returns 0.0 if no complete recovery episodes exist.
+    """
+    peak = series.cummax()
+    underwater = (series < peak).values
+    durations = []
+    current = 0
+    in_drawdown = False
+    for u in underwater:
+        if u:
+            in_drawdown = True
+            current += 1
+        elif in_drawdown:
+            durations.append(current)
+            current = 0
+            in_drawdown = False
+    if not durations:
+        return 0.0
+    return round(float(np.mean(durations)), 1)
+
+
+def compute_ulcer_index(series: pd.Series) -> float:
+    """
+    Ulcer Index — measures both depth and duration of drawdowns via RMS.
+    Formula: sqrt(mean(drawdown_pct^2)) where drawdown_pct is the
+    percentage decline from the running peak at each time step.
+    Lower is better. Unlike max drawdown, this penalises extended
+    periods of being moderately underwater, not just the single worst point.
+    """
+    peak = series.cummax()
+    dd_pct = ((series - peak) / peak) * 100
+    return round(float(np.sqrt((dd_pct ** 2).mean())), 4)
+
+
+def compute_sortino(monthly_ret_series: pd.Series) -> float:
+    """
+    Sortino ratio — like Sharpe but only penalises downside volatility.
+    Formula: (mean monthly return / downside deviation) * sqrt(annualisation)
+    Downside deviation uses only months where return < 0.
+    Returns 0.0 if there are no negative return months or empty series.
+    """
+    r = monthly_ret_series.dropna() / 100
+    if len(r) == 0:
+        return 0.0
+    downside = r[r < 0]
+    if len(downside) == 0 or downside.std() < 1e-10:
+        return 0.0
+    return round((r.mean() / downside.std()) * np.sqrt(config.SHARPE_ANNUALISATION), 3)
 
 
 # ===========================================================================
@@ -264,13 +358,18 @@ def compute_stats(backtest: pd.DataFrame) -> list[StrategyStats]:
         cagr   = round(compute_cagr(series, years), 2)
         mdd    = round(compute_max_drawdown(series), 2)
         return StrategyStats(
-            name         = name,
-            cagr         = cagr,
-            max_drawdown = mdd,
-            sharpe       = round(compute_sharpe(backtest[ret_col]), 3),
-            calmar       = round(compute_calmar(cagr, mdd), 3),
-            final_value  = round(series.iloc[-1], 2),
-            period_years = round(years, 1),
+            name              = name,
+            cagr              = cagr,
+            max_drawdown      = mdd,
+            sharpe            = round(compute_sharpe(backtest[ret_col]), 3),
+            calmar            = round(compute_calmar(cagr, mdd), 3),
+            final_value       = round(series.iloc[-1], 2),
+            period_years      = round(years, 1),
+            avg_drawdown      = compute_avg_drawdown(series),
+            max_dd_duration   = compute_max_drawdown_duration(series),
+            avg_recovery_time = compute_avg_recovery_time(series),
+            ulcer_index       = compute_ulcer_index(series),
+            sortino           = compute_sortino(backtest[ret_col]),
         )
 
     stats = [

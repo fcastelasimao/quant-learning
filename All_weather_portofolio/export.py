@@ -31,10 +31,40 @@ from openpyxl.utils import get_column_letter
 from backtest import StrategyStats
 import config
 
+import sys
 
 # ===========================================================================
 # RESULTS DIRECTORY
 # ===========================================================================
+
+class _Tee:
+    """Write to both stdout and a log file simultaneously."""
+    def __init__(self, filepath):
+        self._file = open(filepath, "w", buffering=1)
+        self._stdout = sys.stdout
+
+    def write(self, data):
+        self._stdout.write(data)
+        self._file.write(data)
+
+    def flush(self):
+        self._stdout.flush()
+        self._file.flush()
+
+    def close(self):
+        sys.stdout = self._stdout
+        self._file.close()
+
+def start_run_log(results_dir: str):
+    """Redirect stdout to both terminal and run_log.txt."""
+    path = os.path.join(results_dir, "run_log.txt")
+    tee  = _Tee(path)
+    sys.stdout = tee
+    return tee
+
+def stop_run_log(tee):
+    """Restore stdout and close the log file."""
+    tee.close()
 
 def make_results_dir(label: str) -> str:
     """
@@ -54,7 +84,7 @@ def make_results_dir(label: str) -> str:
 # RUN CONFIG
 # ===========================================================================
 
-def save_run_config(allocation: dict, results_dir: str):
+def save_run_config(allocation: dict, results_dir: str, label: str):
     """
     Save all user parameters and the final allocation to run_config.json.
 
@@ -62,10 +92,11 @@ def save_run_config(allocation: dict, results_dir: str):
     copy these values back into config.py and re-run main.py.
     """
     config_data = {
-        "run_label":               config.RUN_LABEL,
+        "run_label":               label,
         "timestamp":               datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "backtest_start":          config.BACKTEST_START,
         "backtest_end":            config.BACKTEST_END,
+        "oos_start":               config.OOS_START,
         "initial_portfolio_value": config.INITIAL_PORTFOLIO_VALUE,
         "rebalance_threshold":     config.REBALANCE_THRESHOLD,
         "data_frequency":          config.DATA_FREQUENCY,
@@ -105,7 +136,8 @@ def export_results(backtest: pd.DataFrame,
                    instructions: pd.DataFrame,
                    stats_list: list[StrategyStats],
                    allocation: dict,
-                   results_dir: str):
+                   results_dir: str,
+                   label: str):
     """
     Export all results to results_dir:
       backtest_history.csv         -- monthly portfolio values
@@ -117,12 +149,17 @@ def export_results(backtest: pd.DataFrame,
     stats_rows = []
     for s in stats_list:
         stats_rows.extend([
-            {"Strategy": s.name, "Metric": "Period (years)",   "Value": s.period_years},
-            {"Strategy": s.name, "Metric": "CAGR (%)",         "Value": s.cagr},
-            {"Strategy": s.name, "Metric": "Max Drawdown (%)", "Value": s.max_drawdown},
-            {"Strategy": s.name, "Metric": "Sharpe Ratio",     "Value": s.sharpe},
-            {"Strategy": s.name, "Metric": "Calmar Ratio",     "Value": s.calmar},
-            {"Strategy": s.name, "Metric": "Final Value ($)",  "Value": s.final_value},
+            {"Strategy": s.name, "Metric": "Period (years)",            "Value": s.period_years},
+            {"Strategy": s.name, "Metric": "CAGR (%)",                  "Value": s.cagr},
+            {"Strategy": s.name, "Metric": "Max Drawdown (%)",          "Value": s.max_drawdown},
+            {"Strategy": s.name, "Metric": "Avg Drawdown (%)",          "Value": s.avg_drawdown},
+            {"Strategy": s.name, "Metric": "Max DD Duration (months)",  "Value": s.max_dd_duration},
+            {"Strategy": s.name, "Metric": "Avg Recovery (months)",     "Value": s.avg_recovery_time},
+            {"Strategy": s.name, "Metric": "Ulcer Index",               "Value": s.ulcer_index},
+            {"Strategy": s.name, "Metric": "Sharpe Ratio",              "Value": s.sharpe},
+            {"Strategy": s.name, "Metric": "Sortino Ratio",             "Value": s.sortino},
+            {"Strategy": s.name, "Metric": "Calmar Ratio",              "Value": s.calmar},
+            {"Strategy": s.name, "Metric": "Final Value ($)",           "Value": s.final_value},
         ])
 
     pd.DataFrame(stats_rows).to_csv(
@@ -139,7 +176,7 @@ def export_results(backtest: pd.DataFrame,
         for t, w in allocation.items()
     ]).to_csv(os.path.join(results_dir, "allocation.csv"), index=False)
 
-    save_run_config(allocation, results_dir)
+    save_run_config(allocation, results_dir, label)
 
     print(f"  backtest_history.csv")
     print(f"  rebalancing_instructions.csv")
@@ -160,8 +197,10 @@ def export_results(backtest: pd.DataFrame,
 META_COLS = [
     "Timestamp",
     "Label",
+    "Run Mode",
     "Backtest Start",
     "Backtest End",
+    "OOS Start",
     "Data Freq",
     "Tickers",
 ]
@@ -169,7 +208,12 @@ META_COLS = [
 METRIC_COLS = [
     "CAGR (%)",
     "Max_DD (%)",
+    "Avg_DD (%)",
+    "Max_DD_Dur",
+    "Avg_Rec",
+    "Ulcer",
     "Sharpe",
+    "Sortino",
     "Calmar",
     "Fin_Val ($)",
 ]
@@ -206,15 +250,22 @@ def build_log_row(results_dir: str,
     row = {
         "Timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
         "Label":          label,
+        "Run Mode":       config.RUN_MODE,
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
+        "OOS Start":      config.OOS_START,
         "Data Freq":      config.DATA_FREQUENCY,
         "Tickers":        " | ".join(f"{t}={w:.1%}" for t, w in weights.items()),
     }
     for s in stats_list:
         row[f"{s.name}_CAGR (%)"]    = s.cagr
         row[f"{s.name}_Max_DD (%)"]  = s.max_drawdown
+        row[f"{s.name}_Avg_DD (%)"]  = s.avg_drawdown
+        row[f"{s.name}_Max_DD_Dur"]  = s.max_dd_duration
+        row[f"{s.name}_Avg_Rec"]     = s.avg_recovery_time
+        row[f"{s.name}_Ulcer"]       = s.ulcer_index
         row[f"{s.name}_Sharpe"]      = s.sharpe
+        row[f"{s.name}_Sortino"]     = s.sortino
         row[f"{s.name}_Calmar"]      = s.calmar
         row[f"{s.name}_Fin_Val ($)"] = s.final_value
 
@@ -338,10 +389,12 @@ def _write_excel_log(log_path: str, rows: list[dict]):
                 cell.alignment = left_align
 
     # --- Column widths ---
-    ws.column_dimensions[get_column_letter(col_index["Timestamp"])].width    = 16
-    ws.column_dimensions[get_column_letter(col_index["Label"])].width        = 30
+    ws.column_dimensions[get_column_letter(col_index["Timestamp"])].width      = 16
+    ws.column_dimensions[get_column_letter(col_index["Label"])].width          = 30
+    ws.column_dimensions[get_column_letter(col_index["Run Mode"])].width       = 14
     ws.column_dimensions[get_column_letter(col_index["Backtest Start"])].width = 13
     ws.column_dimensions[get_column_letter(col_index["Backtest End"])].width   = 13
+    ws.column_dimensions[get_column_letter(col_index["OOS Start"])].width      = 13
     ws.column_dimensions[get_column_letter(col_index["Data Freq"])].width      = 10
     ws.column_dimensions[get_column_letter(col_index["Tickers"])].width        = 45
     ws.column_dimensions[get_column_letter(col_index["Results Folder"])].width = 55
@@ -375,11 +428,17 @@ def append_to_master_log(results_dir: str,
 
     existing_rows = []
     if os.path.exists(log_path):
-        # Read existing data rows (skip the two header rows)
-        existing_df   = pd.read_excel(log_path, header=None, skiprows=2)
+        # Read existing data rows (skip the two header rows).
+        # Reindex to current flat_cols so legacy rows with fewer columns
+        # get empty strings for any new columns rather than shifting data.
+        existing_df = pd.read_excel(log_path, header=None, skiprows=2)
         existing_df.columns = flat_cols[:len(existing_df.columns)]
+        existing_df = existing_df.reindex(columns=flat_cols, fill_value="")
         for _, r in existing_df.iterrows():
-            existing_rows.append(r.to_dict())
+            existing_rows.append(
+                {k: ("" if isinstance(v, float) and pd.isna(v) else v)
+                 for k, v in r.to_dict().items()}
+            )
 
     all_rows = existing_rows + [new_row]
     _write_excel_log(log_path, all_rows)
@@ -432,6 +491,11 @@ def print_stats(stats_list: list[StrategyStats]):
         print(f"  {'Period (years)':<25} {s.period_years}")
         print(f"  {'CAGR (%)':<25} {s.cagr}")
         print(f"  {'Max Drawdown (%)':<25} {s.max_drawdown}")
+        print(f"  {'Avg Drawdown (%)':<25} {s.avg_drawdown}")
+        print(f"  {'Max DD Duration (months)':<25} {s.max_dd_duration}")
+        print(f"  {'Avg Recovery (months)':<25} {s.avg_recovery_time}")
+        print(f"  {'Ulcer Index':<25} {s.ulcer_index}")
         print(f"  {'Sharpe Ratio':<25} {s.sharpe}")
+        print(f"  {'Sortino Ratio':<25} {s.sortino}")
         print(f"  {'Calmar Ratio':<25} {s.calmar}")
         print(f"  {'Final Value ($)':<25} {s.final_value}")
