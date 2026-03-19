@@ -24,13 +24,6 @@ BACKTEST_END   = "2026-01-01"       # format: YYYY-MM-DD
 REBALANCE_THRESHOLD = 0.05          # Rebalance if any asset drifts > this
                                     # fraction from its target weight
 
-RUN_LABEL = "TIP_5asset_pre2020_26weights_OOS"                          # Used to name the results folder.
-                                                                        # Change before each run to keep results
-                                                                        # organised. Examples:
-                                                                        #   "original_allweather"
-                                                                        #   "no_commodities"
-                                                                        #   "optimised_calmar"
-
 DATA_FREQUENCY        = "ME"    # "ME" for monthly, "W" for weekly
                                 # monthly recommended for live rebalancing
                                 # weekly gives more granular backtest data
@@ -43,8 +36,8 @@ HOLDINGS_FILE    = "portfolio_holdings.json"
 
 #RUN_MODE = "optimise"
 #RUN_MODE = "walk_forward"
-#RUN_MODE = "pareto"
-RUN_MODE = "backtest_only"              
+#RUN_MODE = "pareto"             
+RUN_MODE = "backtest_only"
 
 # ===========================================================================
 # TARGET ALLOCATION
@@ -58,10 +51,12 @@ RUN_MODE = "backtest_only"
 
 TARGET_ALLOCATION = {
     "SPY":  0.142,  # US Large Cap stocks
-    "QQQ":  0.203,  # US Tech stocks
-    "TLT":  0.3,    # Long-Term Government Bonds
-    "TIP":  0.142,  # Inflation-Protected Bonds
-    "GLD":  0.213,  # Gold
+    "QQQ":  0.143,  # US Tech stocks
+    "TLT":  0.143,    # Long-Term Government Bonds
+    "TIP":  0.143,  # Inflation-Protected Bonds
+    "GLD":  0.143,  # Gold
+    "SHY":  0.143,    # Short-Term Government Bonds (cash proxy)
+    "IWD":  0.143,    # US Small Cap stocks§
 }
 
 assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
@@ -112,9 +107,52 @@ PARETO_CAGR_RANGE = np.arange(4.0, 14.0, 1.0)  # CAGR targets to sweep (%)
 WF_TRAIN_YEARS   = 5    # years used to optimise weights
 WF_TEST_YEARS    = 2    # years used to evaluate out-of-sample
 WF_STEP_YEARS    = 2    # how far to slide the window each step
-WF_OPT_METHOD = "calmar"    # "calmar" for speed, "differential_evolution"
+WF_OPT_METHOD = "differential_evolution"    # "calmar" for speed, "differential_evolution"
                              # for a more faithful test of the DE process
                              # Note: DE walk-forward takes ~3-4x longer
+
+# ===========================================================================
+# RUN LABEL  (auto-generated from parameters -- no need to edit manually)
+# ===========================================================================
+
+def _build_run_label() -> str:
+    """Return a descriptive folder-name label derived from the current parameters."""
+    _method_abbr = {
+        "differential_evolution": "de",
+        "sharpe_slsqp":           "sharpe",
+        "calmar":                 "calmar",
+        "random":                 "rnd",
+    }
+    _freq_abbr = {"ME": "M", "W": "W"}
+
+    n       = len(TARGET_ALLOCATION)
+    tickers = "-".join(TARGET_ALLOCATION.keys())
+    freq    = _freq_abbr.get(DATA_FREQUENCY, DATA_FREQUENCY)
+    start   = BACKTEST_START[:4]
+    end     = BACKTEST_END[:4]
+
+    if RUN_MODE == "backtest_only":
+        return f"bt_{n}assets_{tickers}_{freq}_{start}_{end}"
+
+    if RUN_MODE == "optimise":
+        method = _method_abbr.get(OPT_METHOD, OPT_METHOD)
+        min_w  = int(round(OPT_MIN_WEIGHT * 100))
+        max_w  = int(round(OPT_MAX_WEIGHT * 100))
+        return f"opt_{n}assets_{method}_w{min_w}_{max_w}_{freq}_{start}_{end}"
+
+    if RUN_MODE == "walk_forward":
+        method = _method_abbr.get(WF_OPT_METHOD, WF_OPT_METHOD)
+        return (f"wf_{n}assets_{method}"
+                f"_tr{WF_TRAIN_YEARS}y_te{WF_TEST_YEARS}y"
+                f"_{freq}_{start}_{end}")
+
+    if RUN_MODE == "pareto":
+        return f"pareto_{n}assets_{freq}_{start}_{end}"
+
+    return f"run_{n}assets_{freq}_{start}_{end}"  # fallback
+
+
+RUN_LABEL = _build_run_label()
 
 # ===========================================================================
 # VALIDATION

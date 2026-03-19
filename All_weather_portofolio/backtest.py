@@ -128,7 +128,8 @@ def run_backtest(prices: pd.DataFrame,
       1. Rebalanced portfolio  -- rebalances to `allocation` every month
       2. Buy & Hold            -- same starting weights, never rebalanced
       3. S&P 500 buy & hold    -- everything in SPY on day one, never touched
-      4. 60/40 buy & hold      -- 60% SPY / 40% TLT, never rebalanced
+      4. 60/40 annually rebal. -- 60% SPY / 40% TLT, rebalanced at the start
+                                  of each calendar year
                                   (only included when tlt_prices is provided)
 
     Parameters
@@ -191,12 +192,22 @@ def run_backtest(prices: pd.DataFrame,
 
     sixty_forty_spy = None
     sixty_forty_tlt = None
+    sixty_forty_prev_year = None
     if tlt_monthly is not None:
         sixty_forty_spy = portfolio_value * 0.60 / float(bench.iloc[0])
         sixty_forty_tlt = portfolio_value * 0.40 / float(tlt_monthly.iloc[0])
+        sixty_forty_prev_year = monthly.index[0].year
 
     records = []
     for date, row in monthly.iterrows():
+        # Annual rebalance for 60/40: restore 60/40 split at start of each new year
+        if sixty_forty_spy is not None and date.year != sixty_forty_prev_year:
+            current_6040 = (sixty_forty_spy * float(bench.loc[date])
+                            + sixty_forty_tlt * float(tlt_monthly.loc[date]))
+            sixty_forty_spy = current_6040 * 0.60 / float(bench.loc[date])
+            sixty_forty_tlt = current_6040 * 0.40 / float(tlt_monthly.loc[date])
+            sixty_forty_prev_year = date.year
+
         aw_value  = sum(sh * float(row[t]) for t, sh in aw_holdings.items())
         bh_value  = sum(sh * float(row[t]) for t, sh in bh_holdings.items())
         spy_value = bench_shares * float(bench.loc[date])

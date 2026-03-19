@@ -22,9 +22,57 @@ import numpy as np
 import pandas as pd
 
 from backtest import run_backtest, compute_cagr, compute_max_drawdown, compute_calmar
-from optimiser import optimise_random
+from optimiser import optimise_random, optimise_allocation
 
 import config
+
+# ===========================================================================
+# WALK-FORWARD HELPERS
+# ===========================================================================
+
+def _win_rate(monthly_rets: pd.Series) -> float:
+    """Percentage of months with a positive return."""
+    if monthly_rets.empty:
+        return float("nan")
+    return round((monthly_rets > 0).sum() / len(monthly_rets) * 100, 2)
+
+
+def _annual_extremes(bt: pd.DataFrame) -> tuple[float, float]:
+    """
+    (min, max) calendar-year return (%) for the optimised portfolio,
+    computed by compounding the monthly returns within each year.
+    """
+    rets = bt["All Weather Value Monthly Ret (%)"]
+    if rets.empty:
+        return float("nan"), float("nan")
+    annual = (
+        (1 + rets / 100)
+        .groupby(rets.index.year)
+        .prod()
+        .sub(1)
+        .mul(100)
+    )
+    return round(float(annual.min()), 2), round(float(annual.max()), 2)
+
+
+def _recovery_days(bt: pd.DataFrame) -> int | str:
+    """
+    Calendar days from the max-drawdown trough back to a new high.
+    Returns 'Not Recovered' if the portfolio is still underwater at period end.
+    """
+    values = bt["All Weather Value"]
+    if len(values) < 2:
+        return "Not Recovered"
+    running_max = values.cummax()
+    drawdown    = (values - running_max) / running_max
+    trough_date = drawdown.idxmin()
+    peak_value  = running_max[trough_date]
+    post_trough = values[values.index > trough_date]
+    recovered   = post_trough[post_trough >= peak_value]
+    if not recovered.empty:
+        return (recovered.index[0] - trough_date).days
+    return "Not Recovered"
+
 
 # ===========================================================================
 # WALK-FORWARD VALIDATION
@@ -104,7 +152,8 @@ def run_walk_forward(prices: pd.DataFrame,
           f"{windows[0]['train_start'].strftime('%Y-%m')} to "
           f"{windows[-1]['test_end'].strftime('%Y-%m')}\n")
 
-    records = []
+    records         = []
+    weights_records = []
     for i, w in enumerate(windows):
         print(f"  --- Window {i+1} "
               f"({w['train_start'].strftime('%Y-%m')} - "
@@ -135,7 +184,7 @@ def run_walk_forward(prices: pd.DataFrame,
 
         # Optimise on training data only
         if config.WF_OPT_METHOD == "differential_evolution":
-            opt_weights, _ = optimise_allocation(
+            opt_alloc_dict = optimise_allocation(
                 train_prices, train_bench, allocation,
                 method      = "differential_evolution",
                 min_weight  = min_weight,
@@ -144,7 +193,7 @@ def run_walk_forward(prices: pd.DataFrame,
                 n_trials    = n_trials,
                 random_seed = random_seed,
             )
-            opt_weights = np.array(list(opt_weights.values()))
+            opt_weights = np.array(list(opt_alloc_dict.values()))
         else:
             opt_weights, _ = optimise_random(
                 train_prices, train_bench, allocation,
@@ -156,6 +205,18 @@ def run_walk_forward(prices: pd.DataFrame,
             continue
 
         opt_allocation = dict(zip(list(allocation.keys()), opt_weights))
+
+        weights_str = "  |  ".join(f"{t}: {v:.1%}" for t, v in opt_allocation.items())
+        print(f"    Target allocation: {weights_str}")
+
+        # Record weights for walk_forward_weights.csv
+        weights_records.append({
+            "Window":      i + 1,
+            "Train Start": w["train_start"].strftime("%Y-%m"),
+            "Test Start":  w["test_start"].strftime("%Y-%m"),
+            **{ticker: round(float(weight), 4)
+               for ticker, weight in opt_allocation.items()},
+        })
 
         # Evaluate optimised weights in-sample (train)
         bt_train     = run_backtest(train_prices, train_bench, opt_allocation,
@@ -174,6 +235,14 @@ def run_walk_forward(prices: pd.DataFrame,
         test_cagr    = round(compute_cagr(series_te, years_te), 2)
         test_mdd     = round(compute_max_drawdown(series_te), 2)
         test_calmar  = round(compute_calmar(test_cagr, test_mdd), 3)
+
+        # Additional test-period statistics
+        test_monthly_rets = bt_test["All Weather Value Monthly Ret (%)"]
+        test_win_rate     = _win_rate(test_monthly_rets)
+        test_worst_month  = round(float(test_monthly_rets.min()), 2)
+        test_best_month   = round(float(test_monthly_rets.max()), 2)
+        test_min_ann, test_max_ann = _annual_extremes(bt_test)
+        test_recovery     = _recovery_days(bt_test)
 
         # Evaluate original allocation out-of-sample (baseline comparison)
         bt_orig      = run_backtest(test_prices, test_bench, allocation,
@@ -209,10 +278,16 @@ def run_walk_forward(prices: pd.DataFrame,
             "Test CAGR (%)":             test_cagr,
             "Test MaxDD (%)":            test_mdd,
             "Test Calmar":               test_calmar,
-            "Original Test CAGR (%)":    orig_cagr,
-            "Original Test MaxDD (%)":   orig_mdd,
-            "Original Test Calmar":      orig_calmar,
-            "Overfit Ratio":             overfit_ratio,
+            "Original Test CAGR (%)":      orig_cagr,
+            "Original Test MaxDD (%)":     orig_mdd,
+            "Original Test Calmar":        orig_calmar,
+            "Overfit Ratio":               overfit_ratio,
+            "Test Win Rate (%)":           test_win_rate,
+            "Test Worst Month (%)":        test_worst_month,
+            "Test Best Month (%)":         test_best_month,
+            "Test Min Annual Return (%)":  test_min_ann,
+            "Test Max Annual Return (%)":  test_max_ann,
+            "Test Recovery Days":          test_recovery,
         })
 
     if not records:
@@ -240,10 +315,28 @@ def run_walk_forward(prices: pd.DataFrame,
     else:
         print(f"\n  VERDICT: High overfitting. Do not use for live trading.")
 
-    # Save CSV
+    # Save walk_forward.csv
     csv_path = os.path.join(results_dir, "walk_forward.csv")
     df.to_csv(csv_path, index=False)
-    print(f"\n  Walk-forward results saved -> {csv_path}")
+    print(f"\n  Walk-forward results saved  -> {csv_path}")
+
+    # Save walk_forward_weights.csv
+    tickers_list = list(allocation.keys())
+    weights_df   = pd.DataFrame(weights_records)
+
+    mean_row = {"Window": "Mean", "Train Start": "", "Test Start": ""}
+    mean_row.update({t: round(float(weights_df[t].mean()), 4) for t in tickers_list})
+
+    std_row  = {"Window": "Std",  "Train Start": "", "Test Start": ""}
+    std_row.update({t: round(float(weights_df[t].std()),  4) for t in tickers_list})
+
+    weights_df   = pd.concat(
+        [weights_df, pd.DataFrame([mean_row, std_row])],
+        ignore_index=True,
+    )
+    weights_path = os.path.join(results_dir, "walk_forward_weights.csv")
+    weights_df.to_csv(weights_path, index=False)
+    print(f"  Walk-forward weights saved  -> {weights_path}")
 
     # Plot
     _plot_walk_forward(df, mean_overfit, train_years, test_years,

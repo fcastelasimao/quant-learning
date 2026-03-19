@@ -79,7 +79,7 @@ def plot_backtest(backtest: pd.DataFrame,
              label="S&P 500 (SPY)")
     ax1.plot(backtest.index, backtest["60/40 Value"],
              color=COLORS["6040"], lw=1.6, linestyle="-.", alpha=0.85,
-             label="60/40 (SPY/TLT, never rebalanced)")
+             label="60/40 (SPY/TLT, rebalanced annually)")
     ax1.fill_between(backtest.index, backtest["All Weather Value"],
                      alpha=0.08, color=COLORS["aw"])
 
@@ -97,12 +97,12 @@ def plot_backtest(backtest: pd.DataFrame,
     s_aw, s_bh, s_spy, s_6040 = stats_list
     ax1.text(
         0.99, 0.06,
-        f"All Weather (Rebal.): ${s_aw.final_value:,.0f}   Calmar={s_aw.calmar:.2f}\n"
-        f"Buy & Hold AW:        ${s_bh.final_value:,.0f}\n"
-        f"S&P 500:              ${s_spy.final_value:,.0f}\n"
-        f"60/40:                ${s_6040.final_value:,.0f}   Calmar={s_6040.calmar:.2f}",
+        f"All Weather (Rebal.): ${s_aw.final_value:>9,.0f}   CAGR={s_aw.cagr:>6.2f}%   MaxDD={s_aw.max_drawdown:>7.2f}%   Calmar={s_aw.calmar:>5.2f}\n"
+        f"Buy & Hold AW:        ${s_bh.final_value:>9,.0f}   CAGR={s_bh.cagr:>6.2f}%   MaxDD={s_bh.max_drawdown:>7.2f}%   Calmar={s_bh.calmar:>5.2f}\n"
+        f"S&P 500:              ${s_spy.final_value:>9,.0f}   CAGR={s_spy.cagr:>6.2f}%   MaxDD={s_spy.max_drawdown:>7.2f}%   Calmar={s_spy.calmar:>5.2f}\n"
+        f"60/40:                ${s_6040.final_value:>9,.0f}   CAGR={s_6040.cagr:>6.2f}%   MaxDD={s_6040.max_drawdown:>7.2f}%   Calmar={s_6040.calmar:>5.2f}",
         transform=ax1.transAxes, ha="right", va="bottom",
-        color="#8b949e", fontsize=8.5,
+        color="#c9d1d9", fontsize=8.5,
         family="monospace",
         bbox=dict(boxstyle="round,pad=0.5", facecolor="#21262d",
                   edgecolor="#30363d", alpha=0.9)

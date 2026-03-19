@@ -17,7 +17,7 @@ from config import validate_config
 
 from data      import fetch_prices
 from portfolio import (load_holdings, save_holdings, initialise_holdings,
-                       rebalancing_instructions, apply_rebalance)
+                       rebalancing_instructions)
 from backtest  import run_backtest, compute_stats
 from optimiser import optimise_allocation
 from validation import run_walk_forward, run_pareto_frontier
@@ -116,15 +116,6 @@ def main():
         holdings, latest_prices, allocation, config.REBALANCE_THRESHOLD
     )
     print_rebalancing(instructions, total_value)
-
-    needs_rebalance = (instructions["Action"] != "HOLD").any()
-    if needs_rebalance:
-        answer = input("\n  Apply rebalancing now and save? (y/n): ").strip().lower()
-        if answer == "y":
-            holdings = apply_rebalance(holdings, latest_prices,
-                                       allocation, total_value)
-            save_holdings(holdings)
-            print("  Portfolio rebalanced and saved.")
 
     # ---- Backtest ----
     print_header(f"RUNNING BACKTEST ({config.BACKTEST_START} to {config.BACKTEST_END})")
