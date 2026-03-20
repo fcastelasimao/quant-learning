@@ -8,8 +8,9 @@ The simulation engine. Contains:
   - compute_max_drawdown
   - compute_sharpe
   - compute_calmar
-  - run_backtest     simulates three strategies over a price history
-  - compute_stats    computes StrategyStats for all three strategies
+  - run_backtest     simulates up to four strategies over a price history
+                     (three always; 60/40 only when tlt_prices is provided)
+  - compute_stats    computes StrategyStats for all strategies
 
 This module is a pure simulation -- it knows nothing about real holdings,
 file I/O, or user parameters beyond what is passed in as arguments.
@@ -374,8 +375,9 @@ def compute_stats(backtest: pd.DataFrame) -> list[StrategyStats]:
     """
     Compute key performance statistics for all three strategies.
 
-    Returns a list of three StrategyStats objects in order:
+    Returns a list of three or four StrategyStats objects:
       [All Weather (Rebalanced), Buy & Hold All Weather, S&P 500 Buy & Hold]
+      plus 60/40 as the fourth element if the "60/40 Value" column exists.
     """
     years = (backtest.index[-1] - backtest.index[0]).days / 365.25
 

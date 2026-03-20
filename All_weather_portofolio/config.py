@@ -268,3 +268,6 @@ def validate_config():
            (datetime.strptime(OOS_START,      "%Y-%m-%d") -
             datetime.strptime(BACKTEST_START, "%Y-%m-%d")).days / 365.25, \
         "WF_TRAIN_YEARS + WF_TEST_YEARS exceeds the in-sample period (BACKTEST_START to OOS_START)"
+        assert WF_STEP_YEARS >= WF_TEST_YEARS, \
+        (f"WF_STEP_YEARS ({WF_STEP_YEARS}) must be >= WF_TEST_YEARS ({WF_TEST_YEARS}) "
+         f"to avoid overlapping test windows (correlated results)")

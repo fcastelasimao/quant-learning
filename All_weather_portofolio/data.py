@@ -13,7 +13,9 @@ import pandas as pd
 import yfinance as yf
 import config
 
-warnings.filterwarnings("ignore")   # suppress yfinance deprecation noise
+warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
+warnings.filterwarnings("ignore", category=FutureWarning, module="pandas")
+warnings.filterwarnings("ignore", message=".*auto_adjust.*")  # yfinance deprecation
 
 
 def fetch_prices(tickers: list[str],

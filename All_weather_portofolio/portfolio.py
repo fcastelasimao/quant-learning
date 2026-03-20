@@ -152,7 +152,7 @@ def rebalancing_instructions(holdings: dict,
             "Action":         action,
             "$ Amount":       round(abs(dollar), 2),
             "Current Price":  round(float(prices_row[ticker]), 2),
-            "Current Shares": round(holdings[ticker]["shares"], 4),
+            "Current Shares": round(holdings.get(ticker, {}).get("shares", 0.0), 4),
         })
 
     return pd.DataFrame(rows), total_value

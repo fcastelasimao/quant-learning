@@ -171,7 +171,7 @@ def optimise_random(prices: pd.DataFrame,
     Returns (best_weights_array, best_score). best_weights is None if no
     valid allocation was found (all trials violated the constraints).
     """
-    np.random.seed(random_seed)
+    rng = np.random.default_rng(random_seed)
 
     tickers      = list(allocation.keys())
     n            = len(tickers)
@@ -179,7 +179,7 @@ def optimise_random(prices: pd.DataFrame,
     best_weights = None
 
     for i in range(n_trials):
-        raw     = np.random.uniform(min_weight, max_weight, n)
+        raw     = rng.uniform(min_weight, max_weight, n)
         weights = raw / raw.sum()
 
         # Skip if normalisation pushed any weight above the per-asset max

@@ -31,6 +31,11 @@ from backtest import (
     compute_max_drawdown,
     compute_sharpe,
     compute_calmar,
+    compute_avg_drawdown,
+    compute_max_drawdown_duration,
+    compute_avg_recovery_time,
+    compute_ulcer_index,
+    compute_sortino,
 )
 
 # Single tolerance constant used by all assertions.
@@ -283,3 +288,212 @@ def test_calmar_positive_drawdown_input():
     result_positive = compute_calmar(cagr=10.0, max_drawdown=20.0)
     assert abs(result_negative - result_positive) < TOLERANCE, \
         "Calmar should be the same whether drawdown is passed as positive or negative"
+
+
+# ===========================================================================
+# compute_avg_drawdown
+# ===========================================================================
+
+def test_avg_drawdown_never_draws_down(rising_series):
+    """A portfolio that only rises should have avg drawdown of 0.0."""
+    result = compute_avg_drawdown(rising_series)
+    assert result == 0.0, f"Expected 0.0 for rising series, got {result}"
+
+
+def test_avg_drawdown_known_values():
+    """
+    Series: 100, 80, 50, 70, 80
+    Peak at each point: 100, 100, 100, 100, 100
+    Drawdowns: 0%, -20%, -50%, -30%, -20%  => underwater: -20, -50, -30, -20
+    Mean of underwater = (-20 + -50 + -30 + -20) / 4 = -30%
+    """
+    series = pd.Series([100, 80, 50, 70, 80])
+    result = compute_avg_drawdown(series)
+    assert abs(result - (-30.0)) < TOLERANCE, \
+        f"Expected -30.0%, got {result}"
+
+
+def test_avg_drawdown_is_negative(crash_series):
+    """Avg drawdown must be <= 0 for any series with a crash."""
+    result = compute_avg_drawdown(crash_series)
+    assert result <= 0.0, f"Avg drawdown must be <= 0, got {result}"
+
+
+def test_avg_drawdown_less_severe_than_max(crash_series):
+    """Average drawdown magnitude should be <= max drawdown magnitude."""
+    avg = compute_avg_drawdown(crash_series)
+    mdd = compute_max_drawdown(crash_series)
+    assert avg >= mdd, (
+        f"Avg drawdown ({avg}) should be >= max drawdown ({mdd}) "
+        f"since average is less extreme than the worst point"
+    )
+
+
+# ===========================================================================
+# compute_max_drawdown_duration
+# ===========================================================================
+
+def test_max_dd_duration_never_draws_down(rising_series):
+    """A portfolio that only rises should have duration of 0."""
+    result = compute_max_drawdown_duration(rising_series)
+    assert result == 0, f"Expected 0 for rising series, got {result}"
+
+
+def test_max_dd_duration_known_crash(crash_series):
+    """
+    Series: 100, 80, 50, 70, 80
+    Peak=100; underwater at positions 1,2,3,4 => max run = 4 consecutive periods.
+    """
+    result = compute_max_drawdown_duration(crash_series)
+    assert result == 4, f"Expected 4, got {result}"
+
+
+def test_max_dd_duration_two_separate_crashes():
+    """
+    Series: 100, 70, 90, 80, 100, 60, 80
+    First underwater run: positions 1,2,3 (3 periods, recovers at pos 4)
+    Second underwater run: position 5,6 (2 periods)
+    Max duration = 3
+    """
+    series = pd.Series([100, 70, 90, 80, 100, 60, 80])
+    result = compute_max_drawdown_duration(series)
+    assert result == 3, f"Expected 3, got {result}"
+
+
+def test_max_dd_duration_returns_integer(crash_series):
+    """Return type must be int, not float."""
+    result = compute_max_drawdown_duration(crash_series)
+    assert isinstance(result, int), f"Expected int, got {type(result)}"
+
+
+# ===========================================================================
+# compute_avg_recovery_time
+# ===========================================================================
+
+def test_avg_recovery_time_never_draws_down(rising_series):
+    """No drawdown episodes -> no recovery events -> return 0.0."""
+    result = compute_avg_recovery_time(rising_series)
+    assert result == 0.0, f"Expected 0.0, got {result}"
+
+
+def test_avg_recovery_time_no_recovery():
+    """
+    Portfolio that crashes and never recovers.
+    No completed recovery episodes -> return 0.0.
+    """
+    series = pd.Series([100, 80, 60, 50, 40])
+    result = compute_avg_recovery_time(series)
+    assert result == 0.0, f"Expected 0.0 (never recovered), got {result}"
+
+
+def test_avg_recovery_time_known_episode():
+    """
+    Series: 100, 80, 50, 70, 100, 90, 100
+    Peak is always 100 (never exceeded after start).
+
+    Episode 1: positions 1, 2, 3 are underwater (3 periods); recovers at pos 4.
+    Episode 2: position 5 is underwater (1 period); recovers at pos 6.
+
+    Avg = (3 + 1) / 2 = 2.0
+    Note: the function counts periods SPENT underwater, not including the
+    recovery period itself.
+    """
+    series = pd.Series([100, 80, 50, 70, 100, 90, 100])
+    result = compute_avg_recovery_time(series)
+    assert abs(result - 2.0) < TOLERANCE, f"Expected 2.0, got {result}"
+
+
+def test_avg_recovery_time_non_negative(crash_series):
+    """Recovery time must always be >= 0."""
+    result = compute_avg_recovery_time(crash_series)
+    assert result >= 0.0, f"Recovery time must be >= 0, got {result}"
+
+
+# ===========================================================================
+# compute_ulcer_index
+# ===========================================================================
+
+def test_ulcer_index_never_draws_down(rising_series):
+    """A portfolio that only rises has 0% drawdown everywhere -> Ulcer = 0.0."""
+    result = compute_ulcer_index(rising_series)
+    assert result == 0.0, f"Expected 0.0 for rising series, got {result}"
+
+
+def test_ulcer_index_non_negative(crash_series):
+    """Ulcer Index is an RMS value and must always be >= 0."""
+    result = compute_ulcer_index(crash_series)
+    assert result >= 0.0, f"Ulcer Index must be >= 0, got {result}"
+
+
+def test_ulcer_index_known_value():
+    """
+    Series: 100, 80, 100
+    Peak series: 100, 100, 100
+    Drawdown pct at each step: 0%, -20%, 0%
+    Ulcer = sqrt(mean([0**2, (-20)**2, 0**2])) = sqrt(400/3) ≈ 11.547
+    """
+    series = pd.Series([100, 80, 100])
+    result = compute_ulcer_index(series)
+    expected = float(np.sqrt((0**2 + 20**2 + 0**2) / 3))
+    assert abs(result - expected) < TOLERANCE, \
+        f"Expected {expected:.4f}, got {result}"
+
+
+def test_ulcer_index_worse_for_deeper_crash():
+    """A deeper crash should produce a higher Ulcer Index than a shallow one."""
+    shallow = pd.Series([100, 90, 100])
+    deep    = pd.Series([100, 50, 100])
+    assert compute_ulcer_index(deep) > compute_ulcer_index(shallow), \
+        "Deeper crash should produce higher Ulcer Index"
+
+
+# ===========================================================================
+# compute_sortino
+# ===========================================================================
+
+def test_sortino_no_negative_returns():
+    """
+    All returns positive -> no downside -> return 0.0 (undefined, not infinity).
+    """
+    returns = pd.Series([1.0, 2.0, 1.5, 3.0] * 6)
+    result  = compute_sortino(returns)
+    assert result == 0.0, f"Expected 0.0 (no downside), got {result}"
+
+
+def test_sortino_empty_series():
+    """Empty series after dropna -> return 0.0."""
+    result = compute_sortino(pd.Series([float("nan")] * 10))
+    assert result == 0.0, f"Expected 0.0 for all-NaN series, got {result}"
+
+
+def test_sortino_positive_for_positive_mean():
+    """
+    Mostly positive returns with some downside should produce Sortino > 0.
+    """
+    returns = pd.Series([2.0, -0.5, 3.0, -0.3, 1.5] * 12)
+    result  = compute_sortino(returns)
+    assert result > 0, f"Expected Sortino > 0 for positive mean returns, got {result}"
+
+
+def test_sortino_negative_for_negative_mean():
+    """
+    Mostly negative returns should produce Sortino < 0.
+    """
+    returns = pd.Series([-2.0, -1.5, -3.0, 0.5, -1.0] * 12)
+    result  = compute_sortino(returns)
+    assert result < 0, f"Expected Sortino < 0 for negative mean returns, got {result}"
+
+
+def test_sortino_higher_than_sharpe_with_asymmetric_returns():
+    """
+    When upside volatility is higher than downside (left-skewed upside),
+    Sortino should be higher than Sharpe because it doesn't penalise good months.
+    """
+    # Large positive months, small negative months: Sortino > Sharpe
+    returns = pd.Series([5.0, -0.5, 6.0, -0.3, 4.0, -0.4] * 10)
+    sortino = compute_sortino(returns)
+    sharpe  = compute_sharpe(returns)
+    assert sortino > sharpe, (
+        f"Sortino ({sortino:.3f}) should exceed Sharpe ({sharpe:.3f}) "
+        f"when positive months dominate volatility"
+    )

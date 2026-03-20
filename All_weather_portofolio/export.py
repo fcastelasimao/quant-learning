@@ -239,8 +239,7 @@ HEADER_FONT_COLOUR = "FFFFFF"   # white text on coloured headers
 
 def _all_flat_columns() -> list[str]:
     """Return the full ordered list of flat column names used in the data rows."""
-    cols = list(META_COLS) + ["Results Folder"]
-    cols.remove("Results Folder")           # will be added at end
+    cols = list(META_COLS)
     for strategy in STRATEGY_NAMES:
         for metric in METRIC_COLS:
             cols.append(f"{strategy}_{metric}")

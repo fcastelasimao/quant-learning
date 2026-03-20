@@ -278,8 +278,11 @@ def run_walk_forward(prices: pd.DataFrame,
         orig_mdd     = round(compute_max_drawdown(series_or), 2)
         orig_calmar  = round(compute_calmar(orig_cagr, orig_mdd), 3)
 
-        overfit_ratio = round(test_calmar / train_calmar, 3) \
-                        if train_calmar != 0 else 0.0
+        if train_calmar <= 0:
+            overfit_ratio = 0.0
+            print(f"    Overfit ratio: N/A  (train Calmar <= 0, skipped)")
+        else:
+            overfit_ratio = round(test_calmar / train_calmar, 3)
 
         print(f"    In-sample  (train): CAGR={train_cagr:>6.2f}%  "
               f"MaxDD={train_mdd:>7.2f}%  Calmar={train_calmar:.3f}")
@@ -287,8 +290,9 @@ def run_walk_forward(prices: pd.DataFrame,
               f"MaxDD={test_mdd:>7.2f}%  Calmar={test_calmar:.3f}")
         print(f"    Original   (test):  CAGR={orig_cagr:>6.2f}%  "
               f"MaxDD={orig_mdd:>7.2f}%  Calmar={orig_calmar:.3f}")
-        print(f"    Overfit ratio: {overfit_ratio:.3f}  "
-              f"{'ok' if overfit_ratio >= 0.6 else 'WARNING: possible overfit'}\n")
+        if train_calmar > 0:
+            print(f"    Overfit ratio: {overfit_ratio:.3f}  "
+                  f"{'ok' if overfit_ratio >= 0.6 else 'WARNING: possible overfit'}\n")
 
         records.append({
             "Window":                    i + 1,
@@ -325,15 +329,24 @@ def run_walk_forward(prices: pd.DataFrame,
         return
 
     df             = pd.DataFrame(records)
-    mean_overfit   = df["Overfit Ratio"].mean()
+    # Clamp individual overfit ratios to 2.0 before averaging to prevent
+    # outlier windows (e.g. tiny train Calmar) from distorting the mean.
+    OVERFIT_CAP    = 2.0
+    clamped        = df["Overfit Ratio"].clip(upper=OVERFIT_CAP)
+    n_clamped      = (df["Overfit Ratio"] > OVERFIT_CAP).sum()
+    mean_overfit   = clamped.mean()
+    median_overfit = clamped.median()
     mean_test_cal  = df["Test Calmar"].mean()
     mean_orig_cal  = df["Original Test Calmar"].mean()
     opt_beats_orig = (df["Test Calmar"] > df["Original Test Calmar"]).sum()
 
     print(f"\n  === WALK-FORWARD SUMMARY ===")
     print(f"  Windows completed:               {len(records)}")
-    print(f"  Mean overfit ratio:              {mean_overfit:.3f}  "
+    print(f"  Mean overfit ratio (capped {OVERFIT_CAP:.0f}x): {mean_overfit:.3f}  "
           f"(1.0 = no overfit, <0.6 = concerning)")
+    print(f"  Median overfit ratio (capped):   {median_overfit:.3f}")
+    if n_clamped > 0:
+        print(f"  Note: {n_clamped} window(s) had ratio > {OVERFIT_CAP:.0f}x and were clamped.")
     print(f"  Mean test Calmar (optimised):    {mean_test_cal:.3f}")
     print(f"  Mean test Calmar (original):     {mean_orig_cal:.3f}")
     print(f"  Windows where opt beat original: {opt_beats_orig}/{len(records)}")
@@ -345,7 +358,8 @@ def run_walk_forward(prices: pd.DataFrame,
     else:
         print(f"\n  VERDICT: High overfitting. Do not use for live trading.")
 
-    # Save walk_forward.csv
+    # Save walk_forward.csv (add clamped column alongside raw ratio)
+    df["Overfit Ratio Clamped"] = clamped
     csv_path = os.path.join(results_dir, "walk_forward.csv")
     df.to_csv(csv_path, index=False)
     print(f"\n  Walk-forward results saved  -> {csv_path}")
@@ -369,12 +383,13 @@ def run_walk_forward(prices: pd.DataFrame,
     print(f"  Walk-forward weights saved  -> {weights_path}")
 
     # Plot
-    _plot_walk_forward(df, mean_overfit, train_years, test_years,
+    _plot_walk_forward(df, mean_overfit, median_overfit, train_years, test_years,
                        step_years, results_dir)
 
 
 def _plot_walk_forward(df: pd.DataFrame,
                        mean_overfit: float,
+                       median_overfit: float,
                        train_years: int,
                        test_years: int,
                        step_years: int,
@@ -417,8 +432,8 @@ def _plot_walk_forward(df: pd.DataFrame,
     ax1.legend(fontsize=8, facecolor="#21262d", edgecolor="#30363d",
                labelcolor="white")
 
-    colors = ["#3fb950" if r >= 0.6 else "#f85149" for r in df["Overfit Ratio"]]
-    ax2.bar(x, df["Overfit Ratio"], color=colors, alpha=0.85)
+    colors = ["#3fb950" if r >= 0.6 else "#f85149" for r in df["Overfit Ratio Clamped"]]
+    ax2.bar(x, df["Overfit Ratio Clamped"], color=colors, alpha=0.85)
     ax2.axhline(1.0, color="#8b949e", lw=1.0, linestyle="--",
                 label="1.0 = perfect (no overfit)")
     ax2.axhline(0.6, color="#f0b429", lw=1.0, linestyle=":",
@@ -431,12 +446,12 @@ def _plot_walk_forward(df: pd.DataFrame,
                   fontsize=11, pad=8)
     ax2.legend(fontsize=8, facecolor="#21262d", edgecolor="#30363d",
                labelcolor="white")
-    ax2.set_ylim(0, max(df["Overfit Ratio"].max() * 1.2, 1.2))
+    ax2.set_ylim(0, max(df["Overfit Ratio Clamped"].max() * 1.2, 1.2))
 
     plt.suptitle(
         f"Walk-Forward Validation  |  "
         f"Train={train_years}yr  Test={test_years}yr  Step={step_years}yr  |  "
-        f"Mean overfit ratio: {mean_overfit:.3f}",
+        f"Mean overfit ratio (capped 2x): {mean_overfit:.3f}  |  Median: {median_overfit:.3f}",
         fontsize=12, color="white", y=1.02
     )
     plt.tight_layout()

@@ -254,31 +254,32 @@ def write_excel(path, rows):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-for p in [OLD_PATH, NEW_PATH]:
-    if not os.path.exists(p):
-        print(f"ERROR: {p} not found. Run from the project root.")
-        exit(1)
+if __name__ == "__main__":
+    for p in [OLD_PATH, NEW_PATH]:
+        if not os.path.exists(p):
+            print(f"ERROR: {p} not found. Run from the project root.")
+            exit(1)
 
-flat_cols = flat_columns()
+    flat_cols = flat_columns()
 
-print(f"Reading old log: {OLD_PATH}")
-old_rows = read_rows(OLD_PATH, flat_cols)
-print(f"  {len(old_rows)} rows read")
+    print(f"Reading old log: {OLD_PATH}")
+    old_rows = read_rows(OLD_PATH, flat_cols)
+    print(f"  {len(old_rows)} rows read")
 
-print(f"Reading new log: {NEW_PATH}")
-new_rows = read_rows(NEW_PATH, flat_cols)
-print(f"  {len(new_rows)} rows read")
+    print(f"Reading new log: {NEW_PATH}")
+    new_rows = read_rows(NEW_PATH, flat_cols)
+    print(f"  {len(new_rows)} rows read")
 
-# Old rows come first (chronologically earlier), new rows appended after
-all_rows = old_rows + new_rows
-print(f"\nTotal rows to write: {len(all_rows)}")
+    # Old rows come first (chronologically earlier), new rows appended after
+    all_rows = old_rows + new_rows
+    print(f"\nTotal rows to write: {len(all_rows)}")
 
-write_excel(OUT_PATH, all_rows)
+    write_excel(OUT_PATH, all_rows)
 
-print(f"\nMerge complete.")
-print(f"  Output -> {OUT_PATH}")
-print(f"\nVerify in Excel:")
-print(f"  - First {len(old_rows)} rows: old runs, blank Pricing Model / Tx Cost % / Tax Drag %")
-print(f"  - Last {len(new_rows)} rows: new runs, all columns populated")
-print(f"  - Results Folder always in the last column")
-print(f"  - No data from either file lost")
+    print(f"\nMerge complete.")
+    print(f"  Output -> {OUT_PATH}")
+    print(f"\nVerify in Excel:")
+    print(f"  - First {len(old_rows)} rows: old runs, blank Pricing Model / Tx Cost % / Tax Drag %")
+    print(f"  - Last {len(new_rows)} rows: new runs, all columns populated")
+    print(f"  - Results Folder always in the last column")
+    print(f"  - No data from either file lost")

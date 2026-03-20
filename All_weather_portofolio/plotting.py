@@ -82,9 +82,10 @@ def plot_backtest(backtest: pd.DataFrame,
     ax1.plot(backtest.index, backtest["S&P 500 Value"],
              color=COLORS["spy"], lw=1.6, linestyle="--", alpha=0.85,
              label="S&P 500 (SPY)")
-    ax1.plot(backtest.index, backtest["60/40 Value"],
-             color=COLORS["6040"], lw=1.6, linestyle="-.", alpha=0.85,
-             label="60/40 (SPY/TLT, rebalanced annually)")
+    if "60/40 Value" in backtest.columns:
+        ax1.plot(backtest.index, backtest["60/40 Value"],
+                 color=COLORS["6040"], lw=1.6, linestyle="-.", alpha=0.85,
+                 label="60/40 (SPY/TLT, rebalanced annually)")
     ax1.fill_between(backtest.index, backtest["All Weather Value"],
                      alpha=0.08, color=COLORS["aw"])
 
@@ -99,13 +100,15 @@ def plot_backtest(backtest: pd.DataFrame,
     ax1.legend(fontsize=9, facecolor="#21262d", edgecolor="#30363d",
                labelcolor="white", loc="upper left")
 
-    s_aw, s_bh, s_spy, s_6040 = stats_list
+    s_aw, s_bh, s_spy = stats_list[0], stats_list[1], stats_list[2]
+    s_6040 = stats_list[3] if len(stats_list) >= 4 else None
     ax1.text(
         0.99, 0.06,
         f"All Weather (Rebal.): ${s_aw.final_value:>9,.0f}   CAGR={s_aw.cagr:>6.2f}%   MaxDD={s_aw.max_drawdown:>7.2f}%   Calmar={s_aw.calmar:>5.2f}\n"
         f"Buy & Hold AW:        ${s_bh.final_value:>9,.0f}   CAGR={s_bh.cagr:>6.2f}%   MaxDD={s_bh.max_drawdown:>7.2f}%   Calmar={s_bh.calmar:>5.2f}\n"
-        f"S&P 500:              ${s_spy.final_value:>9,.0f}   CAGR={s_spy.cagr:>6.2f}%   MaxDD={s_spy.max_drawdown:>7.2f}%   Calmar={s_spy.calmar:>5.2f}\n"
-        f"60/40:                ${s_6040.final_value:>9,.0f}   CAGR={s_6040.cagr:>6.2f}%   MaxDD={s_6040.max_drawdown:>7.2f}%   Calmar={s_6040.calmar:>5.2f}",
+        f"S&P 500:              ${s_spy.final_value:>9,.0f}   CAGR={s_spy.cagr:>6.2f}%   MaxDD={s_spy.max_drawdown:>7.2f}%   Calmar={s_spy.calmar:>5.2f}"
+        + (f"\n60/40:                ${s_6040.final_value:>9,.0f}   CAGR={s_6040.cagr:>6.2f}%   MaxDD={s_6040.max_drawdown:>7.2f}%   Calmar={s_6040.calmar:>5.2f}"
+           if s_6040 is not None else ""),
         transform=ax1.transAxes, ha="right", va="bottom",
         color="#c9d1d9", fontsize=8.5,
         family="monospace",
@@ -120,32 +123,40 @@ def plot_backtest(backtest: pd.DataFrame,
     aw_ann          = annual_returns("All Weather Value")
     bh_ann          = annual_returns("Buy & Hold All Weather")
     spy_ann         = annual_returns("S&P 500 Value")
-    sixty_forty_ann = annual_returns("60/40 Value")
+    sixty_forty_ann = (annual_returns("60/40 Value")
+                       if "60/40 Value" in backtest.columns else None)
 
     years_idx = aw_ann.index
     x         = np.arange(len(years_idx))
-    width     = 0.19
+    # Use narrower bars when 60/40 is absent (3 strategies instead of 4)
+    width     = 0.19 if sixty_forty_ann is not None else 0.25
 
-    ax2.bar(x - width * 1.5, aw_ann.reindex(years_idx, fill_value=0).values,
+    if sixty_forty_ann is not None:
+        offsets = (-width * 1.5, -width * 0.5, width * 0.5, width * 1.5)
+    else:
+        offsets = (-width, 0, width)
+
+    ax2.bar(x + offsets[0], aw_ann.reindex(years_idx, fill_value=0).values,
             width, label="All Weather (Rebal.)",
             color=[COLORS["aw"] if v >= 0 else "#f85149"
                    for v in aw_ann.reindex(years_idx, fill_value=0).values],
             alpha=0.85)
-    ax2.bar(x - width * 0.5, bh_ann.reindex(years_idx, fill_value=0).values,
+    ax2.bar(x + offsets[1], bh_ann.reindex(years_idx, fill_value=0).values,
             width, label="Buy & Hold AW",
             color=[COLORS["bh"] if v >= 0 else "#b08800"
                    for v in bh_ann.reindex(years_idx, fill_value=0).values],
             alpha=0.85)
-    ax2.bar(x + width * 0.5, spy_ann.reindex(years_idx, fill_value=0).values,
+    ax2.bar(x + offsets[2], spy_ann.reindex(years_idx, fill_value=0).values,
             width, label="S&P 500",
             color=[COLORS["spy"] if v >= 0 else "#da3633"
                    for v in spy_ann.reindex(years_idx, fill_value=0).values],
             alpha=0.70)
-    ax2.bar(x + width * 1.5, sixty_forty_ann.reindex(years_idx, fill_value=0).values,
-            width, label="60/40",
-            color=[COLORS["6040"] if v >= 0 else "#1a7a35"
-                   for v in sixty_forty_ann.reindex(years_idx, fill_value=0).values],
-            alpha=0.85)
+    if sixty_forty_ann is not None:
+        ax2.bar(x + offsets[3], sixty_forty_ann.reindex(years_idx, fill_value=0).values,
+                width, label="60/40",
+                color=[COLORS["6040"] if v >= 0 else "#1a7a35"
+                       for v in sixty_forty_ann.reindex(years_idx, fill_value=0).values],
+                alpha=0.85)
 
     ax2.set_xticks(x)
     ax2.set_xticklabels([d.year for d in years_idx], rotation=45, fontsize=8)
