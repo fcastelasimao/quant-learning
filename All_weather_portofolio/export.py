@@ -97,6 +97,9 @@ def save_run_config(allocation: dict, results_dir: str, label: str):
         "backtest_start":          config.BACKTEST_START,
         "backtest_end":            config.BACKTEST_END,
         "oos_start":               config.OOS_START,
+        "pricing_model":           config.PRICING_MODEL,
+        "transaction_cost_pct":    config.TRANSACTION_COST_PCT,
+        "tax_drag_pct":            config.TAX_DRAG_PCT,
         "initial_portfolio_value": config.INITIAL_PORTFOLIO_VALUE,
         "rebalance_threshold":     config.REBALANCE_THRESHOLD,
         "data_frequency":          config.DATA_FREQUENCY,
@@ -201,6 +204,9 @@ META_COLS = [
     "Backtest Start",
     "Backtest End",
     "OOS Start",
+    "Pricing Model",
+    "Tx Cost %",
+    "Tax Drag %",
     "Data Freq",
     "Tickers",
 ]
@@ -254,6 +260,9 @@ def build_log_row(results_dir: str,
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
         "OOS Start":      config.OOS_START,
+        "Pricing Model":  config.PRICING_MODEL,
+        "Tx Cost %":      config.TRANSACTION_COST_PCT,
+        "Tax Drag %":     config.TAX_DRAG_PCT,
         "Data Freq":      config.DATA_FREQUENCY,
         "Tickers":        " | ".join(f"{t}={w:.1%}" for t, w in weights.items()),
     }
@@ -395,6 +404,9 @@ def _write_excel_log(log_path: str, rows: list[dict]):
     ws.column_dimensions[get_column_letter(col_index["Backtest Start"])].width = 13
     ws.column_dimensions[get_column_letter(col_index["Backtest End"])].width   = 13
     ws.column_dimensions[get_column_letter(col_index["OOS Start"])].width      = 13
+    ws.column_dimensions[get_column_letter(col_index["Pricing Model"])].width  = 13
+    ws.column_dimensions[get_column_letter(col_index["Tx Cost %"])].width      = 10
+    ws.column_dimensions[get_column_letter(col_index["Tax Drag %"])].width     = 10
     ws.column_dimensions[get_column_letter(col_index["Data Freq"])].width      = 10
     ws.column_dimensions[get_column_letter(col_index["Tickers"])].width        = 45
     ws.column_dimensions[get_column_letter(col_index["Results Folder"])].width = 55

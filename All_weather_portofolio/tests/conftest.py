@@ -10,6 +10,15 @@ across individual test functions. Each fixture is a function decorated with
 as a parameter receive that value automatically when pytest runs them.
 """
 
+
+def pytest_configure(config):
+    """Register custom markers so pytest does not warn about unknown marks."""
+    config.addinivalue_line(
+        "markers",
+        "integration: mark test as requiring network access (yfinance); "
+        "skip offline with: pytest -m 'not integration'",
+    )
+
 import sys
 import os
 

@@ -1,8 +1,13 @@
 # All Weather Portfolio Tracker
 
-A Python tool for backtesting, optimising, and validating an All Weather-style portfolio. Implements monthly rebalancing, Differential Evolution weight optimisation, walk-forward validation, Pareto frontier analysis, and a strict in-sample / out-of-sample methodology to produce honest, non-overfitted performance results.
+A Python backtesting, optimisation, and validation tool for an All Weather-style
+portfolio. Implements monthly rebalancing, Differential Evolution weight
+optimisation, walk-forward validation, and a strict in-sample / out-of-sample
+methodology to produce honest, non-overfitted performance results.
 
-The primary metric throughout is the Calmar ratio (CAGR divided by maximum drawdown). The goal is capital preservation, not return maximisation.
+The primary metric throughout is the Calmar ratio (CAGR / max drawdown).
+The goal is capital preservation and competitive risk-adjusted returns --
+not return maximisation.
 
 ---
 
@@ -28,20 +33,19 @@ The primary metric throughout is the Calmar ratio (CAGR divided by maximum drawd
 
 ## Strategy Background
 
-Ray Dalio's All Weather Portfolio targets four economic environments: rising growth, falling growth, rising inflation, and falling inflation. The goal is not to maximise returns — it is to preserve and grow wealth steadily across all environments without experiencing catastrophic losses that cause investors to abandon the strategy.
+Ray Dalio's All Weather Portfolio targets four economic environments: rising
+growth, falling growth, rising inflation, and falling inflation. The goal is
+not to maximise returns -- it is to preserve and grow wealth steadily across
+all environments without experiencing catastrophic losses.
 
-The core insight is behavioural: a portfolio that drops 50% requires a 100% gain just to break even. Most investors cannot hold through that drawdown. They sell at the bottom, miss the recovery, and end up worse than if they had earned 2% less per year in a smoother portfolio.
+The core insight is behavioural: a portfolio that drops 50% requires a 100%
+gain just to break even. Most investors sell at the bottom and miss the
+recovery, ending up worse than if they had earned 2% less per year in a
+smoother portfolio.
 
-This implementation extends the original Dalio framework in three ways:
-
-**1. Expanded asset universe**
-The original 5-asset Dalio allocation (stocks, long bonds, intermediate bonds, gold, commodities) is extended to 8 assets by splitting equities into three distinct ETFs (broad, tech, value) and splitting intermediate bonds into two duration buckets. This provides more granular exposure to each economic regime.
-
-**2. Strict IS/OOS split**
-All optimisation and walk-forward validation is confined to the in-sample period (2006-2020). The out-of-sample period (2020-2026) is held out and only evaluated once, after all IS work is complete. This prevents the common failure mode of optimising on the full period and reporting an inflated OOS number.
-
-**3. Calmar-optimised weights (optional)**
-Weights can be optimised using Differential Evolution to maximise Calmar ratio on the IS period. Walk-forward validation tests whether optimised weights genuinely generalise. In practice, the DE optimiser does not reliably beat the manual allocation on this dataset — the manual allocation is the current recommended configuration.
+This implementation uses total return prices throughout (dividends and interest
+reinvested). The yfinance library returns total return data by default via
+auto_adjust=True, which is what the project uses.
 
 ---
 
@@ -50,15 +54,15 @@ Weights can be optimised using Differential Evolution to maximise Calmar ratio o
 | Asset | ETF | Weight | Role |
 |-------|-----|--------|------|
 | US Tech | QQQ | 15% | Growth equity |
-| Long bonds | TLT | 25% | Government bond / deflation hedge |
-| Gold | GLD | 15% | Inflation hedge / crisis protection |
+| Long bonds | TLT | 25% | Deflation hedge / duration |
+| Gold | GLD | 15% | Inflation hedge / crisis |
 | Broad US equity | SPY | 10% | Equity diversification |
 | US value equity | IWD | 10% | Low-beta equity alternative |
 | Intermediate bonds | IEF | 10% | Duration buffer |
 | Commodities | GSG | 10% | Stagflation / supply shock hedge |
 | Short-term bonds | SHY | 5% | Stability anchor |
 
-**Asset class groups and caps:**
+Asset class caps enforced during optimisation:
 
 | Group | Assets | Cap |
 |-------|--------|-----|
@@ -68,15 +72,18 @@ Weights can be optimised using Differential Evolution to maximise Calmar ratio o
 | Gold | GLD | 20% |
 | Commodities | GSG | 20% |
 
-GSG (commodity ETF) inception July 2006 sets the backtest start date at 2006-01-01.
+GSG inception July 2006 sets the backtest start date.
 
 ---
 
 ## Performance Results
 
-All figures use price returns only (dividends and interest not yet modelled — see Known Limitations). Starting value $10,000.
+All figures use total return prices (dividends reinvested). Starting value $10,000.
+Note: all historical runs in this project used total return data by default
+(yfinance auto_adjust=True is the default). Results labelled "price_return"
+in older master log rows should be interpreted as total return.
 
-### In-sample (2006-2020, training period)
+### In-sample 2006-2020 (training period, never used for OOS evaluation)
 
 | Metric | AW Rebalanced | 60/40 | SPY |
 |--------|--------------|-------|-----|
@@ -86,7 +93,7 @@ All figures use price returns only (dividends and interest not yet modelled — 
 | Ulcer Index | 4.48 | 5.34 | 13.92 |
 | Max DD Duration | 22 months | 34 months | 52 months |
 
-### Out-of-sample (2020-2026, held-out test)
+### Out-of-sample 2020-2026 (held-out, honest evaluation)
 
 | Metric | AW Rebalanced | 60/40 | SPY |
 |--------|--------------|-------|-----|
@@ -96,7 +103,7 @@ All figures use price returns only (dividends and interest not yet modelled — 
 | Ulcer Index | 6.24 | 10.58 | 7.79 |
 | Max DD Duration | 26 months | 32 months | 23 months |
 
-### Full period (2006-2026)
+### Full period 2006-2026
 
 | Metric | AW Rebalanced | 60/40 | SPY |
 |--------|--------------|-------|-----|
@@ -106,223 +113,194 @@ All figures use price returns only (dividends and interest not yet modelled — 
 | Ulcer Index | 5.09 | 7.36 | 12.36 |
 | Final Value ($10k) | $40,795 | $49,754 | $76,620 |
 
-**Key stress tests:**
-- 2008 financial crisis: AW down ~10% vs SPY down ~37% — the strategy's strongest argument
-- 2022 rate shock: AW down ~15%, 60/40 down ~20%, SPY down ~18% — everyone fell, AW fell least
-- SPY beats everything on raw returns over 20 years — the All Weather advantage is entirely on risk-adjusted terms
+Key stress tests:
+- 2008 financial crisis: AW down ~10% vs SPY down ~37%
+- 2022 rate shock: AW down ~15%, 60/40 down ~20% -- AW held up best
+- SPY wins on raw returns over 20 years -- the AW advantage is entirely
+  on risk-adjusted terms (Calmar, Ulcer, drawdown duration)
 
 ---
 
 ## IS/OOS Methodology
 
-The three date parameters in `config.py` define the entire research boundary:
+Three dates define the entire research boundary:
 
-```
-|-------- In-sample (train) --------|---- Out-of-sample (test) ----|
-2006-01-01                     2020-01-01                    2026-01-01
-BACKTEST_START                  OOS_START                    BACKTEST_END
-```
+  |-------- In-sample (train) --------|---- Out-of-sample (test) ----|
+  2006-01-01                     2020-01-01                    2026-01-01
+  BACKTEST_START                  OOS_START                    BACKTEST_END
 
-**Run modes respect this boundary automatically:**
+Run modes respect this boundary automatically:
 
-| Mode | Data used | Purpose |
-|------|-----------|---------|
-| `backtest` | BACKTEST_START → OOS_START | IS baseline, reference point |
-| `optimise` | BACKTEST_START → OOS_START | DE weight search on IS data only |
-| `walk_forward` | BACKTEST_START → OOS_START | Test optimisation robustness |
-| `pareto` | BACKTEST_START → OOS_START | CAGR vs drawdown frontier |
-| `oos_evaluate` | OOS_START → BACKTEST_END | Honest held-out evaluation (run sparingly) |
-| `full_backtest` | BACKTEST_START → BACKTEST_END | Final reporting chart |
+| Mode | Data window | Purpose |
+|------|-------------|---------|
+| backtest | IS only | IS baseline with current TARGET_ALLOCATION |
+| optimise | IS only | DE weight search, never sees OOS data |
+| walk_forward | IS only | Sliding window robustness validation |
+| pareto | IS only | CAGR vs drawdown frontier |
+| oos_evaluate | OOS only | Single honest held-out test |
+| full_backtest | Full period | Final reporting chart |
 
-**Important:** `oos_evaluate` should be run as few times as possible. Every time you view the OOS result, adjust something, and re-run, you leak information from the test set back into your decisions. Run it once when all IS work is complete.
+Important: run oos_evaluate as few times as possible. Every time you view
+the OOS result and adjust something, you leak information from the test set.
 
 ---
 
 ## Project Structure
 
-```
-All_weather_portfolio/
-│
-├── main.py          # Entry point -- orchestration only, no logic
-├── config.py        # ALL user parameters -- the only file you need to edit
-├── data.py          # fetch_prices() via yfinance
-├── backtest.py      # Simulation engine, 9 stat helpers, StrategyStats dataclass
-├── portfolio.py     # Real holdings management (load/save/rebalance)
-├── optimiser.py     # Four optimisation methods with asset class cap enforcement
-├── validation.py    # run_walk_forward() and run_pareto_frontier()
-├── plotting.py      # Three-panel backtest chart (value, annual returns, drift)
-├── export.py        # Excel master log, stats CSV, terminal printing
-│
-├── requirements.txt
-├── README.txt
-├── ToDo.txt
-│
-├── portfolio_holdings.json     # auto-generated: current share counts
-│                               # delete this when changing tickers
-│
-├── conftest.py                 # shared pytest fixtures
-├── test_stats.py               # 21 unit tests for stat helper functions
-│
-└── results/
-    ├── master_log.xlsx         # one row per run, all metrics, grouped headers
-    └── YYYY-MM-DD_HH-MM-SS_<label>/
-        ├── backtest.png               # three-panel chart
-        ├── backtest_history.csv       # monthly portfolio values
-        ├── stats.csv                  # all 10 metrics per strategy
-        ├── allocation.csv             # weights used in this run
-        ├── run_config.json            # all parameters for exact reproduction
-        ├── run_log.txt                # full terminal output
-        ├── walk_forward.png           # walk-forward chart (walk_forward mode only)
-        ├── walk_forward.csv           # per-window metrics (walk_forward mode only)
-        ├── walk_forward_weights.csv   # per-window weights (walk_forward mode only)
-        ├── pareto_frontier.png        # Pareto chart (pareto mode only)
-        └── pareto_frontier.csv        # frontier points (pareto mode only)
-```
+  All_weather_portfolio/
+  |
+  +-- main.py               Entry point, orchestration only
+  +-- config.py             ALL user parameters -- only file you need to edit
+  +-- data.py               fetch_prices() via yfinance (total return by default)
+  +-- backtest.py           Simulation engine, 9 stat helpers, StrategyStats
+  +-- portfolio.py          Real holdings management (load/save/rebalance)
+  +-- optimiser.py          Four optimisation methods with asset class caps
+  +-- validation.py         run_walk_forward() and run_pareto_frontier()
+  +-- plotting.py           Three-panel dark-theme backtest chart
+  +-- export.py             Excel master log, stats CSV, terminal printing
+  |
+  +-- requirements.txt
+  +-- README.txt
+  +-- ToDo.txt
+  +-- strategies.json       Curated registry of validated strategies (planned)
+  +-- merge_master_logs.py  One-off utility to merge master log eras
+  |
+  +-- portfolio_holdings.json   auto-generated: current share counts
+  |                             delete this when changing tickers
+  |
+  +-- conftest.py               shared pytest fixtures
+  +-- test_stats.py             unit tests for stat helper functions
+  +-- test_data.py              unit and integration tests for data and costs
+  |
+  +-- results/
+      +-- master_log.xlsx       one row per run, all metrics, grouped headers
+      +-- YYYY-MM-DD_HH-MM-SS_label/
+          +-- backtest.png
+          +-- backtest_history.csv
+          +-- stats.csv
+          +-- allocation.csv
+          +-- run_config.json
+          +-- run_log.txt
+          +-- walk_forward.png / .csv / _weights.csv  (walk_forward mode)
+          +-- pareto_frontier.png / .csv               (pareto mode)
 
-### Module dependency graph
+Module dependency graph:
 
-```
-main.py
-  ├── config.py         (no project imports)
-  ├── data.py           (imports config)
-  ├── portfolio.py      (imports config)
-  ├── backtest.py       (imports config)
-  ├── optimiser.py      (imports config, backtest)
-  ├── validation.py     (imports config, backtest, optimiser)
-  ├── plotting.py       (imports config, backtest)
-  └── export.py         (imports config, backtest)
-```
+  main.py
+    +-- config.py         (no project imports)
+    +-- data.py           (imports config)
+    +-- portfolio.py      (imports config)
+    +-- backtest.py       (imports config)
+    +-- optimiser.py      (imports config, backtest)
+    +-- validation.py     (imports config, backtest, optimiser)
+    +-- plotting.py       (imports config, backtest)
+    +-- export.py         (imports config, backtest)
 
 ---
 
 ## Installation
 
-```bash
-git clone https://github.com/fcastelasimao/quant-learning.git
-cd quant-learning/All_weather_portofolio
+  git clone https://github.com/fcastelasimao/quant-learning.git
+  cd quant-learning/All_weather_portofolio
 
-conda create -n allweather python=3.12
-conda activate allweather
-pip install -r requirements.txt
-```
+  conda create -n allweather python=3.12
+  conda activate allweather
+  pip install -r requirements.txt
 
-**Minimum versions:**
-- Python >= 3.10
-- pandas >= 2.2 (required for `"ME"` resample frequency)
-- scipy >= 1.9
-- openpyxl >= 3.1 (required for Excel master log)
+Minimum versions: Python >= 3.10, pandas >= 2.2, scipy >= 1.9, openpyxl >= 3.1
 
 ---
 
 ## Quick Start
 
-**Run a baseline in-sample backtest:**
-```bash
-conda activate allweather
-python main.py
-# RUN_MODE = "backtest" in config.py
-```
+Run a baseline in-sample backtest:
+  conda activate allweather
+  python main.py
+  (RUN_MODE = "backtest" in config.py)
 
-**Run the full validated workflow:**
-```python
-# Step 1: IS baseline
-RUN_MODE = "backtest"
+Full validated workflow:
+  Step 1: RUN_MODE = "backtest"        -- IS baseline
+  Step 2: RUN_MODE = "walk_forward"    -- validate robustness (30-60 min)
+  Step 3: RUN_MODE = "optimise"        -- find best IS weights
+  Step 4: update TARGET_ALLOCATION with optimised weights
+  Step 5: RUN_MODE = "oos_evaluate"    -- single honest OOS test
+  Step 6: RUN_MODE = "full_backtest"   -- final reporting chart
 
-# Step 2: Walk-forward (takes 30-60 mins with DE)
-RUN_MODE = "walk_forward"
-
-# Step 3: IS optimisation
-RUN_MODE = "optimise"
-
-# Step 4: OOS evaluation (run once, after IS work is complete)
-RUN_MODE = "oos_evaluate"
-# Update TARGET_ALLOCATION with optimised weights first if using DE result
-
-# Step 5: Full period reporting chart
-RUN_MODE = "full_backtest"
-```
-
-You only ever run `main.py`. All other files are modules. Change `config.py` between runs.
+You only ever run main.py. Change config.py between runs.
 
 ---
 
 ## Configuration
 
-**`config.py` is the only file you need to edit for routine use.**
+config.py is the only file you need to edit for routine use.
 
 ### Date parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `BACKTEST_START` | `"2006-01-01"` | Start of IS period. GSG inception limits to 2006. |
-| `OOS_START` | `"2020-01-01"` | IS ends, OOS begins. All optimisation stays left of this. |
-| `BACKTEST_END` | `"2026-01-01"` | End of OOS period. |
+| BACKTEST_START | "2006-01-01" | Start of IS period |
+| OOS_START | "2020-01-01" | IS ends, OOS begins |
+| BACKTEST_END | "2026-01-01" | End of OOS period |
 
 ### Core parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `INITIAL_PORTFOLIO_VALUE` | `10_000` | Starting value in USD |
-| `REBALANCE_THRESHOLD` | `0.05` | Minimum drift to trigger rebalancing |
-| `DATA_FREQUENCY` | `"ME"` | `"ME"` monthly or `"W"` weekly |
-| `SHARPE_ANNUALISATION` | `12` | Must match frequency: 12 for ME, 52 for W |
-| `RUN_MODE` | `"backtest"` | See Run Modes section |
+| INITIAL_PORTFOLIO_VALUE | 10_000 | Starting value in USD |
+| REBALANCE_THRESHOLD | 0.05 | Minimum drift to trigger rebalancing |
+| DATA_FREQUENCY | "ME" | "ME" monthly or "W" weekly |
+| SHARPE_ANNUALISATION | 12 | Must match: 12 for ME, 52 for W |
+| PRICING_MODEL | "total_return" | "total_return" or "price_return" |
+| TRANSACTION_COST_PCT | 0.0 | Cost per trade (0.001 = 0.1%) |
+| TAX_DRAG_PCT | 0.0 | Annual drag (0.0 for ISA/SIPP) |
 
 ### ETF availability
 
 | ETF | Inception | Role |
 |-----|-----------|------|
-| SPY | January 1993 | Broad US equity |
-| QQQ | March 1999 | US tech equity |
-| IWD | January 2000 | US value equity |
-| TLT | July 2002 | Long-term government bonds |
-| IEF | July 2002 | Intermediate government bonds |
-| SHY | July 2002 | Short-term bonds |
-| GLD | November 2004 | Gold |
-| GSG | July 2006 | Broad commodities ← limits backtest start |
+| SPY | Jan 1993 | Broad US equity |
+| QQQ | Mar 1999 | US tech equity |
+| IWD | Jan 2000 | US value equity |
+| TLT | Jul 2002 | Long-term bonds |
+| IEF | Jul 2002 | Intermediate bonds |
+| SHY | Jul 2002 | Short-term bonds |
+| GLD | Nov 2004 | Gold |
+| GSG | Jul 2006 | Commodities (limits backtest start) |
 
 ### Optimiser parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `OPT_METHOD` | `"differential_evolution"` | See Optimisation Methods |
-| `OPT_MIN_WEIGHT` | `0.05` | Minimum weight per asset |
-| `OPT_MAX_WEIGHT` | `0.30` | Maximum weight per asset |
-| `OPT_MIN_CAGR` | `0.0` | Minimum acceptable CAGR |
-| `OPT_N_TRIALS` | `10_000` | Trials for random/calmar methods |
-| `OPT_RANDOM_SEED` | `42` | Set `None` for different results each run |
+| OPT_METHOD | "differential_evolution" | See Optimisation Methods |
+| OPT_MIN_WEIGHT | 0.05 | Minimum weight per asset |
+| OPT_MAX_WEIGHT | 0.25 | Maximum weight per asset |
+| OPT_N_TRIALS | 10_000 | Trials for random/calmar methods |
+| OPT_RANDOM_SEED | 42 | Set None for different results each run |
 
 ### Walk-forward parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `WF_TRAIN_YEARS` | `5` | Training window length |
-| `WF_TEST_YEARS` | `2` | Test window length |
-| `WF_STEP_YEARS` | `2` | Slide distance per window |
-| `WF_OPT_METHOD` | `"differential_evolution"` | Use `"calmar"` for speed |
-
-### Asset class caps
-
-The optimiser enforces group-level caps defined in `ASSET_CLASS_GROUPS` and
-`ASSET_CLASS_MAX_WEIGHT`. Removing these dicts from `config.py` disables caps
-gracefully. Caps apply to both `optimise` and `walk_forward` modes.
+| WF_TRAIN_YEARS | 5 | Training window length |
+| WF_TEST_YEARS | 2 | Test window length |
+| WF_STEP_YEARS | 2 | Slide distance per window |
+| WF_OPT_METHOD | "differential_evolution" | Use "calmar" for speed |
 
 ---
 
 ## Run Modes
 
-Set `RUN_MODE` in `config.py`:
-
 | Mode | Data window | What it does |
 |------|-------------|-------------|
-| `backtest` | IS only | Backtest with current TARGET_ALLOCATION |
-| `optimise` | IS only | DE weight search, then backtest with optimised weights |
-| `walk_forward` | IS only | Sliding window validation, saves walk_forward.* files |
-| `pareto` | IS only | CAGR vs drawdown frontier sweep |
-| `oos_evaluate` | OOS only | Backtest on held-out 2020-2026 data |
-| `full_backtest` | Full period | 2006-2026 reporting chart |
+| backtest | IS only | Backtest with current TARGET_ALLOCATION |
+| optimise | IS only | DE weight search, then backtest optimised weights |
+| walk_forward | IS only | Sliding window validation, saves walk_forward.* |
+| pareto | IS only | CAGR vs drawdown frontier sweep |
+| oos_evaluate | OOS only | Backtest on held-out 2020-2026 data |
+| full_backtest | Full period | 2006-2026 reporting chart |
 
-`walk_forward` and `pareto` modes do not run the generic backtest pipeline — they save their own outputs and exit cleanly.
+walk_forward and pareto modes do not run the generic backtest pipeline.
+They save their own outputs and exit cleanly.
 
 ---
 
@@ -330,41 +308,42 @@ Set `RUN_MODE` in `config.py`:
 
 | Method | Algorithm | Objective | Notes |
 |--------|-----------|-----------|-------|
-| `"random"` | Random search | Calmar | Simple baseline |
-| `"calmar"` | Random search | Calmar | Recommended for walk-forward speed |
-| `"differential_evolution"` | scipy DE | Calmar | Best results, ~30-60 min |
-| `"sharpe_slsqp"` | Gradient SLSQP | Sharpe | Fast but cannot handle drawdown objective |
+| "random" | Random search | Calmar | Simple baseline |
+| "calmar" | Random search | Calmar | Recommended for walk-forward speed |
+| "differential_evolution" | scipy DE | Calmar | Best results, 30-60 min |
+| "sharpe_slsqp" | Gradient SLSQP | Sharpe | Fast, smooth objective only |
 
-**Why DE for drawdown?** Max drawdown is discontinuous — gradients are near-zero or undefined. SLSQP gets stuck at local minima. DE evolves a population without needing gradients and finds better solutions.
-
-**Note on optimiser value-add:** Walk-forward analysis across multiple cap configurations showed the DE optimiser beats the manual allocation in only 1-3 out of 4 windows. The manual allocation is recommended for live use. The optimiser is most useful as a diagnostic tool to understand which parts of the allocation the data supports.
+Note on DE value-add: walk-forward analysis showed the DE optimiser beats
+the manual allocation in only 1-3 out of 4 windows across multiple cap
+configurations. The manual allocation is recommended for live use. The
+optimiser is most useful as a diagnostic tool.
 
 ---
 
 ## Walk-Forward Validation
 
-Walk-forward validation tests whether optimised weights genuinely generalise or are overfitted to the training period.
+Walk-forward tests whether optimised weights genuinely generalise or are
+overfitted to the training period.
 
-**How it works:**
-1. Slides a window across the IS period (BACKTEST_START to OOS_START)
-2. Each window: optimise weights on training data, evaluate on test data
+How it works:
+1. Slides a window across IS period (BACKTEST_START to OOS_START)
+2. Each window: optimise on train, evaluate on test
 3. Compute overfit ratio = test Calmar / train Calmar per window
-4. A low ratio means the IS result does not generalise
+4. Low ratio = IS result does not generalise
 
-**Interpreting the overfit ratio:**
+Interpreting the overfit ratio:
+  >= 1.0  -- test beat train, robust
+  0.6-1.0 -- acceptable generalisation
+  < 0.6   -- concerning overfitting
 
-| Ratio | Interpretation |
-|-------|----------------|
-| ≥ 1.0 | Test beat train — robust (but check if test period was unusually benign) |
-| 0.6 – 1.0 | Acceptable generalisation |
-| < 0.6 | High overfitting — treat IS results with caution |
+Note: the mean overfit ratio can be distorted by windows where the test
+period was unusually benign (ratios of 5-17x). The median is more
+representative. This is a known limitation under active improvement.
 
-**Key finding from 8-asset experiments:** The 2010-2015 window is structurally difficult — a low-volatility equity bull run causes the optimiser to find a tech-heavy allocation that fails in the subsequent 2015-2017 period regardless of cap configuration. This is a regime problem, not a code problem.
-
-**Walk-forward output files:**
-- `walk_forward.png` — two-panel chart: Calmar per window + overfit ratios
-- `walk_forward.csv` — per-window metrics including win rate, worst/best month
-- `walk_forward_weights.csv` — weights found by DE in each window
+Output files:
+  walk_forward.png          -- Calmar per window + overfit ratios
+  walk_forward.csv          -- per-window metrics
+  walk_forward_weights.csv  -- per-window DE weights
 
 ---
 
@@ -374,77 +353,115 @@ Walk-forward validation tests whether optimised weights genuinely generalise or 
 
 | Metric | What it means |
 |--------|---------------|
-| CAGR | Compound Annual Growth Rate — average annual return |
+| CAGR | Compound Annual Growth Rate |
 | Max Drawdown | Worst peak-to-trough loss (negative, closer to 0 is better) |
-| Avg Drawdown | Mean of all drawdown values — what a typical bad period looks like |
+| Avg Drawdown | Mean of all drawdown values -- what a typical bad period looks like |
 | Max DD Duration | Longest consecutive months below a previous peak |
 | Avg Recovery | Average months to recover from each drawdown episode |
-| Ulcer Index | RMS of all drawdown values — penalises long time underwater |
-| Sharpe Ratio | Return per unit of total volatility (annualised) |
+| Ulcer Index | RMS of all drawdown values -- penalises long time underwater |
+| Sharpe Ratio | Return per unit of total volatility |
 | Sortino Ratio | Return per unit of downside volatility only |
-| Calmar Ratio | CAGR / max drawdown — primary optimisation objective |
-
-### Output files per run
-
-| File | Contents |
-|------|----------|
-| `backtest.png` | Three-panel chart: value over time, annual returns, B&H drift |
-| `backtest_history.csv` | Monthly portfolio values for all four strategies |
-| `stats.csv` | All 10 metrics per strategy |
-| `allocation.csv` | Weights used in this run |
-| `run_config.json` | All parameters — copy into `config.py` to reproduce exactly |
-| `run_log.txt` | Full terminal output including rebalancing instructions |
+| Calmar Ratio | CAGR / max drawdown -- primary optimisation objective |
 
 ### Master log
 
-`results/master_log.xlsx` contains one row per run with all metrics grouped by strategy. Key columns: Timestamp, Label, Run Mode, Backtest Start, Backtest End, OOS Start, then 10 metrics × 4 strategies, then Results Folder.
+results/master_log.xlsx -- one row per run, all metrics grouped by strategy.
+Key META columns: Timestamp, Label, Run Mode, Backtest Start, Backtest End,
+OOS Start, Pricing Model, Tx Cost %, Tax Drag %, Data Freq, Tickers.
+Then 10 metrics x 4 strategies, then Results Folder.
 
-Old rows (pre-new-metrics) have blank cells in the Avg_DD, Max_DD_Dur, Avg_Rec, Ulcer, and Sortino columns — this is expected and correct.
+Old rows (pre-2026-03-20) have blank Pricing Model / Tx Cost % / Tax Drag %
+cells but their metric data is intact and correct (was already total return).
 
 ---
 
 ## Running the Tests
 
-```bash
-conda activate allweather
-pytest test_stats.py -v
-```
+  conda activate allweather
+  pytest test_stats.py test_data.py -v
 
-21 tests covering `compute_cagr`, `compute_max_drawdown`, `compute_sharpe`, and `compute_calmar`. The five new stat helpers (`compute_avg_drawdown`, `compute_max_drawdown_duration`, `compute_avg_recovery_time`, `compute_ulcer_index`, `compute_sortino`) are not yet covered — see ToDo.txt.
+  Skip integration tests (require network):
+  pytest test_stats.py test_data.py -v -m "not integration"
+
+test_stats.py covers the four original stat helpers.
+test_data.py covers total return verification and cost modelling.
+The five newer stat helpers (AvgDD, MaxDDDuration, AvgRecovery, Ulcer,
+Sortino) do not yet have tests -- see ToDo.txt.
 
 ---
 
 ## Known Limitations
 
-**Price returns only (most important)**
-Dividends and interest income are not modelled. This understates performance materially — particularly for TLT (historically ~3% coupon) and SHY (currently ~4-5% yield). Switching to total return prices via yfinance `auto_adjust=True` is a planned improvement. All results should be treated as conservative lower bounds on total return performance.
+Total return prices only
+  The project uses auto_adjust=True (yfinance default) which returns
+  dividend-reinvested total return prices. There is no lookahead bias here --
+  yfinance adjusts prices retroactively, which is standard for backtesting.
+  The PRICING_MODEL = "price_return" option uses auto_adjust=False.
 
-**No transaction costs**
-Every rebalancing trade is assumed free. Real bid-ask spreads (~0.01-0.05% for liquid ETFs), brokerage commissions, and FX conversion costs (for UK investors buying USD ETFs) are not modelled.
+No transaction costs by default
+  TRANSACTION_COST_PCT = 0.0 by default. Real bid-ask spreads (~0.01-0.05%
+  for liquid ETFs) and FX conversion costs (for UK investors buying USD ETFs)
+  are not modelled unless you set this parameter explicitly.
 
-**No tax modelling**
-Monthly rebalancing is a taxable event in most jurisdictions. Results assume a tax-sheltered account (ISA or SIPP equivalent). In a taxable account, CGT drag would reduce returns meaningfully.
+No tax modelling by default
+  TAX_DRAG_PCT = 0.0 by default. The current tax model is a blunt annual
+  drag on portfolio value -- not a proper CGT calculation on realised gains.
+  See the Important Caveats section for guidance on setting this parameter.
 
-**Backtest cannot start before July 2006**
-GSG (commodity ETF) inception date limits history. Dropping GSG allows a 2004 start using the original 7-asset configuration.
+Backtest cannot start before July 2006
+  GSG (commodity ETF) inception date limits history.
 
-**No fractional shares**
-Rebalancing instructions show dollar amounts but not share counts. For small portfolios (<£5,000), some positions may require fractional shares which not all brokers support.
+No fractional shares
+  Rebalancing instructions show dollar amounts but not share counts.
 
-**Walk-forward mean overfit ratio is distorted**
-The mean overfit ratio is inflated by windows where the test period was unusually benign (individual ratios of 5-17x). The median is more representative. This is a known code limitation — see ToDo.txt.
+Walk-forward mean overfit ratio can be misleading
+  Individual window ratios above 5x inflate the mean significantly.
+  Median overfit ratio is more informative. Improvement planned.
 
-**MiFID II restrictions (UK investors)**
-Some UK brokers restrict US-listed ETFs for retail clients. UK-listed equivalents (CSPX, EQQQ, IDTL, IGLN) exist but may have slightly different tracking and expense ratios.
+MiFID II restrictions (UK investors)
+  Some UK brokers restrict US-listed ETFs for retail clients. UK-listed
+  equivalents (CSPX, EQQQ, IDTL, IGLN) exist but may have different
+  tracking and expense ratios.
 
 ---
 
 ## Important Caveats
 
-**The central finding is robust but conditional.** The 8-asset All Weather allocation beats 60/40 on all risk-adjusted metrics out-of-sample (OOS Calmar 0.441 vs 0.263). This holds on genuinely held-out data including the 2022 rate shock. However, the result is conditional on total return not being modelled — adding dividends and interest will change the absolute numbers.
+Tax wrapper recommendation
+  This strategy is best implemented inside a tax-sheltered account -- an ISA
+  or SIPP in the UK. Monthly rebalancing is a taxable event in a general
+  investment account (GIA). Each sell trade above your annual CGT allowance
+  (£3,000 in 2026) is subject to Capital Gains Tax at 18-24% depending on
+  your marginal income tax rate. Set TAX_DRAG_PCT = 0.0 for ISA/SIPP.
+  For a taxable account, set TAX_DRAG_PCT = 0.03-0.05 as a conservative
+  estimate. Consult a tax adviser for your specific situation.
 
-**2022 is the honest weakness.** The simultaneous bond/equity/gold drawdown caused by the fastest rate rise in 40 years cannot be optimised away with the current asset universe. GSG (commodities) provided a partial hedge but could not offset the bond losses entirely. This is a structural feature of the macro environment, not a fixable bug.
+2022 is the structural weakness
+  The simultaneous bond/equity/gold drawdown from the fastest rate rise in
+  40 years cannot be optimised away with this asset universe. The strategy
+  lost approximately 15% in 2022. GSG (commodities) provided a partial hedge
+  but could not offset the bond losses.
 
-**The rebalanced version consistently trails B&H on Calmar in trending markets.** Monthly rebalancing systematically sells winners in a bull market. The B&H version has a higher Calmar in almost every period tested. The rebalanced version's advantage is a stable, explainable allocation that does not drift arbitrarily. For an investor who needs to understand and explain their portfolio, rebalancing is worth the Calmar cost.
+Rebalanced vs Buy-and-Hold
+  The rebalanced version consistently trails buy-and-hold on Calmar in
+  trending markets. Monthly rebalancing sells winners in a bull market.
+  The rebalanced version's advantage is a stable, explainable allocation that
+  does not drift arbitrarily -- after 15 years of a gold rally, a B&H
+  portfolio may be 40% gold, which no rational investor would choose.
 
-**This tool is for educational and research purposes only.** Nothing in this project constitutes financial advice. Past performance does not guarantee future results. Always consult a qualified financial advisor before making investment decisions. In the UK, providing financial advice without FCA authorisation is a criminal offence.
+SPY wins on raw returns
+  SPY outperformed every All Weather version on raw returns over 20 years.
+  The All Weather advantage is entirely on risk-adjusted terms: lower Calmar
+  drawdown, higher Ulcer Index score, shorter recovery periods. The 2008
+  stress test is the most compelling argument -- SPY fell ~37%, AW fell ~10%.
+
+Overfitting risk
+  Walk-forward analysis shows moderate overfitting risk. The optimiser does
+  not reliably beat the manual allocation. All published results should be
+  accompanied by the OOS Calmar, not just the IS Calmar.
+
+This tool is for educational and research purposes only. Nothing in this
+project constitutes financial advice. Past performance does not guarantee
+future results. Always consult a qualified financial adviser before making
+investment decisions. In the UK, providing financial advice without FCA
+authorisation is a criminal offence.

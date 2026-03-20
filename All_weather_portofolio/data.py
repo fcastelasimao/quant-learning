@@ -11,6 +11,7 @@ it just retrieves and cleans raw price data.
 import warnings
 import pandas as pd
 import yfinance as yf
+import config
 
 warnings.filterwarnings("ignore")   # suppress yfinance deprecation noise
 
@@ -43,10 +44,16 @@ def fetch_prices(tickers: list[str],
     holdings on a non-trading day. Backfilling would introduce lookahead
     bias by using future prices to fill past dates.
     """
-    print(f"Fetching data | {' '.join(tickers)} | {start_date} to {end_date}")
+    auto_adjust = (config.PRICING_MODEL == "total_return")
+    mode_label = ("total return (dividends reinvested)"
+                  if auto_adjust else "price return only")
+    print(f"Fetching data | {' '.join(tickers)} | "
+          f"{start_date} to {end_date} | {mode_label}")
 
+    # If results look identical after switching PRICING_MODEL,
+    # clear the yfinance cache: rm -rf ~/.cache/py-yfinance
     raw = yf.download(tickers, start=start_date, end=end_date,
-                      progress=False, auto_adjust=True)
+                      progress=False, auto_adjust=auto_adjust)
 
     # yfinance returns a MultiIndex when downloading multiple tickers
     if isinstance(raw.columns, pd.MultiIndex):

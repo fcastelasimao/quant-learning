@@ -151,7 +151,9 @@ def main():
                 f"  [MODE: {config.RUN_MODE}]"
             )
             backtest   = run_backtest(port_prices, bench_prices, allocation,
-                                      tlt_prices=tlt_prices)
+                                      tlt_prices=tlt_prices,
+                                      transaction_cost_pct=config.TRANSACTION_COST_PCT,
+                                      tax_drag_pct=config.TAX_DRAG_PCT)
             stats_list = compute_stats(backtest)
             print_stats(stats_list)
 

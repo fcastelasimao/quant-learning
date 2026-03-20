@@ -21,9 +21,20 @@ INITIAL_PORTFOLIO_VALUE = 10_000    # Starting portfolio value in USD
 BACKTEST_START = "2006-01-01"       # format: YYYY-MM-DD
 BACKTEST_END   = "2026-01-01"       # format: YYYY-MM-DD
 OOS_START      = "2020-01-01"       # IS ends here; OOS begins here
+                                    
+#RUN_MODE = "optimise"          # BACKTEST_START to OOS_START
+#RUN_MODE = "walk_forward"      # BACKTEST_START to OOS_START
+#RUN_MODE = "pareto"            # BACKTEST_START to OOS_START
+#RUN_MODE = "oos_evaluate"      # OOS_START to BACKTEST_END  
+RUN_MODE = "full_backtest"     # BACKTEST_START to BACKTEST_END
+#RUN_MODE = "backtest"           # BACKTEST_START to OOS_START
+
+PRICING_MODEL = "total_return"      # dividends and interest reinvested (realistic)
+#PRICING_MODEL = "price_return"     # ignores dividends and interest (unrealistic)
 
 REBALANCE_THRESHOLD = 0.05          # Rebalance if any asset drifts > this
-                                    # fraction from its target weight
+
+HOLDINGS_FILE    = "portfolio_holdings.json"
 
 DATA_FREQUENCY        = "ME"    # "ME" for monthly, "W" for weekly
                                 # monthly recommended for live rebalancing
@@ -33,14 +44,28 @@ SHARPE_ANNUALISATION  = 12      # periods per year for Sharpe annualisation
 
 BENCHMARK_TICKER = "SPY"            # S&P 500 benchmark for comparison
 
-HOLDINGS_FILE    = "portfolio_holdings.json"
+# ===========================================================================
+# COST MODELLING
+# ===========================================================================
+# Set both to 0.0 to reproduce the pre-cost baseline exactly.
+#
+# TRANSACTION_COST_PCT: applied to the value of each trade (buy or sell).
+#   0.001 = 0.1% per trade. Conservative estimate for a UK retail investor
+#   trading USD-denominated ETFs (bid-ask spread + FX conversion).
+#   Modern brokers charge no commission on ETFs; the cost is the spread.
+#
+# TAX_DRAG_PCT: annual drag applied to the total portfolio value to model
+#   capital gains tax on realised gains from monthly rebalancing.
+#   0.0 for ISA/SIPP (tax-sheltered). 0.05 for a conservative taxable
+#   account estimate (assumes ~20% CGT on ~25% of gains realised per year).
+#   This is a simplification -- actual CGT depends on individual
+#   circumstances, annual allowance usage, and marginal rate.
 
-#RUN_MODE = "optimise"          # BACKTEST_START to OOS_START
-#RUN_MODE = "walk_forward"      # BACKTEST_START to OOS_START
-#RUN_MODE = "pareto"            # BACKTEST_START to OOS_START
-#RUN_MODE = "oos_evaluate"      # OOS_START to BACKTEST_END  
-RUN_MODE = "full_backtest"     # BACKTEST_START to BACKTEST_END
-#RUN_MODE = "backtest"           # BACKTEST_START to OOS_START 
+TRANSACTION_COST_PCT = 0.0      # 0.1% per trade (set 0.0 for no costs)
+TAX_DRAG_PCT         = 0.0      # annual drag (set 0.0 for ISA/SIPP)
+
+# Note: results with TRANSACTION_COST_PCT > 0 or TAX_DRAG_PCT > 0
+# are NOT comparable to earlier runs where both were implicitly 0.
 
 # ===========================================================================
 # TARGET ALLOCATION
@@ -65,8 +90,6 @@ TARGET_ALLOCATION = {
 
 assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
     f"TARGET_ALLOCATION weights must sum to 1.0, got {sum(TARGET_ALLOCATION.values()):.4f}"
-
-
 
 # ===========================================================================
 # OPTIMISER PARAMETERS
@@ -224,6 +247,12 @@ def validate_config():
     assert OPT_METHOD in ("random", "calmar", "differential_evolution", "sharpe_slsqp"), \
         f"Unknown OPT_METHOD: '{OPT_METHOD}'. " \
         f"Choose from: random, calmar, differential_evolution, sharpe_slsqp"
+    assert PRICING_MODEL in ("total_return", "price_return"), \
+        f"PRICING_MODEL must be 'total_return' or 'price_return', got '{PRICING_MODEL}'"
+    assert 0.0 <= TRANSACTION_COST_PCT <= 0.05, \
+        "TRANSACTION_COST_PCT must be between 0 and 0.05 (5% is already extreme)"
+    assert 0.0 <= TAX_DRAG_PCT <= 0.30, \
+        "TAX_DRAG_PCT must be between 0 and 0.30"
     assert (DATA_FREQUENCY == "ME" and SHARPE_ANNUALISATION == 12) or \
        (DATA_FREQUENCY == "W"  and SHARPE_ANNUALISATION == 52), \
     f"DATA_FREQUENCY '{DATA_FREQUENCY}' and " \
