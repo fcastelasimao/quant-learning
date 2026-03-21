@@ -24,6 +24,7 @@ Usage
 """
 
 from __future__ import annotations
+from datetime import datetime
 
 import matplotlib
 matplotlib.use("Agg")
@@ -33,7 +34,6 @@ import os
 import sys
 import time
 import traceback
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -339,6 +339,561 @@ EXPERIMENTS = [
             "commodities":        0.20,
         },
     },
+
+    # =========================================================================
+    # GROUP D — Transaction cost sensitivity (spot-check, 8-asset manual alloc)
+    # =========================================================================
+
+    {
+        "name":        "cost_sensitivity_005bps",
+        "description": "8-asset manual: 0.05% tx cost (zero-commission broker, spread only)",
+        "group":       "D_costs",
+        "mode":        "spot_check",
+        "transaction_cost_pct": 0.0005,
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "cost_sensitivity_10bps",
+        "description": "8-asset manual: 0.1% tx cost (realistic UK retail with FX conversion)",
+        "group":       "D_costs",
+        "mode":        "spot_check",
+        "transaction_cost_pct": 0.001,
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "cost_sensitivity_50bps",
+        "description": "8-asset manual: 0.5% tx cost (traditional broker worst case)",
+        "group":       "D_costs",
+        "mode":        "spot_check",
+        "transaction_cost_pct": 0.005,
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+
+    # =========================================================================
+    # GROUP C — ETF substitution spot-checks
+    # =========================================================================
+
+    {
+        "name":        "spotcheck_ivv_vs_spy",
+        "description": "IVV replacing SPY — confirm equivalence, full 2006-2026",
+        "group":       "C_etf_check",
+        "mode":        "spot_check",
+        "allocation": {
+            "IVV": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["IVV", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "spotcheck_gldm_vs_gld",
+        "description": "GLDM replacing GLD — confirm equivalence (2018-2026 only, GLDM inception)",
+        "group":       "C_etf_check",
+        "mode":        "spot_check",
+        "backtest_start": "2018-01-01",
+        "oos_start":      "2023-01-01",
+        "backtest_end":   "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLDM": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLDM"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "spotcheck_pdbc_vs_gsg",
+        "description": "PDBC replacing GSG — contango mitigation test (2014-2026)",
+        "group":       "C_etf_check",
+        "mode":        "spot_check",
+        "backtest_start": "2014-01-01",
+        "oos_start":      "2020-01-01",
+        "backtest_end":   "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "PDBC": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["PDBC"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+
+    # =========================================================================
+    # GROUP A — 6asset_tip_gsg robustness: alternative IS/OOS splits
+    # =========================================================================
+
+    {
+        "name":        "6asset_tip_gsg_split2018",
+        "description": "6asset_tip_gsg: alternate OOS split 2018-2026 — robustness check",
+        "group":       "A_robustness",
+        "backtest_start": "2006-01-01",
+        "oos_start":      "2018-01-01",
+        "backtest_end":   "2026-01-01",
+        "allocation": {
+            "SPY": 0.150, "QQQ": 0.150, "TLT": 0.300,
+            "TIP": 0.150, "GLD": 0.150, "GSG": 0.100,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["TIP"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.25,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "6asset_tip_gsg_split2022",
+        "description": "6asset_tip_gsg: stress OOS split 2022-2026 — rate shock survival test",
+        "group":       "A_robustness",
+        "backtest_start": "2006-01-01",
+        "oos_start":      "2022-01-01",
+        "backtest_end":   "2026-01-01",
+        "allocation": {
+            "SPY": 0.150, "QQQ": 0.150, "TLT": 0.300,
+            "TIP": 0.150, "GLD": 0.150, "GSG": 0.100,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["TIP"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.25,
+            "commodities":        0.20,
+        },
+    },
+
+    # =========================================================================
+    # GROUP B — New asset class candidates (full 2006-2026, full pipeline)
+    # =========================================================================
+
+    {
+        "name":        "7asset_vnq_reits",
+        "description": "Add VNQ (REITs) — real asset diversification, 7 assets",
+        "group":       "B_new_assets",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "TLT": 0.25,
+            "IEF": 0.10, "GLD": 0.15, "GSG": 0.10, "VNQ": 0.15,
+        },
+        "asset_class_groups": {
+            "stocks":       ["SPY", "QQQ"],
+            "long_bonds":   ["TLT"],
+            "intermediate_bonds": ["IEF"],
+            "gold":         ["GLD"],
+            "commodities":  ["GSG"],
+            "real_estate":  ["VNQ"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+            "real_estate":        0.20,
+        },
+    },
+    {
+        "name":        "7asset_tip_gsg_vnq",
+        "description": "Best 6-asset (tip_gsg) + VNQ REITs — can REITs improve further?",
+        "group":       "B_new_assets",
+        "allocation": {
+            "SPY": 0.12, "QQQ": 0.12, "TLT": 0.25,
+            "TIP": 0.12, "GLD": 0.13, "GSG": 0.10, "VNQ": 0.16,
+        },
+        "asset_class_groups": {
+            "stocks":         ["SPY", "QQQ"],
+            "long_bonds":     ["TLT"],
+            "inflation_bonds": ["TIP"],
+            "gold":           ["GLD"],
+            "commodities":    ["GSG"],
+            "real_estate":    ["VNQ"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "inflation_bonds":    0.25,
+            "gold":               0.25,
+            "commodities":        0.20,
+            "real_estate":        0.20,
+        },
+    },
+    {
+        "name":        "8asset_agg_replaces_qqq",
+        "description": "Replace QQQ with AGG (aggregate bonds) — broad bond vs tech concentration",
+        "group":       "B_new_assets",
+        "allocation": {
+            "SPY": 0.15, "AGG": 0.15, "IWD": 0.10, "TLT": 0.20,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY", "AGG"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.35,
+            "long_bonds":         0.30,
+            "intermediate_bonds": 0.45,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "8asset_lqd_replaces_shy",
+        "description": "Replace SHY with LQD (investment grade corporate bonds) — corp vs govt short",
+        "group":       "B_new_assets",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.08, "TLT": 0.20,
+            "IEF": 0.12, "LQD": 0.10, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "LQD"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.30,
+            "intermediate_bonds": 0.30,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "8asset_djp_replaces_gsg",
+        "description": "DJP replacing GSG — Bloomberg commodity index vs GSCI (balanced vs energy-heavy)",
+        "group":       "B_new_assets",
+        "backtest_start": "2006-07-01",
+        "oos_start":      "2020-01-01",
+        "backtest_end":   "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "DJP": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["DJP"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name": "spotcheck_gld_2018_baseline",
+        "description": "GLD on 2018-2026 only — baseline for GLDM comparison",
+        "mode": "spot_check",
+        "backtest_start": "2018-01-01",
+        "oos_start": "2023-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ","IWD"], "long_bonds": ["TLT"],
+            "intermediate_bonds": ["IEF","SHY"], "gold": ["GLD"],
+            "commodities": ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40,
+            "intermediate_bonds": 0.25, "gold": 0.20, "commodities": 0.20,
+        },
+        "group": "C_etf_check",
+    },
+
+    # --- GROUP E: 7-asset robustness and new combinations ---
+
+    {
+        "name": "7asset_tip_gsg_vnq_split2018",
+        "description": "7A tip_gsg_vnq robustness: OOS 2018-2026 — alternative split",
+        "backtest_start": "2006-01-01",
+        "oos_start": "2018-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.12, "QQQ": 0.12, "TLT": 0.25,
+            "TIP": 0.12, "GLD": 0.13, "GSG": 0.10, "VNQ": 0.16,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ"], "long_bonds": ["TLT"],
+            "inflation_bonds": ["TIP"], "gold": ["GLD"],
+            "commodities": ["GSG"], "real_estate": ["VNQ"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40, "inflation_bonds": 0.25,
+            "gold": 0.25, "commodities": 0.20, "real_estate": 0.20,
+        },
+        "group": "E_7asset",
+    },
+    {
+        "name": "7asset_tip_gsg_vnq_split2022",
+        "description": "7A tip_gsg_vnq robustness: OOS 2022-2026 — rate shock stress test",
+        "mode": "full_pipeline",
+        "backtest_start": "2006-01-01",
+        "oos_start": "2022-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.12, "QQQ": 0.12, "TLT": 0.25,
+            "TIP": 0.12, "GLD": 0.13, "GSG": 0.10, "VNQ": 0.16,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ"], "long_bonds": ["TLT"],
+            "inflation_bonds": ["TIP"], "gold": ["GLD"],
+            "commodities": ["GSG"], "real_estate": ["VNQ"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40, "inflation_bonds": 0.25,
+            "gold": 0.25, "commodities": 0.20, "real_estate": 0.20,
+        },
+        "group": "E_7asset",
+    },
+    {
+        "name": "7asset_tip_djp",
+        "description": "TIP + DJP (Bloomberg commodities) — inflation bonds + balanced commodity",
+        "backtest_start": "2006-07-01",
+        "oos_start": "2020-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.12, "QQQ": 0.13, "IWD": 0.08, "TLT": 0.27,
+            "TIP": 0.13, "GLD": 0.15, "DJP": 0.12,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ","IWD"], "long_bonds": ["TLT"],
+            "inflation_bonds": ["TIP"], "gold": ["GLD"], "commodities": ["DJP"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40, "inflation_bonds": 0.25,
+            "gold": 0.25, "commodities": 0.20,
+        },
+        "group": "E_7asset",
+    },
+    {
+        "name": "7asset_6tip_plus_ief",
+        "description": "Best 6-asset + IEF duration buffer — does adding intermediate bonds help?",
+        "allocation": {
+            "SPY": 0.12, "QQQ": 0.12, "TLT": 0.22,
+            "IEF": 0.10, "TIP": 0.12, "GLD": 0.14, "GSG": 0.18,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ"], "long_bonds": ["TLT"],
+            "intermediate_bonds": ["IEF","TIP"], "gold": ["GLD"], "commodities": ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40,
+            "intermediate_bonds": 0.30, "gold": 0.25, "commodities": 0.25,
+        },
+        "group": "E_7asset",
+    },
+    {
+        "name": "7asset_6tip_plus_shy",
+        "description": "Best 6-asset + SHY stability anchor — rate shock buffer",
+        "allocation": {
+            "SPY": 0.13, "QQQ": 0.13, "TLT": 0.25,
+            "TIP": 0.12, "SHY": 0.07, "GLD": 0.15, "GSG": 0.15,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ"], "long_bonds": ["TLT"],
+            "short_bonds": ["SHY"], "inflation_bonds": ["TIP"],
+            "gold": ["GLD"], "commodities": ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40, "short_bonds": 0.15,
+            "inflation_bonds": 0.25, "gold": 0.25, "commodities": 0.20,
+        },
+        "group": "E_7asset",
+    },
+    {
+        "name": "8asset_manual_split2022",
+        "description": "8-asset manual: OOS 2022-2026 stress test — fair comparison vs 6asset_tip_gsg_split2022",
+        "mode": "full_pipeline",
+        "backtest_start": "2006-01-01",
+        "oos_start": "2022-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY", "QQQ", "IWD"], "long_bonds": ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold": ["GLD"], "commodities": ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40,
+            "intermediate_bonds": 0.25, "gold": 0.20, "commodities": 0.20,
+        },
+        "group": "A_robustness",
+    },
+    # --- GROUP F: 2022 stress tests for all paper trading candidates ---
+
+    {
+        "name": "7asset_tip_djp_split2022",
+        "description": "7asset_tip_djp: OOS 2022-2026 stress test",
+        "backtest_start": "2006-07-01",
+        "oos_start": "2022-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.12, "QQQ": 0.13, "IWD": 0.08, "TLT": 0.27,
+            "TIP": 0.13, "GLD": 0.15, "DJP": 0.12,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ","IWD"], "long_bonds": ["TLT"],
+            "inflation_bonds": ["TIP"], "gold": ["GLD"], "commodities": ["DJP"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40, "inflation_bonds": 0.25,
+            "gold": 0.25, "commodities": 0.20,
+        },
+        "group": "F_stress2022",
+    },
+    {
+        "name": "7asset_6tip_plus_shy_split2022",
+        "description": "7asset_6tip_plus_shy: OOS 2022-2026 stress test",
+        "backtest_start": "2006-01-01",
+        "oos_start": "2022-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.13, "QQQ": 0.13, "TLT": 0.25,
+            "TIP": 0.12, "SHY": 0.07, "GLD": 0.15, "GSG": 0.15,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY","QQQ"], "long_bonds": ["TLT"],
+            "short_bonds": ["SHY"], "inflation_bonds": ["TIP"],
+            "gold": ["GLD"], "commodities": ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40, "short_bonds": 0.15,
+            "inflation_bonds": 0.25, "gold": 0.25, "commodities": 0.20,
+        },
+        "group": "F_stress2022",
+    },
+    {
+        "name": "5asset_dalio_split2022",
+        "description": "Dalio original: OOS 2022-2026 stress test",
+        "backtest_start": "2006-01-01",
+        "oos_start": "2022-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.300, "TLT": 0.400, "IEF": 0.150,
+            "GLD": 0.075, "GSG": 0.075,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY"], "long_bonds": ["TLT"],
+            "intermediate_bonds": ["IEF"], "gold": ["GLD"], "commodities": ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.50, "long_bonds": 0.50,
+            "intermediate_bonds": 0.30, "gold": 0.20, "commodities": 0.20,
+        },
+        "group": "F_stress2022",
+    },
 ]
 
 
@@ -492,6 +1047,7 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
         "wf_mean_ratio": float("nan"),
         "wf_med_ratio":  float("nan"),
         "oos_calmar":    float("nan"),
+        "spot_calmar":   float("nan"),
         "status":        "pending",
         "elapsed_s":     0.0,
     }
@@ -499,16 +1055,28 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
     t_exp_start = time.time()
 
     # ---- Save original config values ----------------------------------------
-    _orig_allocation    = config.TARGET_ALLOCATION
-    _orig_groups        = config.ASSET_CLASS_GROUPS
-    _orig_max_weight    = config.ASSET_CLASS_MAX_WEIGHT
-    _orig_run_mode      = config.RUN_MODE
+    _orig_allocation      = config.TARGET_ALLOCATION
+    _orig_groups          = config.ASSET_CLASS_GROUPS
+    _orig_max_weight      = config.ASSET_CLASS_MAX_WEIGHT
+    _orig_run_mode        = config.RUN_MODE
+    _orig_backtest_start  = config.BACKTEST_START
+    _orig_oos_start       = config.OOS_START
+    _orig_backtest_end    = config.BACKTEST_END
+    _orig_tx_cost         = config.TRANSACTION_COST_PCT
 
     try:
         # ---- Apply in-memory overrides --------------------------------------
         config.TARGET_ALLOCATION      = alloc
         config.ASSET_CLASS_GROUPS     = exp["asset_class_groups"]
         config.ASSET_CLASS_MAX_WEIGHT = exp["asset_class_max_weight"]
+        if exp.get("backtest_start"):
+            config.BACKTEST_START = exp["backtest_start"]
+        if exp.get("oos_start"):
+            config.OOS_START      = exp["oos_start"]
+        if exp.get("backtest_end"):
+            config.BACKTEST_END   = exp["backtest_end"]
+        if exp.get("transaction_cost_pct") is not None:
+            config.TRANSACTION_COST_PCT = exp["transaction_cost_pct"]
 
         # ------------------------------------------------------------------
         # Fetch prices once for the full date range, then slice per step
@@ -540,6 +1108,40 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
         full_port  = prices_full.loc[full_mask, port_cols]
         full_bench = prices_full.loc[full_mask, bench_col]
         full_tlt   = prices_full.loc[full_mask, "TLT"]
+
+        # ------------------------------------------------------------------
+        # SPOT-CHECK MODE: single full_backtest, no IS/OOS split
+        # ------------------------------------------------------------------
+        if exp.get("mode") == "spot_check":
+            t_step = time.time()
+            config.RUN_MODE = "full_backtest"
+            step_label  = f"exp_{name}_spot_full"
+            results_dir = make_results_dir(step_label)
+
+            tee = None
+            try:
+                tee = start_run_log(results_dir)
+                print_header(f"SPOT CHECK — {name}")
+                backtest_spot = run_backtest(
+                    full_port, full_bench, alloc,
+                    tlt_prices           = full_tlt,
+                    transaction_cost_pct = config.TRANSACTION_COST_PCT,
+                    tax_drag_pct         = config.TAX_DRAG_PCT,
+                )
+                spot_stats = compute_stats(backtest_spot)
+                print_stats(spot_stats)
+                export_results(backtest_spot, pd.DataFrame(), spot_stats,
+                               alloc, results_dir, step_label)
+                append_to_master_log(results_dir, spot_stats, alloc, step_label)
+                plot_backtest(backtest_spot, spot_stats, results_dir, step_label, alloc)
+                row["spot_calmar"] = spot_stats[0].calmar
+            finally:
+                if tee is not None:
+                    stop_run_log(tee)
+
+            print(f"  Spot check complete in {time.time() - t_step:.1f}s")
+            row["status"] = "spot_check_done"
+            return row   # triggers outer finally to restore config
 
         # ------------------------------------------------------------------
         # Step 1: IS backtest
@@ -742,6 +1344,10 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
         config.ASSET_CLASS_GROUPS     = _orig_groups
         config.ASSET_CLASS_MAX_WEIGHT = _orig_max_weight
         config.RUN_MODE               = _orig_run_mode
+        config.BACKTEST_START         = _orig_backtest_start
+        config.OOS_START              = _orig_oos_start
+        config.BACKTEST_END           = _orig_backtest_end
+        config.TRANSACTION_COST_PCT   = _orig_tx_cost
         row["elapsed_s"] = time.time() - t_exp_start
 
     return row
@@ -754,8 +1360,21 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
 def _print_summary(rows: list[dict], output_path: str) -> None:
     """Print and save the final experiment summary table."""
 
+    def _nan(v: float) -> bool:
+        return isinstance(v, float) and np.isnan(v)
+
     def _f(v: float) -> str:
-        return f"{v:5.3f}" if not (isinstance(v, float) and np.isnan(v)) else "  n/a"
+        return f"{v:5.3f}" if not _nan(v) else "  n/a"
+
+    def _oos_cell(r: dict) -> str:
+        """OOS column: validated OOS calmar, or spot calmar with '(S)' tag."""
+        oos = r.get("oos_calmar", float("nan"))
+        if not _nan(oos):
+            return f"{oos:5.3f}"
+        sc = r.get("spot_calmar", float("nan"))
+        if not _nan(sc):
+            return f"{sc:.3f}(S)"
+        return "  n/a"
 
     sep    = "=" * 80
     header = (
@@ -764,11 +1383,12 @@ def _print_summary(rows: list[dict], output_path: str) -> None:
         f"{sep}\n"
         f"Baseline ({BASELINE_NAME}):  "
         f"IS Cal={BASELINE_IS_CAL:.3f}   OOS Cal={BASELINE_OOS_CAL:.3f}\n"
+        f"  (S) = spot-check full_backtest; not a validated OOS result\n"
         f"{sep}\n"
         f"{'Name':<32}  {'N':>2}  "
         f"{'IS(M)':>5}  {'IS(O)':>5}  "
         f"{'WF(mn)':>6}  {'WF(md)':>6}  "
-        f"{'OOS':>5}  {'Status'}\n"
+        f"{'OOS':>8}  {'Status'}\n"
         f"{'-' * 80}"
     )
 
@@ -778,7 +1398,7 @@ def _print_summary(rows: list[dict], output_path: str) -> None:
             f"{r['name']:<32}  {r['n_assets']:>2}  "
             f"{_f(r['is_calmar'])}  {_f(r['opt_calmar'])}  "
             f"{_f(r['wf_mean_ratio'])}  {_f(r['wf_med_ratio'])}  "
-            f"{_f(r['oos_calmar'])}  {r['status']}"
+            f"{_oos_cell(r):>8}  {r['status']}"
         )
         lines.append(line)
 
@@ -835,14 +1455,15 @@ def main():
     # ---- Dry run ------------------------------------------------------------
     if args.dry_run:
         print("DRY RUN — no experiments will be executed.\n")
-        print(f"{'Name':<35}  {'N':>2}  {'Tickers'}")
-        print("-" * 72)
+        print(f"{'Name':<35}  {'N':>2}  {'Mode':<14}  {'Tickers'}")
+        print("-" * 85)
         for exp in selected:
             tickers = " ".join(exp["allocation"].keys())
             n       = len(exp["allocation"])
             total   = sum(exp["allocation"].values())
+            mode    = exp.get("mode", "full_pipeline")
             tag     = "" if abs(total - 1.0) < 1e-6 else "  *** BAD SUM ***"
-            print(f"{exp['name']:<35}  {n:>2}  {tickers}{tag}")
+            print(f"{exp['name']:<35}  {n:>2}  {mode:<14}  {tickers}{tag}")
         print(f"\n{len(selected)} experiment(s) would be run.")
         sys.exit(0)
 
@@ -851,8 +1472,9 @@ def main():
     rows: list[dict] = []
 
     for i, exp in enumerate(selected, 1):
+        group_tag = f"  [{exp['group']}]" if exp.get("group") else ""
         print(f"\n{'#' * 72}")
-        print(f"  EXPERIMENT {i}/{len(selected)}: {exp['name']}")
+        print(f"  EXPERIMENT {i}/{len(selected)}: {exp['name']}{group_tag}")
         print(f"  {exp.get('description', '')}")
         print(f"{'#' * 72}")
 
@@ -872,7 +1494,10 @@ def main():
     total_elapsed = time.time() - t_total
     print(f"\nTotal elapsed: {total_elapsed:.1f}s  ({total_elapsed / 60:.1f}min)")
 
-    summary_path = os.path.join("results", "experiment_summary.txt")
+    summary_path = os.path.join(
+        "results",
+        f"experiment_summary_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.txt"
+    )
     _print_summary(rows, summary_path)
 
 

@@ -1,0 +1,213 @@
+{
+  "strategies": {
+    "6asset_tip_gsg": {
+      "description": "Six-asset growth allocation with inflation and commodity protection",
+      "status": "validated",
+      "tier": "Growth",
+      "validated_date": "2026-03-20",
+      "allocation": {
+        "SPY": 0.15,
+        "QQQ": 0.15,
+        "TLT": 0.30,
+        "TIP": 0.15,
+        "GLD": 0.15,
+        "GSG": 0.10
+      },
+      "asset_class_groups": {
+        "stocks":             ["SPY", "QQQ"],
+        "long_bonds":         ["TLT"],
+        "intermediate_bonds": ["TIP"],
+        "gold":               ["GLD"],
+        "commodities":        ["GSG"]
+      },
+      "asset_class_max_weight": {
+        "stocks":             0.40,
+        "long_bonds":         0.40,
+        "intermediate_bonds": 0.25,
+        "gold":               0.25,
+        "commodities":        0.20
+      },
+      "live_tickers": {
+        "SPY": "IVV",
+        "QQQ": "QQQM",
+        "TLT": "TLT",
+        "TIP": "TIP",
+        "GLD": "GLDM",
+        "GSG": "PDBC"
+      },
+      "oos_results": {
+        "2020-2026": {"calmar": 0.476, "cagr": 8.50, "max_dd": -22.36},
+        "2018-2026": {"calmar": 0.473, "cagr": 8.20, "max_dd": -20.08},
+        "2022-2026": {"calmar": 0.405, "cagr": 7.53, "max_dd": -18.57}
+      },
+      "walk_forward": {
+        "mean": 0.633,
+        "median": 0.343,
+        "verdict": "moderate"
+      },
+      "notes": "Primary production allocation. Simplest to manage. MaxDD structurally stable at ~-20% across all windows."
+    },
+
+    "7asset_tip_gsg_vnq": {
+      "description": "Seven-asset growth allocation adding REITs with inflation anchor",
+      "status": "validated",
+      "tier": "Growth",
+      "validated_date": "2026-03-20",
+      "allocation": {
+        "SPY": 0.12,
+        "QQQ": 0.12,
+        "TLT": 0.25,
+        "TIP": 0.12,
+        "GLD": 0.13,
+        "GSG": 0.10,
+        "VNQ": 0.16
+      },
+      "asset_class_groups": {
+        "stocks":             ["SPY", "QQQ"],
+        "long_bonds":         ["TLT"],
+        "intermediate_bonds": ["TIP"],
+        "gold":               ["GLD"],
+        "commodities":        ["GSG"],
+        "reits":              ["VNQ"]
+      },
+      "asset_class_max_weight": {
+        "stocks":             0.40,
+        "long_bonds":         0.40,
+        "intermediate_bonds": 0.25,
+        "gold":               0.20,
+        "commodities":        0.20,
+        "reits":              0.20
+      },
+      "live_tickers": {
+        "SPY": "IVV",
+        "QQQ": "QQQM",
+        "TLT": "TLT",
+        "TIP": "TIP",
+        "GLD": "GLDM",
+        "GSG": "PDBC",
+        "VNQ": "VNQ"
+      },
+      "oos_results": {
+        "2020-2026": {"calmar": 0.465, "cagr": 9.25, "max_dd": -19.88},
+        "2018-2026": {"calmar": 0.471, "cagr": 9.36, "max_dd": -19.88},
+        "2022-2026": {"calmar": 0.429, "cagr": 8.00, "max_dd": -18.65}
+      },
+      "walk_forward": {
+        "mean": null,
+        "median": 0.278,
+        "verdict": "moderate"
+      },
+      "notes": "Most regime-stable strategy (Calmar range 0.042 across 3 windows). VNQ works because TIP+GSG anchor neutralises REIT rate sensitivity."
+    },
+
+    "7asset_tip_djp": {
+      "description": "Seven-asset balanced allocation with diversified commodities",
+      "status": "validated",
+      "tier": "Balanced",
+      "validated_date": "2026-03-21",
+      "allocation": {
+        "SPY": 0.12,
+        "QQQ": 0.13,
+        "IWD": 0.08,
+        "TLT": 0.27,
+        "TIP": 0.13,
+        "GLD": 0.15,
+        "DJP": 0.12
+      },
+      "asset_class_groups": {
+        "stocks":             ["SPY", "QQQ", "IWD"],
+        "long_bonds":         ["TLT"],
+        "intermediate_bonds": ["TIP"],
+        "gold":               ["GLD"],
+        "commodities":        ["DJP"]
+      },
+      "asset_class_max_weight": {
+        "stocks":             0.40,
+        "long_bonds":         0.40,
+        "intermediate_bonds": 0.25,
+        "gold":               0.20,
+        "commodities":        0.20
+      },
+      "live_tickers": {
+        "SPY": "IVV",
+        "QQQ": "QQQM",
+        "IWD": "IWD",
+        "TLT": "TLT",
+        "TIP": "TIP",
+        "GLD": "GLDM",
+        "DJP": "DJP"
+      },
+      "oos_results": {
+        "2020-2026": {"calmar": 0.432, "cagr": 7.80, "max_dd": -18.06},
+        "2022-2026": {"calmar": 0.334, "cagr": 5.90, "max_dd": -17.69}
+      },
+      "walk_forward": {
+        "mean": 1.045,
+        "median": 0.970,
+        "verdict": "high"
+      },
+      "notes": "Highest WF robustness of any multi-asset strategy. DJP (35/35/30 energy/metals/ag) vs GSG (70% energy). Most reliable generaliser."
+    },
+
+    "5asset_dalio": {
+      "description": "Classic Dalio All Weather allocation",
+      "status": "validated",
+      "tier": "Conservative",
+      "validated_date": "2026-03-21",
+      "allocation": {
+        "SPY": 0.30,
+        "TLT": 0.40,
+        "IEF": 0.15,
+        "GLD": 0.075,
+        "GSG": 0.075
+      },
+      "asset_class_groups": {
+        "stocks":             ["SPY"],
+        "long_bonds":         ["TLT"],
+        "intermediate_bonds": ["IEF"],
+        "gold":               ["GLD"],
+        "commodities":        ["GSG"]
+      },
+      "asset_class_max_weight": {
+        "stocks":             0.50,
+        "long_bonds":         0.50,
+        "intermediate_bonds": 0.30,
+        "gold":               0.20,
+        "commodities":        0.20
+      },
+      "live_tickers": {
+        "SPY": "IVV",
+        "TLT": "TLT",
+        "IEF": "IEF",
+        "GLD": "GLDM",
+        "GSG": "PDBC"
+      },
+      "oos_results": {
+        "2020-2026": {"calmar": 0.383, "cagr": 6.50, "max_dd": -16.97},
+        "2022-2026": {"calmar": 0.337, "cagr": 5.34, "max_dd": -15.83}
+      },
+      "walk_forward": {
+        "mean": 1.073,
+        "median": 0.918,
+        "verdict": "high"
+      },
+      "notes": "Classic Dalio allocation. Simplest implementation. Lowest MaxDD in 2022 stress. Best for conservative investors."
+    },
+
+    "8asset_manual": {
+      "description": "Original 8-asset allocation with IEF/SHY rate buffers",
+      "status": "demoted",
+      "tier": "N/A",
+      "validated_date": "2026-03-19",
+      "allocation": {
+        "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+        "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10
+      },
+      "oos_results": {
+        "2020-2026": {"calmar": 0.441, "cagr": 8.11, "max_dd": -18.38},
+        "2022-2026": {"calmar": 0.313, "cagr": 5.15, "max_dd": -16.47}
+      },
+      "notes": "DEMOTED. Worst regime sensitivity: -29% Calmar drop in 2022 stress. IEF/SHY fell with TLT — bond duration overlap without inflation protection."
+    }
+  }
+}

@@ -1,241 +1,223 @@
-# All Weather Portfolio -- TODO List
+# All Weather Portfolio — TODO & Action Plan
 
-Last updated: 2026-03-20
+Last updated: 2026-03-21 (post-optimiser-analysis)
 
----
+Two parallel tracks run simultaneously:
+- **Track A (Engineering):** Code fixes, optimiser repair, experiments
+- **Track B (Market):** Demand validation, content, positioning
 
-## 🔴 Phase 1: Code Audit Before Any New Experiments
-
-Before running any new experiments, Claude Code should do a full audit
-and debug pass on the codebase. This is the professional approach -- you
-do not build on a foundation you have not verified. A clean, correct codebase
-also makes results trustworthy and reproducible.
-
-Prompt for Claude Code:
-
-  Perform a full code audit of this quantitative finance backtesting project.
-  Read every .py file. For each file:
-
-  1. BUGS: Identify any logic errors, edge cases that could crash or silently
-     produce wrong results, off-by-one errors, incorrect financial calculations,
-     or inconsistencies between modules.
-
-  2. CODE QUALITY: Identify dead code, unused imports, duplicated logic,
-     functions that do too much, inconsistent naming, missing edge case handling.
-
-  3. FINANCIAL CORRECTNESS: Specifically check:
-     - Does the backtest engine correctly simulate monthly rebalancing?
-     - Is the 60/40 benchmark correctly rebalanced annually?
-     - Are transaction costs applied correctly and only to trades?
-     - Is the tax drag applied at the correct time (start of new year)?
-     - Does the walk-forward correctly prevent data leakage between windows?
-     - Are there any lookahead bias issues in the backtest loop?
-
-  4. PERFORMANCE: Identify bottlenecks given that walk-forward runs 4+
-     DE optimisations and takes 30-60 minutes.
-
-  5. KNOWN ISSUES TO FIX:
-     - plotting.py line 102: s_aw, s_bh, s_spy, s_6040 = stats_list
-       will crash if 60/40 is absent. Add a guard.
-     - export.py still imports load_workbook but never uses it. Remove it.
-     - export_copy.py is a leftover backup file. Remove it.
-     - Walk-forward mean overfit ratio is distorted by outlier windows
-       (individual ratios of 5-17x). Clamp to max 2.0 before averaging
-       and report median alongside mean.
-     - migrate_log.py is superseded by merge_master_logs.py.
-       Archive or remove it.
-
-  6. TESTS: The five new stat helpers have no tests:
-     compute_avg_drawdown, compute_max_drawdown_duration,
-     compute_avg_recovery_time, compute_ulcer_index, compute_sortino.
-     Add at least 3 tests per function.
-
-  Produce a summary of all findings before making any changes.
-  Wait for confirmation before editing any files.
+Priority key:
+🔴 = Blocking (this week). 🟡 = Before live capital. 🟢 = Before product launch. 🔵 = Product roadmap.
 
 ---
 
-## 🔴 Phase 2: Remaining Pre-Paper-Trading Items
+## 🔴 TRACK B — Market validation (this week, in parallel with Track A)
 
-- [ ] Transaction costs sensitivity analysis
-  Run three full_backtest runs with the 8-asset allocation:
-    TRANSACTION_COST_PCT = 0.0    (baseline)
-    TRANSACTION_COST_PCT = 0.001  (0.1% realistic UK retail)
-    TRANSACTION_COST_PCT = 0.005  (0.5% traditional broker)
-  Key question: does the strategy still beat 60/40 at 0.5% costs?
+### B0.1: ALLW head-to-head comparison ⏱ 3 hours
+Bridgewater's ALLW ETF ($1B+ AUM, 0.85% expense, ~2x leverage) is now
+the customer's real alternative. Fetch ALLW prices, compare to 6asset_tip_gsg
+over the same period. This is both research and the foundation of all marketing.
 
-- [ ] Add README note on tax wrapper
-  Add to Important Caveats: strategy is best inside ISA or SIPP.
-  Monthly rebalancing triggers CGT in a taxable account.
-  Guidance: TAX_DRAG_PCT = 0.0 for ISA/SIPP, 0.03-0.05 for taxable.
+### B0.2: Write the ALLW comparison blog post ⏱ 4 hours
+"ALLW vs DIY All Weather: Is the 0.85% worth it?"
+Demand validation test. Success metric: >50 Reddit upvotes, >10 signups.
 
-- [ ] Fractional share support in rebalancing instructions
-  Add share count calculation to portfolio.py.
-  Flag positions requiring fractional shares (< 1.0 shares) with a warning.
+### B0.3: Choose a brand name ⏱ decision
+Cannot use "All Weather" (Bridgewater trademark). Pick a name, check domain.
 
-- [ ] Minimum portfolio size analysis
-  Calculate the portfolio size below which monthly rebalancing costs
-  exceed the benefit over buy-and-hold. Document this in the README.
+### B0.4: Build a landing page ⏱ 3 hours
+Single page: ALLW comparison chart, value prop, email signup. Vercel/Netlify.
+Success metric: 100 signups in 4 weeks.
 
----
-
-## 🟡 Phase 3: Asset Universe Experiments
-
-The right way to test new ETFs:
-  One change at a time, always against the same baseline, IS/OOS split enforced.
-  For each new universe:
-    1. RUN_MODE = "backtest" (IS only, 2006-2020) -- compare IS Calmar vs 0.336
-    2. If IS improves: RUN_MODE = "walk_forward" -- check overfit ratio
-    3. If walk-forward acceptable: RUN_MODE = "oos_evaluate" -- single honest test
-    4. Compare OOS Calmar vs current benchmark of 0.441
-  Never add more than one new ETF at a time.
-
-5-ASSET CONFIGURATIONS
-
-- [ ] Dalio original (baseline reference -- run this first)
-  SPY 30%, TLT 40%, IEF 15%, GLD 7.5%, GSG 7.5%
-  Rationale: pure reference. How much does all the engineering add?
-  Run full_backtest 2006-2026. No optimisation.
-
-- [ ] TIP-based previous best (updated with total-return data)
-  SPY 14.2%, QQQ 20.3%, TLT 30%, TIP 14.2%, GLD 21.3%
-  Rationale: re-establish the old benchmark on the new data baseline.
-
-6-ASSET CONFIGURATIONS
-
-- [ ] 6-asset: TIP model + GSG (bridge between 5 and 8 asset)
-  SPY 15%, QQQ 20%, TLT 30%, TIP 10%, GLD 15%, GSG 10%
-  Rationale: does adding commodities alone improve the 2022 stress test
-  without the complexity of the full 8-asset model?
-
-- [ ] 6-asset: duration ladder without inflation protection
-  SPY 15%, QQQ 20%, TLT 25%, IEF 15%, GLD 15%, GSG 10%
-  Rationale: two-rung bond ladder. Cleaner than TIP which mixes
-  duration and inflation protection in one instrument.
-
-- [ ] 6-asset: add international equity
-  SPY 15%, QQQ 10%, EFA 10%, TLT 30%, TIP 10%, GLD 25%
-  Note: EFA inception June 2001, backtest from 2006 is fine.
-  Rationale: tests geographic diversification vs US concentration.
-
-7-ASSET CONFIGURATIONS
-
-- [ ] 7-asset: current 8-asset minus GSG (test commodity contribution)
-  SPY 10%, QQQ 15%, IWD 12%, TLT 28%, IEF 12%, SHY 5%, GLD 18%
-  Rationale: if removing GSG improves results, it should not be in the
-  portfolio regardless of the stagflation thesis.
-
-- [ ] 7-asset: current 8-asset minus IWD (test value tilt contribution)
-  SPY 15%, QQQ 15%, TLT 25%, IEF 10%, SHY 5%, GLD 15%, GSG 15%
-  Rationale: IWD was consistently minimised by DE. Does it contribute
-  anything beyond what SPY provides?
-
-- [ ] 7-asset: TIP + GSG dual inflation hedge
-  SPY 12%, QQQ 15%, TLT 25%, TIP 12%, SHY 5%, GLD 15%, GSG 16%
-  Rationale: TIP (inflation-linked bonds) + GSG (commodities) as
-  complementary inflation hedges. Tests whether the combination
-  provides superior 2022 protection.
-
-8-ASSET CONFIGURATIONS
-
-- [ ] 8-asset: replace IWD with EFA (geographic diversification)
-  SPY 10%, QQQ 15%, EFA 10%, TLT 25%, IEF 10%, SHY 5%, GLD 15%, GSG 10%
-  Rationale: geographic diversification vs domestic value tilt.
-
-- [ ] 8-asset: replace SHY with TIP (dual inflation hedge)
-  SPY 10%, QQQ 15%, IWD 8%, TLT 25%, IEF 10%, TIP 8%, GLD 14%, GSG 10%
-  Rationale: SHY is largely redundant when IEF covers intermediate
-  duration. TIP adds direct inflation protection.
+### B0.5: User research interviews ⏱ ongoing
+10-15 conversations with DIY All Weather implementors. What do they use?
+What frustrates them? Would they pay? Do they know about ALLW?
 
 ---
 
-## 🟡 Phase 4: Winning Strategies Registry
+## 🔴 TRACK A — Engineering fixes (this week)
 
-The professional approach: validated strategies are stored in a curated
-registry file separate from the master log. The master log is a raw run
-history. The registry contains only strategies that have passed IS + OOS
-validation and are safe to implement live.
+### A0.1: Update config.py to validated strategy ⏱ 10 min
+Replace 8-asset demoted allocation with 6asset_tip_gsg.
 
-- [ ] Create strategies.json in the project root
+### A0.2: Fix rebalancing mismatch ⏱ 2 hours
+Add `rebalance_threshold` parameter to `run_backtest()`. Default to 0.0.
+Run comparison: threshold=0.0 vs threshold=0.05.
 
-  Structure per entry:
-    id, description, status, validated_date, universe, pricing_model,
-    backtest_start, oos_start, backtest_end, allocation,
-    asset_class_groups, asset_class_max_weight,
-    is_metrics (cagr, max_drawdown, calmar, ulcer, sharpe, sortino),
-    oos_metrics (same),
-    walk_forward (mean_overfit_ratio, windows_opt_beat_original, verdict),
-    notes, results_folder
+### A0.3: Fix max drawdown to use daily data ⏱ 1.5 hours
+Add `compute_max_drawdown_daily()`. Report both monthly and daily MDD.
 
-  Status values:
-    "candidate"  -- IS only, not yet OOS tested
-    "validated"  -- IS + OOS passed, safe to implement
-    "rejected"   -- OOS failed, do not use
-    "superseded" -- beaten by a later strategy, archived for reference
+### A0.4: Add data validation after yfinance download ⏱ 30 min
+Assert no all-NaN columns, no returns > ±30%, no negative prices.
 
-  Only "validated" entries should be considered for live implementation.
+### A0.5: Fix _Tee to capture stderr ⏱ 5 min
 
-- [ ] Add load_strategy() helper to config.py
-  Loads a validated strategy from strategies.json into config globals.
-  This eliminates copy-pasting weights between experiments.
-  Usage: set strategy_id = "8asset_manual_v1" and all allocation,
-  caps, and dates load automatically.
+### A0.6: Create strategies.json registry ⏱ 45 min
+Already templated. Add `load_strategy()` to config.py.
 
-- [ ] Populate strategies.json with the two currently validated strategies:
-    "5asset_tip_v1" -- IS Calmar 0.560, OOS Calmar 0.378
-    "8asset_manual_v1" -- IS Calmar 0.336, OOS Calmar 0.441
+### A0.7: Fix optimiser — per-asset bounds ⏱ 15 min ← NEW
+**The problem:** OPT_MAX_WEIGHT = 0.25 globally, but every validated
+strategy has TLT at 25-40%. The optimiser cannot search where the good
+allocations live. This is the primary reason DE "fails."
+
+**Fix:** Replace `OPT_MIN_WEIGHT / OPT_MAX_WEIGHT` with `ASSET_BOUNDS`:
+```python
+ASSET_BOUNDS = {
+    "SPY": (0.05, 0.20),
+    "QQQ": (0.05, 0.20),
+    "TLT": (0.20, 0.45),
+    "TIP": (0.05, 0.20),
+    "GLD": (0.05, 0.20),
+    "GSG": (0.05, 0.15),
+}
+```
+Pass per-asset bounds to DE and random search. The asset class caps
+still prevent absurd group concentrations.
+
+### A0.8: Fix optimiser — switch to Martin ratio objective ⏱ 30 min ← NEW
+**The problem:** Calmar = CAGR / |MaxDD| depends on a single worst data
+point. The landscape is discontinuous: tiny weight changes shift which
+month is worst, causing objective jumps. DE overfits to one event that
+won't recur in the test period.
+
+**Fix:** Replace `-compute_calmar(cagr, mdd)` with `-cagr / ulcer_index`
+(the Martin ratio). Ulcer Index uses ALL drawdown data across ALL time
+steps. It's smooth, penalises both depth and duration, and captures
+the same risk-aversion intent without single-point fragility.
+
+One-line change in `_score_allocation()`, plus add `compute_ulcer_index`
+to the import. Calmar remains a reporting metric — it just stops being
+the optimisation objective.
+
+### A0.9: Fix optimiser — remove normalisation from DE ⏱ 1 hour ← NEW
+**The problem:** `de_objective()` does `w_norm = w / w.sum()` which warps
+the search space. Two nearby raw-weight points can map to very different
+normalised weights. DE can't learn the gradient correctly.
+
+**Fix:** Use N-1 parameterisation: optimise weights for first N-1 assets,
+compute the Nth as `1.0 - sum(w[:N-1])`. Enforce `w[N-1] >= min_weight`
+via penalty. Or use Dirichlet parameterisation. Either way, the mapping
+from DE's internal space to actual weights becomes linear.
+
+### A0.10: Fix optimiser — project inside DE loop ⏱ 30 min ← NEW
+**The problem:** After DE converges, `_project_weights()` clips and
+renormalises the result, moving it away from what DE actually optimised.
+DE never explored the neighbourhood of the projected weights.
+
+**Fix:** Move `_project_weights()` inside `de_objective()`, before
+`_score_allocation()`. Every candidate DE evaluates is already feasible.
+DE learns the actual landscape, not a distorted version.
 
 ---
 
-## 🟡 Phase 5: Paper Trading Setup
+## 🔴 Critical experiments (this week)
 
-- [ ] Choose broker and open paper trading account
-  Requirements: supports all 8 ETFs or UK equivalents, paper trading
-  with real market prices. Recommended: Interactive Brokers (IBKR).
-  Check MiFID II restrictions first.
+### E1: ALLW comparison (= B0.1)
+Head-to-head: 6asset_tip_gsg vs ALLW. See B0.1 above.
 
-- [ ] Resolve MiFID II: identify UK-listed equivalents if needed
-  SPY -> CSPX, QQQ -> EQQQ, TLT -> IDTL, IEF -> IBTM,
-  SHY -> IBTS, GLD -> IGLN, IWD -> IWVL (approximate), GSG -> CMOD (approximate)
-  Run spot-check backtest US vs UK equivalents to confirm tracking error < 0.5%.
+### E2: Iran war stress test ⏱ 1 hour
+full_backtest 2025-01-01 to 2026-03-21. All candidates + 60/40 + SPY + ALLW.
 
-- [ ] Define paper trading protocol
-  At month-end: run oos_evaluate to get instructions, execute within 2 days.
-  Log actual fill prices vs model prices to measure slippage.
-  Go/no-go for live money: 3+ months paper trading, < 1% cumulative tracking error.
+### E3: GBP-adjusted backtest ⏱ 2 hours
+Convert all values to GBP and EUR. Required for non-US product claims.
+
+### E4: Weekly vs monthly max drawdown comparison ⏱ 1 hour
+
+### E5: Re-run walk-forward with fixed optimiser ⏱ 2 hours ← NEW
+**Purpose:** Test whether the optimiser fixes (A0.7-A0.10) change the
+walk-forward verdict. If DE now beats or matches manual allocation,
+"optimised weights" becomes a Pro tier product feature.
+
+**Method:** Run walk-forward for 6asset_tip_gsg with:
+- Per-asset bounds (A0.7)
+- Martin ratio objective (A0.8)
+- Fixed parameterisation (A0.9)
+- In-loop projection (A0.10)
+
+Compare WF overfit ratio and "opt beats original" count to the old results.
+
+**Decision rule:**
+- If WF median ≥ 0.6 AND opt beats original in ≥ 50% of windows →
+  "Optimised allocation" becomes a validated product feature.
+- If WF median 0.3-0.6 → optimiser improves but still not production-grade.
+  Use as diagnostic only (current status, but now evidence-based).
+- If WF median < 0.3 → optimiser genuinely doesn't add value beyond
+  manual allocation. Confirmed finding, not a setup artefact.
 
 ---
 
-## 🔵 Phase 6: Product
+## 🟡 Before live capital (next 2 weeks)
 
-- [ ] Web interface (FastAPI + React) -- ~80% of remaining work before sellable
-- [ ] User accounts and data persistence (SQLite -> PostgreSQL)
-- [ ] Automated monthly reminders
-- [ ] Legal disclaimers and FCA compliance review
+### A1.1: Add risk-free rate to Sharpe and Sortino ⏱ 30 min
+### A1.2: Strip benchmark from _score_allocation() ⏱ 1.5 hours
+### A1.3: Add unit tests for newer stat functions ⏱ 1 hour
+### A1.4: Resolve MiFID II broker access ⏱ research task
+### A1.5: Fractional share support in rebalancing ⏱ 1 hour
+### A1.6: Add ALLW as permanent 5th benchmark ⏱ 1 hour
+
+---
+
+## 🟡 Analysis & robustness (next month)
+
+### A2.1: Regime-conditional performance ⏱ 4 hours
+### A2.2: Bootstrap confidence intervals ⏱ 3 hours
+### A2.3: Drawdown decomposition ⏱ 2 hours
+### A2.4: Inflation-adjusted returns ⏱ 1 hour
+### A2.5: Correlation heatmap per regime ⏱ 2 hours
+### A2.6: Complete 3-window validation for Tier 2/3 ⏱ 2 hours
+### A2.7: Fee drag visualisation (ALLW vs DIY) ⏱ 1 hour
+
+---
+
+## 🟢 Before product launch
+
+### P4.1: Visualisation suite (see visualisation_strategy_v2.md)
+### P4.2: Trademark and brand name
+### P4.3: FCA/regulatory compliance review
+### P4.4: Competitive positioning document (center on ALLW)
+### P4.5: Minimum portfolio size analysis
+
+---
+
+## 🔵 Product roadmap
+
+### P5.1: Web interface (FastAPI + React)
+### P5.2: User accounts and data persistence
+### P5.3: Monthly rebalancing reminders
+### P5.4: Trend-following overlay (Pro tier)
+### P5.5: Referral mechanism
+### P5.6: Advisor tier
+### P5.7: Optimised allocation (Pro tier) ← NEW
+If E5 validates the fixed optimiser, offer DE-tuned weights per risk
+tier as a Pro feature. Updated periodically as new regime data accumulates.
+This is a genuine differentiation — ALLW uses Bridgewater's proprietary
+model, we offer transparent, validated optimisation the user can inspect.
 
 ---
 
 ## ✅ Completed
 
-- [x] Modular 9-file architecture
-- [x] StrategyStats dataclass with 11 metrics
-- [x] 9 stat helpers including Ulcer, Sortino, AvgDD, MaxDDDuration, AvgRecovery
-- [x] Four optimisation methods with asset class group caps
-- [x] Walk-forward validation with overfit ratio chart
-- [x] Pareto frontier analysis
-- [x] IS/OOS boundary enforcement via RUN_MODE + OOS_START
-- [x] 60/40 as fourth strategy throughout
-- [x] Three-panel backtest chart (value, annual returns, B&H allocation drift)
-- [x] Excel master log with 10 metrics per strategy, grouped headers
-- [x] Transaction cost modelling (TRANSACTION_COST_PCT)
-- [x] Tax drag modelling (TAX_DRAG_PCT, blunt annual drag)
-- [x] Total return prices via auto_adjust (PRICING_MODEL)
-- [x] Verified: all historical runs were already total return (yfinance default)
-- [x] PRICING_MODEL, Tx Cost %, Tax Drag % logged to master log and run_config.json
-- [x] Bug fixed: double-rebalance in backtest.py
-- [x] merge_master_logs.py: merged 66 old + 11 new rows
-- [x] test_data.py: integration and unit tests for total return and cost modelling
-- [x] GitHub repository
-- [x] 8-asset experiment sequence complete: IS -> optimise -> walk-forward -> OOS -> full
-- [x] 8-asset OOS Calmar 0.441 vs 60/40 OOS Calmar 0.263 (validated)
-- [x] Confirmed DE optimiser does not reliably beat manual allocation
+- [x] Modular 9-file architecture, StrategyStats, 9 stat helpers
+- [x] Four optimisation methods with asset class caps
+- [x] Walk-forward validation, IS/OOS enforcement, 60/40 benchmark
+- [x] Excel master log (229 rows), transaction cost + tax modelling
+- [x] Total return pricing, GitHub repo, 53 passing tests
+- [x] run_experiment.py batch runner (23 universes)
+- [x] All four strategies validated across multiple OOS windows
+- [x] 8asset_manual demoted, ETF substitutions confirmed
+- [x] Market validation completed (ALLW discovery, competitive landscape)
+- [x] strategies.json template created
+- [x] Optimiser root-cause analysis: 4 bugs identified, fixes specified
+
+---
+
+## Rejected experiments (do not repeat)
+
+| Experiment | OOS Calmar | Reason |
+|-----------|-----------|--------|
+| 8asset_agg_replaces_qqq | 0.198 | Only result below 60/40 |
+| 8asset_lqd_replaces_shy | 0.291 | LQD fails in rate shocks |
+| 7asset_vnq_reits (no TIP+GSG) | 0.287 | REITs without inflation anchor |
+| 7asset_6tip_plus_ief | 0.310 | Duration overlap |
+| 6asset_duration_ladder | 0.329 | Worst overfitting |
+| 6asset_intl_equity (EFA) | 0.300 | Lowest CAGR, no diversification |

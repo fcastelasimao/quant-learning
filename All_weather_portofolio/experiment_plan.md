@@ -1,135 +1,196 @@
-# Experiment Plan — Phase 2
+# Experiment Plan — Phase 3 (post-optimiser-analysis)
 
-## Guiding principles
+## Status: Phase 2 complete. ALLW discovered. Optimiser bugs identified.
 
-1. Full 2006-2026 history preferred. Anything missing 2008 is a spot-check only.
-2. One question per experiment. Every new universe answers a specific question.
-3. ETF substitution spot-checks run on a restricted date range — they do not 
-   contaminate the main IS/OOS split.
-4. 6asset_tip_gsg is the priority: it beat the baseline and needs robustness validation.
-5. Spot-checks use a simpler 2-step pipeline (backtest only, no walk-forward, 
-   no OOS) since they are equivalence tests not strategy validation.
+Phase 2 validated four strategies. Market validation revealed ALLW as the
+primary competitor. Optimiser root-cause analysis revealed that DE's
+"failure" to beat manual allocation was caused by four setup bugs, not
+by the strategy or the optimiser itself. Phase 3 adds optimiser repair
+as a high-priority engineering workstream.
 
----
-
-## Group A — Follow-up on 6asset_tip_gsg (highest priority)
-
-This universe beat the baseline with OOS Calmar 0.476. Before promoting it,
-validate robustness with two alternative IS/OOS splits.
-
-### A1: 6asset_tip_gsg with earlier OOS split (2018-2026)
-- IS: 2006-2018, OOS: 2018-2026
-- Question: does the strong OOS hold on a different test window?
-- If yes: strong evidence of genuine robustness
-- If no: the 2020-2026 result was regime-specific
-
-### A2: 6asset_tip_gsg with later OOS split (2022-2026)  
-- IS: 2006-2022, OOS: 2022-2026
-- Question: does it hold specifically through the 2022 rate shock?
-- 2022 is the hardest period — if it survives this test it is genuinely robust
+Three parallel workstreams:
+- **Workstream A:** Engineering fixes (code correctness, optimiser repair)
+- **Workstream B:** Market experiments (demand validation, content)
+- **Workstream C:** Optimiser validation (does DE add value once fixed?)
 
 ---
 
-## Group B — New asset class candidates (full 2006-2026 history)
+## Blocking experiments — Workstream B (market)
 
-All ETFs in this group have inception before 2006-01-01 so full backtests are valid.
+### B0: ALLW head-to-head comparison ← #1 PRIORITY
+Fetch ALLW daily prices. Run 6asset_tip_gsg and 7asset_tip_gsg_vnq over
+the same period. Compare CAGR, MaxDD, Calmar, Ulcer, Sortino. Compute
+fee-adjusted comparison (ALLW 0.85% vs DIY ~0.12%).
 
-### B1: Add REITs (VNQ, inception Sep 2004)
-- Universe: SPY/QQQ/TLT/IEF/GLD/GSG + VNQ (7 assets)
-- Manual: SPY 10%, QQQ 15%, TLT 25%, IEF 10%, GLD 15%, GSG 10%, VNQ 15%
-- Question: do real assets (real estate) add a fourth uncorrelated return stream?
-- Rationale: REITs are an All Weather asset class Dalio himself includes in 
-  the broader framework. VNQ pays dividends and is inflation-sensitive.
-- Cap: real_estate max 20%
+**Deliverables:** metrics table, drawdown overlay chart, fee drag chart.
+Data feeds blog post (C1) and landing page (C3).
 
-### B2: 6asset_tip_gsg + VNQ (best universe + REITs, 7 assets)
-- Manual: SPY 12%, QQQ 12%, TLT 25%, TIP 12%, GLD 13%, GSG 10%, VNQ 16%
-- Question: does adding REITs to our best universe improve further?
+### B1: Iran war stress test (with ALLW)
+full_backtest 2025-01-01 to 2026-03-21. All four candidates + 60/40 +
+SPY + ALLW. Break out per-asset contribution.
 
-### B3: Replace QQQ with AGG (aggregate bonds instead of tech, 8 assets)
-- Universe: SPY/AGG/IWD/TLT/IEF/SHY/GLD/GSG
-- AGG inception Sep 2003, fully covers backtest
-- Manual: SPY 15%, AGG 15%, IWD 10%, TLT 20%, IEF 10%, SHY 5%, GLD 15%, GSG 10%
-- Question: does broad bond market exposure outperform tech concentration?
-- Rationale: AGG provides investment grade corporate + government bond diversification
-  beyond TLT/IEF/SHY alone
-
-### B4: Add LQD (investment grade corporate bonds) to 8-asset (9 assets)
-- LQD inception Jul 2002, fully covers backtest
-- Universe: SPY/QQQ/IWD/TLT/IEF/LQD/GLD/GSG (replace SHY with LQD)
-- Manual: SPY 10%, QQQ 15%, IWD 8%, TLT 20%, IEF 10%, LQD 12%, GLD 15%, GSG 10%
-- Question: does investment grade corporate exposure add value over pure government bonds?
-- Note: LQD was previously replaced by TIP early in the project. Now testing 
-  with better universe design and different role (alongside TIP rather than instead of it)
-
-### B5: DJP replacing GSG (Bloomberg commodity index vs GSCI, 8 assets)
-- DJP inception Jun 2006 — starts 5 months after GSG but still covers full backtest
-- DJP tracks Bloomberg Commodity Index: more balanced (35% energy, 35% metals, 30% agriculture)
-- GSG tracks GSCI: energy-heavy (70% energy)
-- Universe: SPY/QQQ/IWD/TLT/IEF/SHY/GLD/DJP
-- Manual: same as 8-asset baseline but DJP replacing GSG
-- Question: does a more balanced commodity index outperform the energy-heavy GSCI?
-- This is a direct apples-to-apples commodity index comparison
+### B2: GBP/EUR-adjusted backtest
+Fetch GBPUSD=X and EURUSD=X. Convert portfolio values. Re-run stats.
+Required before non-US product claims.
 
 ---
 
-## Group C — ETF substitution spot-checks (restricted date ranges)
+## Blocking experiments — Workstream A (engineering)
 
-These are equivalence tests only. No walk-forward. No OOS. 
-Just IS backtest to confirm the cheaper ETF tracks the same as the original.
-Use a custom date range matching the shorter ETF's history.
+### B3: Weekly vs monthly max drawdown comparison
+Run DATA_FREQUENCY = "W" for all four candidates. If gap > 3pp, switch
+to daily MDD for all reporting.
 
-### C1: GLD vs GLDM (2018-2026)
-- GLDM inception Jun 2018
-- Run parallel IS backtest: same allocation, same period, swap GLD for GLDM
-- Expected: near-identical Calmar (within 0.02)
-- If confirmed: safe to use GLDM in live implementation
-
-### C2: SPY vs IVV (2006-2026, full range)
-- IVV inception May 2000 — can run full backtest
-- Full IS + OOS comparison is valid here unlike other substitutions
-- Expected: near-identical results (IVV tracks same index)
-- This one is worth the full pipeline given the full history
-
-### C3: GSG vs PDBC (2014-2026)
-- PDBC inception Nov 2014
-- Run parallel IS backtest on 2014-2020 window only
-- Key question: does PDBC's contango mitigation improve returns vs GSG?
-- If PDBC Calmar is meaningfully higher: note this for live implementation
+### B4: Threshold-based rebalancing comparison
+After fixing backtest engine: threshold=0.0 vs threshold=0.05. Compare
+Calmar, MaxDD, trade count.
 
 ---
 
-## Group D — Transaction cost sensitivity (2006-2026, current 8-asset)
+## Blocking experiments — Workstream C (optimiser repair)
 
-These use the current validated 8-asset allocation, no new tickers.
-Purpose: understand at what cost level the strategy stops beating 60/40.
+### C0: Implement the four optimiser fixes
 
-### D1: TRANSACTION_COST_PCT = 0.0005 (0.05% — zero-commission broker, just spread)
-### D2: TRANSACTION_COST_PCT = 0.001  (0.1% — realistic UK retail with FX)
-### D3: TRANSACTION_COST_PCT = 0.005  (0.5% — traditional broker)
+All four changes are in `optimiser.py` (plus config for bounds):
 
-No optimisation or walk-forward needed here — just full_backtest mode to compare
-final values and Calmars across cost levels. Quick to run.
+**Fix 1: Per-asset bounds** (15 min)
+Replace uniform `[OPT_MIN_WEIGHT, OPT_MAX_WEIGHT]` with per-asset
+`ASSET_BOUNDS` dict. For 6asset_tip_gsg:
+```
+SPY: [0.05, 0.20], QQQ: [0.05, 0.20], TLT: [0.20, 0.45],
+TIP: [0.05, 0.20], GLD: [0.05, 0.20], GSG: [0.05, 0.15]
+```
+Pass as `bounds` to `differential_evolution()`.
+
+**Fix 2: Martin ratio objective** (30 min)
+In `_score_allocation()`, replace:
+  `return -compute_calmar(cagr, mdd)`
+with:
+  `ulcer = compute_ulcer_index(series)`
+  `return -(cagr / ulcer) if ulcer > 0 else -cagr`
+
+This gives a smooth, all-data-point objective instead of single-worst-point.
+Import `compute_ulcer_index` from backtest.
+
+**Fix 3: Remove normalisation** (1 hour)
+Replace `w_norm = w / w.sum()` in `de_objective()` with N-1
+parameterisation: optimise first N-1 weights, compute Nth as
+`max(min_bound, 1.0 - sum(w[:N-1]))`. Adjust DE bounds accordingly.
+
+**Fix 4: Project inside loop** (30 min)
+Move `_project_weights()` call inside `de_objective()`, before scoring.
+Every candidate DE evaluates is already feasible. Remove post-convergence
+projection.
+
+### C1: Validate fixes with single-window optimisation
+**Purpose:** Quick sanity check that fixed DE produces sensible weights.
+
+**Method:** Run `optimise` mode on IS period (2006-2020) for 6asset_tip_gsg
+with the four fixes applied. Compare optimised Calmar to manual Calmar.
+The optimised result should be equal or better (since the manual allocation
+is now inside the search space).
+
+**If optimised IS Calmar < manual IS Calmar:** Something is wrong with
+the fix implementation. Debug before proceeding to C2.
+
+### C2: Re-run walk-forward with fixed optimiser ← KEY EXPERIMENT
+**Purpose:** Determine whether DE adds value once the setup bugs are fixed.
+This is the experiment that decides whether "optimised allocation" becomes
+a product feature or stays diagnostic-only.
+
+**Method:** Run walk-forward for 6asset_tip_gsg with all four fixes.
+Use the same WF parameters: train 5yr, test 2yr, step 2yr.
+
+**Decision rule:**
+| WF median | opt beats orig | Verdict |
+|-----------|---------------|---------|
+| ≥ 0.6 | ≥ 50% windows | "Optimised" is a validated product feature |
+| 0.3-0.6 | any | Improved but not production-grade. Keep as diagnostic. |
+| < 0.3 | any | DE genuinely doesn't generalise. Finding confirmed properly. |
+
+If the first row is achieved, add "DE-optimised allocation" as a Pro tier
+feature in the product. This is a genuine differentiator — ALLW uses
+Bridgewater's proprietary model; we offer transparent, inspectable
+optimisation the user can verify.
+
+### C3: Walk-forward with Martin ratio for all four strategies
+**Purpose:** If C2 passes for 6asset_tip_gsg, validate across all four
+paper trading candidates.
+
+**Method:** Run WF for 7asset_tip_gsg_vnq, 7asset_tip_djp, 5asset_dalio
+with the same fixed optimiser. Compare WF metrics to manual baseline.
 
 ---
 
-## Execution order and rationale
+## Paper trading setup (after blocking experiments)
 
-Run in this order:
+### G1-G4: Same as before (4 strategies, live tickers, 3-month success criteria)
 
-1. Group D first (transaction costs) — fastest, uses existing validated allocation,
-   no new data downloads, answers an important pre-paper-trading question immediately.
+**Change:** Track ALLW as 5th benchmark. If C2 passes, add DE-optimised
+variant of 6asset_tip_gsg as 5th paper trading strategy.
 
-2. Group C next (ETF substitution checks) — fast IS-only backtests, clears the
-   ETF equivalence question before running new universes.
+---
 
-3. Group A (6asset_tip_gsg robustness) — highest priority follow-up on the 
-   best result from Phase 1. Needs custom IS/OOS dates.
+## Content experiments (Track B, ongoing)
 
-4. Group B (new asset classes) — full pipeline, longest to run, do overnight.
+### D1: Blog post "ALLW vs DIY: Is the 0.85% worth it?"
+### D2: Blog post "How our portfolio handled the Iran war"
+### D3: Landing page
+### D4: Reddit regime heatmap post
 
-Total estimated runtime:
-- Group D: ~5 minutes (3 full backtests, no optimisation)
-- Group C: ~10 minutes (spot-checks only)
-- Group A: ~2 hours (full pipeline x2 with different date splits)
-- Group B: ~5 hours (full pipeline x5)
+---
+
+## Robustness experiments (parallel with paper trading)
+
+### R1: Regime-conditional performance (4 hours)
+### R2: Bootstrap confidence intervals (3 hours)
+### R3: Drawdown decomposition (2 hours)
+### R4: Complete 3-window validation for Tier 2/3 (2 hours)
+### R5: Fee drag projection (1 hour)
+### R6: VNQ + DJP combined universe
+
+---
+
+## Decision gates
+
+- **Gate 1** (after B0): Can we compete with ALLW on risk-adjusted terms?
+- **Gate 2** (after D1+D3): Is there organic demand? (>100 signups)
+- **Gate 3** (after 3 months paper trading): Model matches reality? (<1% tracking error)
+- **Gate 4** (after C2): Does fixed DE beat/match manual? → Pro tier feature decision.
+
+---
+
+## Principles (updated post-optimiser-analysis)
+
+1. GSG/DJP non-negotiable. TIP essential. QQQ non-negotiable.
+2. ~~Manual allocation beats DE optimiser.~~ **RETRACTED.** Previous DE
+   "failure" was caused by setup bugs (wrong bounds, bad objective,
+   normalisation distortion, post-hoc projection). Pending re-evaluation
+   after fixes (experiment C2). Until C2 is complete, use manual
+   allocation for production but do not treat DE as permanently broken.
+3. Three OOS windows required for production promotion.
+4. WF median > 0.6 = HIGH reliability. Use median, not mean.
+5. 2022-style shocks recur ~once/decade. Stress test mandatory.
+6. Compare strategies on same window length only.
+7. ALLW is the primary competitive benchmark, not 60/40.
+8. Every experiment should produce both research data AND content.
+9. Validate demand before building product.
+10. GBP/EUR adjustment required for non-US product claims.
+11. Cannot use "All Weather" in the product name.
+12. **Use Martin ratio (CAGR/Ulcer) for optimisation, Calmar for reporting.**
+    Calmar is a useful summary metric but a terrible optimisation objective.
+13. **Per-asset bounds, not uniform bounds.** Different assets have different
+    roles and require different weight ranges.
+
+---
+
+## Rejected experiments (do not repeat)
+
+| Experiment | OOS Calmar | Reason |
+|-----------|-----------|--------|
+| 8asset_agg_replaces_qqq | 0.198 | Only result below 60/40 |
+| 8asset_lqd_replaces_shy | 0.291 | LQD fails in rate shocks |
+| 7asset_vnq_reits (no TIP+GSG) | 0.287 | REITs without inflation anchor |
+| 7asset_6tip_plus_ief | 0.310 | Duration overlap |
+| 6asset_duration_ladder | 0.329 | Worst overfitting |
+| 6asset_intl_equity (EFA) | 0.300 | Lowest CAGR, no diversification |
