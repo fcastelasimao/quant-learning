@@ -55,6 +55,8 @@ class StrategyStats:
     avg_recovery_time: float     # average months to recover from a drawdown
     ulcer_index:       float     # RMS of all drawdown percentages
     sortino:           float     # downside-only Sharpe ratio
+    martin:            float     # CAGR / Ulcer Index — primary optimisation metric (smoother than Calmar)
+    max_drawdown_daily: float    # MDD computed on daily price resolution (more accurate than monthly)
 
 
 # ===========================================================================
@@ -84,19 +86,22 @@ def compute_max_drawdown(series: pd.Series) -> float:
     return ((series - peak) / peak).min() * 100
 
 
-def compute_sharpe(monthly_ret_series: pd.Series) -> float:
+def compute_sharpe(monthly_ret_series: pd.Series,
+                   rf_annual: float = 0.0) -> float:
     """
     Annualised Sharpe ratio from a series of monthly returns (as percentages).
 
-    Sharpe = (mean monthly return / std of monthly returns) * sqrt(12)
-    The sqrt(12) annualises the monthly ratio.
+    Sharpe = ((mean monthly return - rf_monthly) / std of monthly returns) * sqrt(12)
+    rf_annual is converted to a monthly equivalent: (1 + rf_annual)^(1/12) - 1.
 
     Returns 0.0 if all returns are identical (zero volatility edge case).
+    Set rf_annual=0.0 to reproduce pre-fix results.
     """
     r = monthly_ret_series.dropna() / 100
     if len(r) == 0 or r.std() < 1e-10:
         return 0.0
-    return (r.mean() / r.std()) * np.sqrt(config.SHARPE_ANNUALISATION)
+    rf_monthly = (1 + rf_annual) ** (1 / 12) - 1
+    return ((r.mean() - rf_monthly) / r.std()) * np.sqrt(config.SHARPE_ANNUALISATION)
 
 
 
@@ -108,14 +113,59 @@ def compute_calmar(cagr: float, max_drawdown: float) -> float:
     A Calmar of 0.5 means you earn 0.5% of annual return for every 1%
     of maximum drawdown you accept.
 
-    This is the primary optimisation objective because it balances return
-    and risk without requiring you to choose how to weight them manually.
+    Used for reporting only. Not used as optimisation objective (Calmar is
+    dominated by a single worst data point and creates a discontinuous
+    landscape — see Martin ratio for the DE objective).
 
     Returns 0.0 if drawdown is zero (degenerate / no-loss case).
     """
     if max_drawdown == 0.0:
         return 0.0
     return cagr / abs(max_drawdown)
+
+
+def compute_max_drawdown_daily(prices: pd.DataFrame,
+                               allocation: dict) -> float:
+    """
+    Maximum drawdown computed at daily price resolution.
+
+    Monthly MDD understates true drawdowns because it only sees month-end
+    prices. A 20% intramonth drop that recovers by month-end is invisible
+    to the monthly engine. Daily MDD captures the true worst-case experience.
+
+    Simulates the same monthly rebalancing logic as run_backtest() but
+    tracks portfolio value at every trading day rather than just month-ends.
+    Between rebalancing dates, the portfolio drifts with daily prices.
+
+    Returns a negative number (same convention as compute_max_drawdown).
+    Returns 0.0 if prices are empty or allocation is empty.
+    """
+    tickers = list(allocation.keys())
+    available = [t for t in tickers if t in prices.columns]
+    if not available or prices.empty:
+        return 0.0
+
+    daily = prices[available].ffill().dropna()
+    if daily.empty or len(daily) < 2:
+        return 0.0
+
+    # Month-end dates used as rebalance triggers
+    monthly_dates = set(daily.resample(config.DATA_FREQUENCY).last().dropna().index)
+
+    # Initialise holdings proportionally on first trading day
+    first = daily.iloc[0]
+    pv    = config.INITIAL_PORTFOLIO_VALUE
+    holdings = {t: (pv * allocation[t]) / float(first[t]) for t in available}
+
+    daily_values = []
+    for date, row in daily.iterrows():
+        pv = sum(holdings[t] * float(row[t]) for t in available)
+        daily_values.append(pv)
+        if date in monthly_dates:
+            for t in available:
+                holdings[t] = (pv * allocation[t]) / float(row[t])
+
+    return compute_max_drawdown(pd.Series(daily_values))
 
 
 def compute_avg_drawdown(series: pd.Series) -> float:
@@ -191,20 +241,24 @@ def compute_ulcer_index(series: pd.Series) -> float:
     return round(float(np.sqrt((dd_pct ** 2).mean())), 4)
 
 
-def compute_sortino(monthly_ret_series: pd.Series) -> float:
+def compute_sortino(monthly_ret_series: pd.Series,
+                    rf_annual: float = 0.0) -> float:
     """
     Sortino ratio — like Sharpe but only penalises downside volatility.
-    Formula: (mean monthly return / downside deviation) * sqrt(annualisation)
-    Downside deviation uses only months where return < 0.
-    Returns 0.0 if there are no negative return months or empty series.
+    Formula: ((mean monthly return - rf_monthly) / downside deviation) * sqrt(annualisation)
+    Downside deviation uses only months where return < rf_monthly (not zero).
+    rf_annual is converted to a monthly equivalent: (1 + rf_annual)^(1/12) - 1.
+    Returns 0.0 if there are no below-threshold months or empty series.
+    Set rf_annual=0.0 to reproduce pre-fix results.
     """
     r = monthly_ret_series.dropna() / 100
     if len(r) == 0:
         return 0.0
-    downside = r[r < 0]
+    rf_monthly = (1 + rf_annual) ** (1 / 12) - 1
+    downside = r[r < rf_monthly]
     if len(downside) == 0 or downside.std() < 1e-10:
         return 0.0
-    return round((r.mean() / downside.std()) * np.sqrt(config.SHARPE_ANNUALISATION), 3)
+    return round(((r.mean() - rf_monthly) / downside.std()) * np.sqrt(config.SHARPE_ANNUALISATION), 3)
 
 
 # ===========================================================================
@@ -371,9 +425,18 @@ def run_backtest(prices: pd.DataFrame,
 # STATISTICS
 # ===========================================================================
 
-def compute_stats(backtest: pd.DataFrame) -> list[StrategyStats]:
+def compute_stats(backtest: pd.DataFrame,
+                  prices: Optional["pd.DataFrame"] = None,
+                  allocation: Optional[dict] = None) -> list[StrategyStats]:
     """
     Compute key performance statistics for all three strategies.
+
+    Parameters
+    ----------
+    backtest   : monthly backtest DataFrame from run_backtest()
+    prices     : daily price DataFrame (optional). When provided alongside
+                 allocation, daily MDD is computed for the AW_R strategy.
+    allocation : allocation dict {ticker: weight} (optional, paired with prices)
 
     Returns a list of three or four StrategyStats objects:
       [All Weather (Rebalanced), Buy & Hold All Weather, S&P 500 Buy & Hold]
@@ -381,29 +444,46 @@ def compute_stats(backtest: pd.DataFrame) -> list[StrategyStats]:
     """
     years = (backtest.index[-1] - backtest.index[0]).days / 365.25
 
-    def make_stats(name: str, value_col: str, ret_col: str) -> StrategyStats:
-        series = backtest[value_col]
-        cagr   = round(compute_cagr(series, years), 2)
-        mdd    = round(compute_max_drawdown(series), 2)
+    # Compute daily MDD for AW_R once if daily prices are available
+    daily_mdd_aw = 0.0
+    if prices is not None and allocation is not None:
+        # Slice daily prices to the same date window as the backtest
+        mask         = ((prices.index >= backtest.index[0]) &
+                        (prices.index <= backtest.index[-1]))
+        prices_slice = prices.loc[mask]
+        daily_mdd_aw = round(compute_max_drawdown_daily(prices_slice, allocation), 2)
+
+    def make_stats(name: str, value_col: str, ret_col: str,
+                   daily_mdd: float = 0.0) -> StrategyStats:
+        series      = backtest[value_col]
+        cagr        = round(compute_cagr(series, years), 2)
+        mdd         = round(compute_max_drawdown(series), 2)
+        ulcer       = compute_ulcer_index(series)
+        martin      = round(cagr / ulcer if ulcer > 1e-10 else cagr, 3)
         return StrategyStats(
-            name              = name,
-            cagr              = cagr,
-            max_drawdown      = mdd,
-            sharpe            = round(compute_sharpe(backtest[ret_col]), 3),
-            calmar            = round(compute_calmar(cagr, mdd), 3),
-            final_value       = round(series.iloc[-1], 2),
-            period_years      = round(years, 1),
-            avg_drawdown      = compute_avg_drawdown(series),
-            max_dd_duration   = compute_max_drawdown_duration(series),
-            avg_recovery_time = compute_avg_recovery_time(series),
-            ulcer_index       = compute_ulcer_index(series),
-            sortino           = compute_sortino(backtest[ret_col]),
+            name               = name,
+            cagr               = cagr,
+            max_drawdown       = mdd,
+            sharpe             = round(compute_sharpe(backtest[ret_col],
+                                                      rf_annual=config.RISK_FREE_RATE), 3),
+            calmar             = round(compute_calmar(cagr, mdd), 3),
+            final_value        = round(series.iloc[-1], 2),
+            period_years       = round(years, 1),
+            avg_drawdown       = compute_avg_drawdown(series),
+            max_dd_duration    = compute_max_drawdown_duration(series),
+            avg_recovery_time  = compute_avg_recovery_time(series),
+            ulcer_index        = ulcer,
+            sortino            = compute_sortino(backtest[ret_col],
+                                                rf_annual=config.RISK_FREE_RATE),
+            martin             = martin,
+            max_drawdown_daily = daily_mdd,
         )
 
     stats = [
         make_stats("AW_R",
                    "All Weather Value",
-                   "All Weather Value Monthly Ret (%)"),
+                   "All Weather Value Monthly Ret (%)",
+                   daily_mdd=daily_mdd_aw),
         make_stats("B&H_AW",
                    "Buy & Hold All Weather",
                    "Buy & Hold All Weather Monthly Ret (%)"),

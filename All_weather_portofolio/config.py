@@ -9,7 +9,9 @@ read from this file. This means you only ever change one file
 to modify the behaviour of the entire project.
 """
 
-from datetime import datetime
+from datetime import datetime, date
+import json
+import os
 import numpy as np
 
 # ===========================================================================
@@ -19,7 +21,7 @@ import numpy as np
 INITIAL_PORTFOLIO_VALUE = 10_000    # Starting portfolio value in USD
 
 BACKTEST_START = "2006-01-01"       # format: YYYY-MM-DD
-BACKTEST_END   = "2026-01-01"       # format: YYYY-MM-DD
+BACKTEST_END   = date.today().strftime("%Y-%m-%d")   # always today
 OOS_START      = "2020-01-01"       # IS ends here; OOS begins here
                                     
 #RUN_MODE = "optimise"          # BACKTEST_START to OOS_START
@@ -41,6 +43,11 @@ DATA_FREQUENCY        = "ME"    # "ME" for monthly, "W" for weekly
                                 # weekly gives more granular backtest data
 SHARPE_ANNUALISATION  = 12      # periods per year for Sharpe annualisation
                                 # 12 for monthly ("ME"), 52 for weekly ("W")
+
+RISK_FREE_RATE = 0.035          # Annual risk-free rate for Sharpe and Sortino.
+                                # US Fed funds ~3.5-3.75% as of March 2026.
+                                # Set to 0.0 to reproduce pre-fix baseline numbers.
+                                # Update when rates change materially.
 
 BENCHMARK_TICKER = "SPY"            # S&P 500 benchmark for comparison
 
@@ -77,15 +84,15 @@ TAX_DRAG_PCT         = 0.0      # annual drag (set 0.0 for ISA/SIPP)
 #   SHY  -- July 2002           GLD  -- November 2004
 #   IWD  -- January 2000        GSG  -- July 2006  <-- limits start to 2006
 
+# Default: 6asset_tip_gsg (validated Tier 1 Growth).
+# See strategies.json for all validated strategies.
 TARGET_ALLOCATION = {
-    "SPY": 0.10,    # Stocks -- broad US equity
-    "QQQ": 0.15,    # Stocks -- US tech
-    "IWD": 0.10,    # Stocks -- US value equity
-    "TLT": 0.25,    # Long bonds -- long-term government
-    "IEF": 0.10,    # Intermediate bonds -- 7-10yr government
-    "SHY": 0.05,    # Intermediate bonds -- short-term anchor
-    "GLD": 0.15,    # Gold
-    "GSG": 0.10,    # Commodities -- broad basket
+    "SPY": 0.15,
+    "QQQ": 0.15,
+    "TLT": 0.30,
+    "TIP": 0.15,
+    "GLD": 0.15,
+    "GSG": 0.10,
 }
 
 assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
@@ -126,19 +133,37 @@ OPT_RANDOM_SEED = 42                # set to None for different results each run
 #OPT_RANDOM_SEED = 7     
 
 ASSET_CLASS_GROUPS = {
-    "stocks":             ["SPY", "QQQ", "IWD"],
+    "stocks":             ["SPY", "QQQ"],
     "long_bonds":         ["TLT"],
-    "intermediate_bonds": ["IEF", "SHY"],
+    "intermediate_bonds": ["TIP"],
     "gold":               ["GLD"],
     "commodities":        ["GSG"],
 }
 
 ASSET_CLASS_MAX_WEIGHT = {
-    "stocks":             0.40,   # total stocks cannot exceed 40%
-    "long_bonds":         0.40,   # total long bonds cannot exceed 40%
-    "intermediate_bonds": 0.25,   # total intermediate bonds cannot exceed 25%
-    "gold":               0.20,   # gold cannot exceed 20%
-    "commodities":        0.20,   # commodities cannot exceed 20%
+    "stocks":             0.40,
+    "long_bonds":         0.40,
+    "intermediate_bonds": 0.25,
+    "gold":               0.25,
+    "commodities":        0.20,
+}
+
+# Per-asset weight bounds for the optimiser.
+# Takes priority over OPT_MIN_WEIGHT / OPT_MAX_WEIGHT when all tickers are covered.
+# Allows asymmetric ranges -- e.g. TLT can reach 45% while stocks stay below 20%.
+# Falls back to uniform [OPT_MIN_WEIGHT, OPT_MAX_WEIGHT] if this dict is absent
+# or doesn't cover every ticker in the active allocation.
+ASSET_BOUNDS = {
+    "SPY": (0.05, 0.20),   # Broad US equity
+    "QQQ": (0.05, 0.20),   # US tech
+    "TLT": (0.20, 0.45),   # Long-term government bonds
+    "TIP": (0.05, 0.20),   # Inflation-linked bonds
+    "GLD": (0.05, 0.20),   # Gold
+    "GSG": (0.05, 0.15),   # Broad commodities
+    "VNQ": (0.05, 0.20),   # REITs (7asset_tip_gsg_vnq)
+    "IWD": (0.05, 0.15),   # Value equity (7asset_tip_djp)
+    "DJP": (0.05, 0.15),   # Diversified commodities (7asset_tip_djp)
+    "IEF": (0.10, 0.25),   # Intermediate bonds (5asset_dalio)
 }
 
 # ===========================================================================
@@ -244,11 +269,13 @@ def validate_config():
         "pareto", "oos_evaluate", "full_backtest"
     ), (f"Unknown RUN_MODE: '{RUN_MODE}'. Choose from: backtest, optimise, "
         f"walk_forward, pareto, oos_evaluate, full_backtest")
-    assert OPT_METHOD in ("random", "calmar", "differential_evolution", "sharpe_slsqp"), \
+    assert OPT_METHOD in ("random", "calmar", "differential_evolution", "sharpe_slsqp", "martin"), \
         f"Unknown OPT_METHOD: '{OPT_METHOD}'. " \
-        f"Choose from: random, calmar, differential_evolution, sharpe_slsqp"
+        f"Choose from: random, calmar, differential_evolution, sharpe_slsqp, martin"
     assert PRICING_MODEL in ("total_return", "price_return"), \
         f"PRICING_MODEL must be 'total_return' or 'price_return', got '{PRICING_MODEL}'"
+    assert 0.0 <= RISK_FREE_RATE <= 0.20, \
+        "RISK_FREE_RATE must be between 0 and 0.20"
     assert 0.0 <= TRANSACTION_COST_PCT <= 0.05, \
         "TRANSACTION_COST_PCT must be between 0 and 0.05 (5% is already extreme)"
     assert 0.0 <= TAX_DRAG_PCT <= 0.30, \
@@ -271,3 +298,49 @@ def validate_config():
         assert WF_STEP_YEARS >= WF_TEST_YEARS, \
         (f"WF_STEP_YEARS ({WF_STEP_YEARS}) must be >= WF_TEST_YEARS ({WF_TEST_YEARS}) "
          f"to avoid overlapping test windows (correlated results)")
+
+
+# ===========================================================================
+# STRATEGY LOADER
+# ===========================================================================
+
+def load_strategy(strategy_id: str) -> dict:
+    """
+    Load a strategy by ID from strategies.json and return its allocation,
+    asset_class_groups, and asset_class_max_weight dicts.
+
+    Parameters
+    ----------
+    strategy_id : str
+        The key in strategies.json, e.g. "6asset_tip_gsg".
+
+    Returns
+    -------
+    dict with keys:
+        "allocation"            : {ticker: weight, ...}
+        "asset_class_groups"    : {class: [tickers], ...}
+        "asset_class_max_weight": {class: max_weight, ...}
+
+    Raises
+    ------
+    FileNotFoundError  if strategies.json cannot be found
+    KeyError           if strategy_id does not exist in the file
+    """
+    strategies_path = os.path.join(os.path.dirname(__file__), "strategies.json")
+    with open(strategies_path, "r") as f:
+        data = json.load(f)
+
+    strategies = data["strategies"]
+    if strategy_id not in strategies:
+        available = list(strategies.keys())
+        raise KeyError(
+            f"Strategy '{strategy_id}' not found in strategies.json. "
+            f"Available: {available}"
+        )
+
+    s = strategies[strategy_id]
+    return {
+        "allocation":             s["allocation"],
+        "asset_class_groups":     s.get("asset_class_groups", {}),
+        "asset_class_max_weight": s.get("asset_class_max_weight", {}),
+    }

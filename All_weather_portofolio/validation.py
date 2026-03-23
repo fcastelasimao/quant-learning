@@ -112,6 +112,13 @@ def run_walk_forward(prices: pd.DataFrame,
     --------------------------------
     overfit_ratio = test_calmar / train_calmar
 
+    ⚠️  Phase 9 finding: the overfit_ratio thresholds below were RETRACTED.
+    Experiments show no reliable relationship between overfit_ratio and OOS
+    performance. High WF median can coexist with poor OOS Calmar (the
+    split2022 experiments had WF medians up to 2.000 with OOS Calmar 0.129).
+    Use WF as a diagnostic, not a prospective quality gate.
+
+    Historical thresholds (unreliable — kept for reference only):
       >= 0.8  low overfitting, allocation is robust
       0.6-0.8 moderate -- treat with caution
       < 0.6   high overfitting -- do not use for live trading

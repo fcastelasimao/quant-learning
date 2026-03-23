@@ -1,0 +1,30 @@
+# Generated outputs — never commit these
+results/
+
+# Live portfolio state
+portfolio_holdings.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# --- Exclude before making repo public ---
+# strategies.json          # proprietary: validated allocations with OOS results
+# research_log.md          # proprietary: methodology and findings
+# session_handoff.md       # proprietary: strategic context

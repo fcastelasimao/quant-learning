@@ -154,7 +154,7 @@ def main():
                                       tlt_prices=tlt_prices,
                                       transaction_cost_pct=config.TRANSACTION_COST_PCT,
                                       tax_drag_pct=config.TAX_DRAG_PCT)
-            stats_list = compute_stats(backtest)
+            stats_list = compute_stats(backtest, prices=port_prices, allocation=allocation)
             print_stats(stats_list)
 
             # ---- Export ----

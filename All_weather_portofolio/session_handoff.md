@@ -1,167 +1,207 @@
-# Session Handoff — 2026-03-21
+# Session Handoff — 2026-03-23
 
-This document captures the full context from the Opus 4.6 review session
-so that subsequent sessions (Sonnet or Opus) can continue without loss.
+This document captures full context from the 2026-03-22 session.
 
 ---
 
 ## What happened in this session
 
-Francisco started a fresh chat asking for a comprehensive critical review
-of the entire All Weather Portfolio project. The review covered:
+### 2026-03-23 — Phase 10A foundation fixes (Claude Code)
+1. Full project review conducted: code, MD files, all findings independently verified
+2. CLAUDE.md created with project rules, IS/OOS discipline, rejected experiments table
+3. Claude Code designated as primary tool for ALL work (strategy + engineering)
+4. Phase 10A implemented: 5 targeted code fixes, all 55 tests passing
 
-1. **Full code review** of all 9 modules + infrastructure scripts
-2. **Bug identification** (6 bugs found, documented in TODO)
-3. **Strategy critique** (survivorship bias, US-only equity, TLT concentration)
-4. **Macro assessment** (Iran war, oil shock, Fed pause — live stress test)
-5. **Gap analysis** (no FX adjustment, no daily MDD, no regime analysis, etc.)
-6. **Market validation** with competitive research
-7. **Optimiser root-cause analysis** — discovered why DE "fails" to beat manual
+### 2026-03-22 — Phase 9 full run
+1. Phase 9 full re-run: 33 experiments with fixed DE optimiser
+2. ALLW comparison completed (compare_allw.py)
+3. Backtest vs live ETF comparison — PDBC identified as divergence source
+4. DE failure re-diagnosed as regime mismatch, not setup bugs
+5. Multiple code improvements via Claude Code
+6. Master log archived and rebuilt with new column order + Martin ratio
+7. Crisis analysis script briefed (not yet implemented)
+8. MD files updated to reflect Phase 9 findings
 
-The market validation produced the most important business finding.
-The optimiser analysis produced the most important engineering finding.
+---
 
-## ⚠️ CRITICAL: ALLW ETF exists
+## ⚠️ CRITICAL: DE still fails 2020-split OOS
 
-Bridgewater and State Street launched the SPDR Bridgewater All Weather ETF
-(ticker: ALLW) in March 2025. Key facts:
-- AUM: $1.17 billion (in ~1 year)
-- Expense ratio: 0.85%
-- Uses ~2x leverage on bonds
-- 22.7% 1-year return, 4.4% yield
-- 99% portfolio turnover (tax-inefficient)
-- Allocations: ~43% global stocks, ~73% nominal bonds, ~41% TIPS,
-  ~24% commodities (percentages exceed 100% due to leverage)
+After fixing all four optimiser bugs, DE-optimised weights still fail OOS:
+- Best optimised OOS Calmar: 0.349 (7asset_no_iwd)
+- Manual allocation OOS Calmar: 0.403 (6asset_tip_gsg)
+- Manual beats every optimised result
 
-This changes the competitive positioning fundamentally:
-- Cannot position as "access to the All Weather strategy" (ALLW owns that)
-- Cannot use "All Weather" in the product name (Bridgewater trademark)
-- Must position as: "validated, transparent, unlevered, customisable
-  alternative to ALLW at lower cost"
-- ALLW is now the primary benchmark, replacing 60/40 in all comparisons
+Root cause: IS period 2006-2020 is a single falling-rates regime. DE
+correctly finds TLT-heavy allocations that maximise Martin ratio on that
+data. 2022 rate shock is in OOS. The optimiser was never penalised for
+bond concentration.
 
-## ⚠️ CRITICAL: Optimiser "failure" is a setup bug, not a real finding
+This is NOT an optimiser bug. It is a training data coverage problem.
 
-The previous conclusion that "manual allocation beats DE, use manual for
-production" was based on flawed experimental design. Four problems were
-identified:
+**The fix: split2022 experiments.** OOS_START = 2022-01-01 forces the
+rate shock into IS training. The split2022 OOS result is the most important
+number still pending. If split2022 DE beats 0.403, optimised allocation
+becomes a product feature.
 
-**Problem 1: Search space excludes the good allocations.**
-OPT_MAX_WEIGHT = 0.25, but manual TLT is 30-40% in every validated
-strategy. The optimiser literally cannot find the allocations it's being
-compared to. It's restricted to the wrong region of weight space.
+---
 
-**Problem 2: Normalisation distorts DE's search.**
-`de_objective()` normalises `w / w.sum()` — this warps the landscape so
-DE's internal model doesn't match reality. Two nearby raw-weight points
-can map to very different normalised weights.
+## ⚠️ CRITICAL: Phase 9 complete — DE confirmed failed definitively
 
-**Problem 3: Calmar is a bad optimisation objective.**
-Calmar = CAGR / |MaxDD| depends on a single worst data point. The
-landscape is discontinuous (small weight changes can shift which month is
-worst), causing the optimiser to overfit to one event that won't recur
-in the test period.
+33 experiments run. 26 with DE-optimised weights. Zero beat manual (0.403).
 
-**Problem 4: Post-convergence projection distorts the result.**
-After DE converges, `_project_weights()` clips and renormalises, moving the
-result away from what DE actually optimised. DE never explored the
-neighbourhood of the projected weights.
+**Split2022 result: 0.129 — the worst result in the entire table.**
 
-**Fixes (all in optimiser.py):**
-1. Per-asset bounds instead of uniform `[0.05, 0.25]` — let TLT reach 0.45
-2. Remove normalisation from DE objective (use Dirichlet or N-1 parameterisation)
-3. Switch objective from Calmar to Martin ratio (CAGR / Ulcer Index) — smooth, uses all data
-4. Move projection inside the DE evaluation loop, not after convergence
+The split2022 fix made things worse, not better. The OOS window 2022-2026
+is a 4-year recovery/Iran war period. Weights optimised to survive the
+2022 rate shock are wrong for the recovery that follows.
 
-**Impact:** If the optimiser works properly, "optimised allocation" becomes
-a Pro tier product feature instead of a diagnostic-only tool. This reopens
-a major product opportunity.
+**WF median is not a reliable signal. Retracted.**
+High WF median (even 2.000) predicts OOS failure as often as OOS success.
+Do not use WF median to assess strategy quality going forward.
 
-**Status:** Fixes not yet implemented. High priority engineering task.
+**Principle 7 retracted.** Including 2022 in IS training does not improve
+OOS reliability. Confirmed across 6 split2022 experiments.
 
-## Current project state
+**Gate 1 closed: DE does not add value. Pivot to risk parity.**
 
-- 23 universe experiments completed, 229 master log rows
-- Four validated strategies ready for paper trading
-- config.py still has the DEMOTED 8-asset allocation (needs fixing)
-- Optimiser is broken by design (four bugs identified, fixes specified)
-- No paper trading has started yet
-- No product/web app exists yet — still in research/strategy phase
-- Product targets global customers, not UK-only
+Do not run further DE experiments. The next experiment phase requires
+the risk parity framework to be designed first (Opus session).
 
-## Documents produced in this session
+## ⚠️ CRITICAL: Opus session is now the highest priority action
 
-All are in the project knowledge files. Use the _v3 versions where they
-exist — they supersede earlier versions.
+Before any further engineering work on optimisation, an Opus session is
+needed to design the risk parity framework. Without this, all further
+experiments are directionless.
 
-| File | Purpose | ALLW-aware? | Optimiser-aware? |
-|------|---------|------------|-----------------|
-| ToDo_v3.md | Master action plan | ✅ | ✅ |
-| experiment_plan_v3.md | All experiments | ✅ | ✅ |
-| research_log_v3.md | Research history | ✅ | ✅ |
-| README_v3.md | Project README | ✅ | ✅ |
-| visualisation_strategy_v2.md | Chart specs | ✅ | N/A (no change) |
-| market_validation.md | Competitive analysis | ✅ | N/A (no change) |
-| strategies.json | Strategy registry | N/A | N/A (no change) |
-| session_handoff (this file) | Context bridge | ✅ | ✅ |
+Bring to Opus:
+- Phase 9 full results table (26 experiments, all fail vs manual 0.403)
+- WF median retraction evidence
+- Split2022 retraction evidence
+- Risk parity math (already in research_log.md Phase 10)
+- DJP finding (better OOS stability than GSG in optimised context)
+- Key design questions: objective function, covariance window, leverage constraint
 
-## What to work on next (priority order)
+The Phase 9 run was at experiment 17/33 when this session ended.
+split2022 IS optimise completed (IS Calmar 0.639) but OOS not yet run.
+Wait for the run to complete before drawing conclusions about DE value.
 
-### Immediate (same day):
-1. A0.1: Update config.py to 6asset_tip_gsg (10 min)
-2. A0.5: Fix _Tee stderr capture (5 min)
-3. A0.4: Add data validation to data.py (30 min)
-4. A0.6: Drop strategies.json into project root (already created)
+---
 
-### This week (dual track):
-5. **A0.7: Fix optimiser per-asset bounds** (15 min) ← new, high impact
-6. **A0.8: Switch DE objective to Martin ratio** (30 min) ← new, high impact
-7. **A0.9: Remove normalisation from DE objective** (1 hour) ← new
-8. B0.1/E1: ALLW head-to-head comparison (3 hours)
-9. E2: Iran war stress test WITH ALLW (1 hour)
-10. A0.2: Fix rebalancing mismatch in backtest engine (2 hours)
-11. A0.3: Add daily max drawdown computation (1.5 hours)
-12. **E5: Re-run walk-forward with fixed optimiser** (2 hours) ← new, validates fixes
+## ⚠️ IMPORTANT: Stale data warning
 
-### Next week:
-13. E3: GBP-adjusted backtest (2 hours)
-14. B0.3: Choose brand name (decision)
-15. B0.2: Write ALLW comparison blog post (4 hours)
-16. B0.4: Build landing page (3 hours)
+yfinance returns total return data with ~45 day lag for some tickers.
+Warning threshold updated to 45 days. If lag exceeds 60 days, verify
+manually. Current data ends approximately 2025-12-31 in some tickers.
 
-## Key bugs to fix (reference)
+---
 
-1. Backtest rebalances unconditionally; live uses 5% threshold
-2. Max drawdown uses monthly data (understates true drawdowns)
-3. Sharpe/Sortino assume Rf = 0 (Fed at 3.5-3.75%)
-4. No GBP/FX adjustment
-5. _Tee doesn't capture stderr
-6. config.py defaults to demoted allocation
-7. **Optimiser bounds exclude the best allocations** ← new
-8. **DE normalisation distorts search space** ← new
-9. **Calmar objective is discontinuous / overfits to single point** ← new
-10. **Post-convergence projection distorts DE result** ← new
+## Current validated strategies (manual weights)
 
-## Decision gates
+| Strategy | Allocation | OOS Calmar (2020-split) |
+|---|---|---|
+| 6asset_tip_gsg | SPY 15%, QQQ 15%, TLT 30%, TIP 15%, GLD 15%, GSG 10% | 0.403 (manual) |
+| 7asset_tip_gsg_vnq | SPY 12%, QQQ 12%, TLT 25%, TIP 12%, GLD 13%, GSG 10%, VNQ 16% | TBD split2022 |
+| 7asset_tip_djp | SPY 12%, QQQ 13%, IWD 8%, TLT 27%, TIP 13%, GLD 15%, DJP 12% | TBD split2022 |
+| 5asset_dalio | SPY 30%, TLT 40%, IEF 15%, GLD 7.5%, GSG 7.5% | 0.188 (optimised, bad) |
 
-- **Gate 1** (after ALLW comparison): Can we compete on risk-adjusted terms?
-- **Gate 2** (after content launch): Is there organic demand? (>100 email signups)
-- **Gate 3** (after 3 months paper trading): Does model match reality? (<1% tracking error)
-- **Gate 4** (after optimiser fix + WF re-run): Does DE now beat/match manual? If yes → Pro tier feature.
+Use manual weights for all production claims and content.
 
-## Validated strategies (for quick reference)
+---
 
-| Strategy | Allocation | Best Calmar | Worst Calmar |
-|----------|-----------|-------------|-------------|
-| 6asset_tip_gsg | SPY 15%, QQQ 15%, TLT 30%, TIP 15%, GLD 15%, GSG 10% | 0.476 | 0.405 |
-| 7asset_tip_gsg_vnq | SPY 12%, QQQ 12%, TLT 25%, TIP 12%, GLD 13%, GSG 10%, VNQ 16% | 0.471 | 0.429 |
-| 7asset_tip_djp | SPY 12%, QQQ 13%, IWD 8%, TLT 27%, TIP 13%, GLD 15%, DJP 12% | 0.432 | 0.334 |
-| 5asset_dalio | SPY 30%, TLT 40%, IEF 15%, GLD 7.5%, GSG 7.5% | 0.383 | 0.337 |
+## ALLW comparison results (March 2025 to March 2026)
+
+6asset_tip_gsg (fee-adj) vs ALLW (fee-adj):
+- CAGR: 17.33% vs 15.64%
+- Max DD: -6.70% vs -8.79%
+- Calmar: 2.586 vs 1.779
+- Worst month: -3.97% vs -7.01%
+- Volatility: 10.07% vs 12.60%
+
+Strong result. Caveat: 12 months in macro environment that specifically
+favours commodity-weighted unlevered strategies. Not a general claim.
+
+---
+
+## ETF decisions
+
+| Purpose | Backtest | Live recommendation |
+|---|---|---|
+| US large cap | SPY | IVV |
+| US tech/growth | QQQ | QQQM |
+| Long bonds | TLT | TLT |
+| Inflation bonds | TIP | TIP |
+| Gold | GLD | GLDM |
+| Commodities | GSG | GSG (or PDBC with disclosure) |
+| REITs | VNQ | VNQ |
+| Value equity | IWD | IWD |
+| Diversified commodities | DJP | DJP |
+| Intermediate bonds | IEF | IEF |
+
+PDBC diverges from GSG in energy-shock environments. Use GSG for all
+backtesting and comparison charts. Disclose the difference to customers.
+
+---
+
+## Code changes made this session (all via Claude Code)
+
+1. config.py: TARGET_ALLOCATION = 6asset_tip_gsg weights
+2. config.py: ASSET_CLASS_GROUPS and ASSET_CLASS_MAX_WEIGHT updated
+3. config.py: ASSET_BOUNDS added (per-asset, all four strategies covered)
+4. config.py: BACKTEST_END = date.today() (dynamic)
+5. config.py: load_strategy() function added
+6. export.py: _Tee captures stderr
+7. export.py: METRIC_COLS reordered (Calmar/Martin first)
+8. export.py: META_COLS reordered (config detail last)
+9. export.py: Martin ratio added to build_log_row()
+10. export.py: auto-archive logic on first run
+11. backtest.py: martin field added to StrategyStats
+12. backtest.py: compute_stats() computes Martin = CAGR / Ulcer
+13. data.py: data quality checks added
+14. data.py: stale data threshold updated to 45 days
+15. optimiser.py: DE bugs fixed (bounds, normalisation, objective, projection)
+16. optimiser.py: optimise_random label reflects actual method
+17. optimiser.py: fallback warning names missing tickers explicitly
+18. compare_allw.py: new script (ALLW head-to-head comparison)
+19. compare_allw.py: 5asset_dalio added
+20. compare_allw.py: plot_growth_chart() replaces plot_drawdown_chart()
+21. compare_allw.py: Excel export (allw_comparison_YYYYMMDD.xlsx)
+22. compare_allw.py: additional metrics (Vol, Worst Month, Best Month)
+23. crisis_analysis.py: briefed, not yet implemented
+
+---
+
+## Immediate next actions (priority order)
+
+1. **Run risk parity diagnostic on 6asset_tip_gsg** — compare RP weights vs manual
+   `python3 -c "from optimiser import compute_risk_parity_weights; from data import fetch_prices; import config; p = fetch_prices(list(config.TARGET_ALLOCATION.keys()), config.BACKTEST_START, config.BACKTEST_END); compute_risk_parity_weights(p, list(config.TARGET_ALLOCATION.keys()))"`
+2. **Design risk parity experiment methodology** (covariance window sensitivity: 1yr/3yr/5yr)
+3. **Implement risk parity as DE objective** in optimiser.py (replace Martin ratio)
+4. **Re-run Phase 9 universe** with risk parity weights — compare OOS vs manual 0.403
+5. **Implement crisis_analysis.py**
+6. Choose brand name
+7. Write ALLW comparison blog post (Rf/MDD now fixed — blog post unblocked on metrics side)
+8. FCA compliance research
+
+~~Fix Sharpe/Sortino Rf = 0~~ **DONE (2026-03-23)**
+~~Fix daily MDD~~ **DONE (2026-03-23)**
+
+## Decision gates (updated)
+
+- **Gate 0 (Opus session):** Risk parity framework design. What is the
+  objective function? What is the covariance window? Hybrid or pure?
+  This gates all further optimisation work.
+- **Gate 1: CLOSED.** DE does not add value. Confirmed.
+- **Gate 2 (blog post response):** Organic demand? >100 signups = proceed.
+- **Gate 3 (paper trading):** <1% tracking error = proceed to live capital.
+- **Gate 4 (FCA review):** Can we offer rebalancing instructions legally?
+
+---
 
 ## How Francisco works
 
 - Critical analysis valued over confirmation
-- Strategy discussion in Claude Projects; code changes via Claude Code
-- Iterative: run experiment → share output → analyse → refine
-- Configuration-driven: all params in config.py
-- GitHub repo: https://github.com/fcastelasimao/quant-learning
+- **Everything in Claude Code** — strategy, analysis, code, planning. No context split.
+- CLAUDE.md is the persistent project rulebook — update it when decisions change
+- session_handoff.md + research_log.md are the persistent state — keep them current
+- Iterative: run experiment → share output/file → analyse → refine
+- GitHub: https://github.com/fcastelasimao/quant-learning

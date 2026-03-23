@@ -38,10 +38,11 @@ import sys
 # ===========================================================================
 
 class _Tee:
-    """Write to both stdout and a log file simultaneously."""
+    """Write to both stdout/stderr and a log file simultaneously."""
     def __init__(self, filepath):
-        self._file = open(filepath, "w", buffering=1)
+        self._file   = open(filepath, "w", buffering=1)
         self._stdout = sys.stdout
+        self._stderr = sys.stderr
 
     def write(self, data):
         self._stdout.write(data)
@@ -53,17 +54,19 @@ class _Tee:
 
     def close(self):
         sys.stdout = self._stdout
+        sys.stderr = self._stderr
         self._file.close()
 
 def start_run_log(results_dir: str):
-    """Redirect stdout to both terminal and run_log.txt."""
+    """Redirect stdout and stderr to both terminal and run_log.txt."""
     path = os.path.join(results_dir, "run_log.txt")
     tee  = _Tee(path)
     sys.stdout = tee
+    sys.stderr = tee
     return tee
 
 def stop_run_log(tee):
-    """Restore stdout and close the log file."""
+    """Restore stdout/stderr and close the log file."""
     tee.close()
 
 def make_results_dir(label: str) -> str:
@@ -155,6 +158,7 @@ def export_results(backtest: pd.DataFrame,
             {"Strategy": s.name, "Metric": "Period (years)",            "Value": s.period_years},
             {"Strategy": s.name, "Metric": "CAGR (%)",                  "Value": s.cagr},
             {"Strategy": s.name, "Metric": "Max Drawdown (%)",          "Value": s.max_drawdown},
+            {"Strategy": s.name, "Metric": "Max Drawdown Daily (%)",    "Value": s.max_drawdown_daily},
             {"Strategy": s.name, "Metric": "Avg Drawdown (%)",          "Value": s.avg_drawdown},
             {"Strategy": s.name, "Metric": "Max DD Duration (months)",  "Value": s.max_dd_duration},
             {"Strategy": s.name, "Metric": "Avg Recovery (months)",     "Value": s.avg_recovery_time},
@@ -204,23 +208,25 @@ META_COLS = [
     "Backtest Start",
     "Backtest End",
     "OOS Start",
+    "Tickers",
     "Pricing Model",
     "Tx Cost %",
     "Tax Drag %",
     "Data Freq",
-    "Tickers",
 ]
 
 METRIC_COLS = [
+    "Calmar",
+    "Martin",
     "CAGR (%)",
     "Max_DD (%)",
+    "Max_DD_Daily (%)",
     "Avg_DD (%)",
     "Max_DD_Dur",
     "Avg_Rec",
     "Ulcer",
-    "Sharpe",
     "Sortino",
-    "Calmar",
+    "Sharpe",
     "Fin_Val ($)",
 ]
 
@@ -266,15 +272,17 @@ def build_log_row(results_dir: str,
         "Tickers":        " | ".join(f"{t}={w:.1%}" for t, w in weights.items()),
     }
     for s in stats_list:
-        row[f"{s.name}_CAGR (%)"]    = s.cagr
-        row[f"{s.name}_Max_DD (%)"]  = s.max_drawdown
-        row[f"{s.name}_Avg_DD (%)"]  = s.avg_drawdown
+        row[f"{s.name}_Calmar"]           = s.calmar
+        row[f"{s.name}_Martin"]           = s.martin
+        row[f"{s.name}_CAGR (%)"]         = s.cagr
+        row[f"{s.name}_Max_DD (%)"]       = s.max_drawdown
+        row[f"{s.name}_Max_DD_Daily (%)"] = s.max_drawdown_daily
+        row[f"{s.name}_Avg_DD (%)"]       = s.avg_drawdown
         row[f"{s.name}_Max_DD_Dur"]  = s.max_dd_duration
         row[f"{s.name}_Avg_Rec"]     = s.avg_recovery_time
         row[f"{s.name}_Ulcer"]       = s.ulcer_index
-        row[f"{s.name}_Sharpe"]      = s.sharpe
         row[f"{s.name}_Sortino"]     = s.sortino
-        row[f"{s.name}_Calmar"]      = s.calmar
+        row[f"{s.name}_Sharpe"]      = s.sharpe
         row[f"{s.name}_Fin_Val ($)"] = s.final_value
 
     row["Results Folder"] = results_dir
@@ -436,6 +444,14 @@ def append_to_master_log(results_dir: str,
     new_row   = build_log_row(results_dir, stats_list, weights, label)
 
     os.makedirs("results", exist_ok=True)
+
+    archive_path = os.path.join("results", "master_log_archive_phase1.xlsx")
+    if os.path.exists(log_path) and not os.path.exists(archive_path):
+        import shutil
+        shutil.copy2(log_path, archive_path)
+        print(f"  Archived old master log -> {archive_path}")
+        os.remove(log_path)
+        existing_rows = []
 
     existing_rows = []
     if os.path.exists(log_path):

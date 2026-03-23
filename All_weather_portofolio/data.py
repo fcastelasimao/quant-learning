@@ -9,6 +9,7 @@ it just retrieves and cleans raw price data.
 """
 
 import warnings
+from datetime import date
 import pandas as pd
 import yfinance as yf
 import config
@@ -65,6 +66,49 @@ def fetch_prices(tickers: list[str],
 
     prices = prices.dropna(how="all")   # drop rows where ALL tickers are NaN
     prices = prices.ffill()             # forward-fill weekends and holidays
+
+    # ===========================================================================
+    # DATA QUALITY CHECKS
+    # ===========================================================================
+
+    # Assert no column is entirely NaN (would indicate a bad ticker or date range)
+    for ticker in prices.columns:
+        if prices[ticker].isna().all():
+            raise ValueError(
+                f"DATA QUALITY: ticker '{ticker}' has no data at all. "
+                f"Check the symbol or the date range."
+            )
+
+    # Warn if any single daily return exceeds 30% (likely a data error)
+    daily_returns = prices.pct_change()
+    for ticker in daily_returns.columns:
+        max_return = daily_returns[ticker].abs().max()
+        if max_return > 0.30:
+            print(
+                f"DATA QUALITY WARNING: '{ticker}' has a single-day return of "
+                f"{max_return:.1%} -- possible data error or split not adjusted."
+            )
+
+    # Assert no negative prices (would indicate corrupted or unadjusted data)
+    for ticker in prices.columns:
+        if (prices[ticker].dropna() < 0).any():
+            raise AssertionError(
+                f"DATA QUALITY: ticker '{ticker}' contains negative prices. "
+                f"Data is likely corrupted."
+            )
+
+    # Warn if the last date in the index is more than 45 calendar days before today.
+    # Total return (adjusted) data from yfinance may lag by 30-45 days for some tickers.
+    last_date = prices.index[-1].date() if hasattr(prices.index[-1], "date") else prices.index[-1]
+    days_stale = (date.today() - last_date).days
+    if days_stale > 45:
+        print(
+            f"DATA QUALITY WARNING: last price date is {last_date} "
+            f"({days_stale} calendar days ago). Total return data from yfinance may lag "
+            f"by 30-45 days. If lag exceeds 60 days, verify data manually."
+        )
+
+    # ===========================================================================
 
     missing = [t for t in tickers if t not in prices.columns]
     if missing:

@@ -18,9 +18,10 @@ Steps per experiment
 
 Usage
 -----
-    python3 run_experiment.py                             # all experiments
-    python3 run_experiment.py --dry-run                  # preview only
+    python3 run_experiment.py                                   # all experiments
+    python3 run_experiment.py --dry-run                         # preview only
     python3 run_experiment.py --experiments NAME [NAME ...]
+    python3 run_experiment.py --include-validation-checks       # also run one-time checks
 """
 
 from __future__ import annotations
@@ -51,9 +52,8 @@ from export    import (make_results_dir, export_results, append_to_master_log,
 # BASELINE REFERENCE
 # ===========================================================================
 
-BASELINE_NAME    = "8asset_manual_v1"
-BASELINE_IS_CAL  = 0.336
-BASELINE_OOS_CAL = 0.441
+BASELINE_NAME    = "6asset_tip_gsg_manual"   # Phase 9 production strategy
+BASELINE_OOS_CAL = 0.403                     # Manual allocation OOS Calmar (2020-split)
 
 
 # ===========================================================================
@@ -341,169 +341,6 @@ EXPERIMENTS = [
     },
 
     # =========================================================================
-    # GROUP D — Transaction cost sensitivity (spot-check, 8-asset manual alloc)
-    # =========================================================================
-
-    {
-        "name":        "cost_sensitivity_005bps",
-        "description": "8-asset manual: 0.05% tx cost (zero-commission broker, spread only)",
-        "group":       "D_costs",
-        "mode":        "spot_check",
-        "transaction_cost_pct": 0.0005,
-        "allocation": {
-            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
-            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
-        },
-        "asset_class_groups": {
-            "stocks":             ["SPY", "QQQ", "IWD"],
-            "long_bonds":         ["TLT"],
-            "intermediate_bonds": ["IEF", "SHY"],
-            "gold":               ["GLD"],
-            "commodities":        ["GSG"],
-        },
-        "asset_class_max_weight": {
-            "stocks":             0.40,
-            "long_bonds":         0.40,
-            "intermediate_bonds": 0.25,
-            "gold":               0.20,
-            "commodities":        0.20,
-        },
-    },
-    {
-        "name":        "cost_sensitivity_10bps",
-        "description": "8-asset manual: 0.1% tx cost (realistic UK retail with FX conversion)",
-        "group":       "D_costs",
-        "mode":        "spot_check",
-        "transaction_cost_pct": 0.001,
-        "allocation": {
-            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
-            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
-        },
-        "asset_class_groups": {
-            "stocks":             ["SPY", "QQQ", "IWD"],
-            "long_bonds":         ["TLT"],
-            "intermediate_bonds": ["IEF", "SHY"],
-            "gold":               ["GLD"],
-            "commodities":        ["GSG"],
-        },
-        "asset_class_max_weight": {
-            "stocks":             0.40,
-            "long_bonds":         0.40,
-            "intermediate_bonds": 0.25,
-            "gold":               0.20,
-            "commodities":        0.20,
-        },
-    },
-    {
-        "name":        "cost_sensitivity_50bps",
-        "description": "8-asset manual: 0.5% tx cost (traditional broker worst case)",
-        "group":       "D_costs",
-        "mode":        "spot_check",
-        "transaction_cost_pct": 0.005,
-        "allocation": {
-            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
-            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
-        },
-        "asset_class_groups": {
-            "stocks":             ["SPY", "QQQ", "IWD"],
-            "long_bonds":         ["TLT"],
-            "intermediate_bonds": ["IEF", "SHY"],
-            "gold":               ["GLD"],
-            "commodities":        ["GSG"],
-        },
-        "asset_class_max_weight": {
-            "stocks":             0.40,
-            "long_bonds":         0.40,
-            "intermediate_bonds": 0.25,
-            "gold":               0.20,
-            "commodities":        0.20,
-        },
-    },
-
-    # =========================================================================
-    # GROUP C — ETF substitution spot-checks
-    # =========================================================================
-
-    {
-        "name":        "spotcheck_ivv_vs_spy",
-        "description": "IVV replacing SPY — confirm equivalence, full 2006-2026",
-        "group":       "C_etf_check",
-        "mode":        "spot_check",
-        "allocation": {
-            "IVV": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
-            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
-        },
-        "asset_class_groups": {
-            "stocks":             ["IVV", "QQQ", "IWD"],
-            "long_bonds":         ["TLT"],
-            "intermediate_bonds": ["IEF", "SHY"],
-            "gold":               ["GLD"],
-            "commodities":        ["GSG"],
-        },
-        "asset_class_max_weight": {
-            "stocks":             0.40,
-            "long_bonds":         0.40,
-            "intermediate_bonds": 0.25,
-            "gold":               0.20,
-            "commodities":        0.20,
-        },
-    },
-    {
-        "name":        "spotcheck_gldm_vs_gld",
-        "description": "GLDM replacing GLD — confirm equivalence (2018-2026 only, GLDM inception)",
-        "group":       "C_etf_check",
-        "mode":        "spot_check",
-        "backtest_start": "2018-01-01",
-        "oos_start":      "2023-01-01",
-        "backtest_end":   "2026-01-01",
-        "allocation": {
-            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
-            "IEF": 0.10, "SHY": 0.05, "GLDM": 0.15, "GSG": 0.10,
-        },
-        "asset_class_groups": {
-            "stocks":             ["SPY", "QQQ", "IWD"],
-            "long_bonds":         ["TLT"],
-            "intermediate_bonds": ["IEF", "SHY"],
-            "gold":               ["GLDM"],
-            "commodities":        ["GSG"],
-        },
-        "asset_class_max_weight": {
-            "stocks":             0.40,
-            "long_bonds":         0.40,
-            "intermediate_bonds": 0.25,
-            "gold":               0.20,
-            "commodities":        0.20,
-        },
-    },
-    {
-        "name":        "spotcheck_pdbc_vs_gsg",
-        "description": "PDBC replacing GSG — contango mitigation test (2014-2026)",
-        "group":       "C_etf_check",
-        "mode":        "spot_check",
-        "backtest_start": "2014-01-01",
-        "oos_start":      "2020-01-01",
-        "backtest_end":   "2026-01-01",
-        "allocation": {
-            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
-            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "PDBC": 0.10,
-        },
-        "asset_class_groups": {
-            "stocks":             ["SPY", "QQQ", "IWD"],
-            "long_bonds":         ["TLT"],
-            "intermediate_bonds": ["IEF", "SHY"],
-            "gold":               ["GLD"],
-            "commodities":        ["PDBC"],
-        },
-        "asset_class_max_weight": {
-            "stocks":             0.40,
-            "long_bonds":         0.40,
-            "intermediate_bonds": 0.25,
-            "gold":               0.20,
-            "commodities":        0.20,
-        },
-    },
-
-    # =========================================================================
     # GROUP A — 6asset_tip_gsg robustness: alternative IS/OOS splits
     # =========================================================================
 
@@ -686,29 +523,6 @@ EXPERIMENTS = [
             "commodities":        0.20,
         },
     },
-    {
-        "name": "spotcheck_gld_2018_baseline",
-        "description": "GLD on 2018-2026 only — baseline for GLDM comparison",
-        "mode": "spot_check",
-        "backtest_start": "2018-01-01",
-        "oos_start": "2023-01-01",
-        "backtest_end": "2026-01-01",
-        "allocation": {
-            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
-            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
-        },
-        "asset_class_groups": {
-            "stocks": ["SPY","QQQ","IWD"], "long_bonds": ["TLT"],
-            "intermediate_bonds": ["IEF","SHY"], "gold": ["GLD"],
-            "commodities": ["GSG"],
-        },
-        "asset_class_max_weight": {
-            "stocks": 0.40, "long_bonds": 0.40,
-            "intermediate_bonds": 0.25, "gold": 0.20, "commodities": 0.20,
-        },
-        "group": "C_etf_check",
-    },
-
     # --- GROUP E: 7-asset robustness and new combinations ---
 
     {
@@ -898,6 +712,194 @@ EXPERIMENTS = [
 
 
 # ===========================================================================
+# VALIDATION CHECKS
+# One-time confirmations (cost sensitivity, ETF substitution equivalence).
+# Excluded from the default run; add --include-validation-checks to run them.
+# ===========================================================================
+
+VALIDATION_CHECKS = [
+    # ---- GROUP D — Transaction cost sensitivity (spot-check) ----------------
+    {
+        "name":        "cost_sensitivity_005bps",
+        "description": "8-asset manual: 0.05% tx cost (zero-commission broker, spread only)",
+        "group":       "D_costs",
+        "mode":        "spot_check",
+        "transaction_cost_pct": 0.0005,
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "cost_sensitivity_10bps",
+        "description": "8-asset manual: 0.1% tx cost (realistic UK retail with FX conversion)",
+        "group":       "D_costs",
+        "mode":        "spot_check",
+        "transaction_cost_pct": 0.001,
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "cost_sensitivity_50bps",
+        "description": "8-asset manual: 0.5% tx cost (traditional broker worst case)",
+        "group":       "D_costs",
+        "mode":        "spot_check",
+        "transaction_cost_pct": 0.005,
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+
+    # ---- GROUP C — ETF substitution spot-checks -----------------------------
+    {
+        "name":        "spotcheck_ivv_vs_spy",
+        "description": "IVV replacing SPY — confirm equivalence, full 2006-2026",
+        "group":       "C_etf_check",
+        "mode":        "spot_check",
+        "allocation": {
+            "IVV": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["IVV", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "spotcheck_gldm_vs_gld",
+        "description": "GLDM replacing GLD — confirm equivalence (2018-2026 only, GLDM inception)",
+        "group":       "C_etf_check",
+        "mode":        "spot_check",
+        "backtest_start": "2018-01-01",
+        "oos_start":      "2023-01-01",
+        "backtest_end":   "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLDM": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLDM"],
+            "commodities":        ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name":        "spotcheck_pdbc_vs_gsg",
+        "description": "PDBC replacing GSG — contango mitigation test (2014-2026)",
+        "group":       "C_etf_check",
+        "mode":        "spot_check",
+        "backtest_start": "2014-01-01",
+        "oos_start":      "2020-01-01",
+        "backtest_end":   "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "PDBC": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks":             ["SPY", "QQQ", "IWD"],
+            "long_bonds":         ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"],
+            "gold":               ["GLD"],
+            "commodities":        ["PDBC"],
+        },
+        "asset_class_max_weight": {
+            "stocks":             0.40,
+            "long_bonds":         0.40,
+            "intermediate_bonds": 0.25,
+            "gold":               0.20,
+            "commodities":        0.20,
+        },
+    },
+    {
+        "name": "spotcheck_gld_2018_baseline",
+        "description": "GLD on 2018-2026 only — baseline for GLDM comparison",
+        "group":       "C_etf_check",
+        "mode": "spot_check",
+        "backtest_start": "2018-01-01",
+        "oos_start": "2023-01-01",
+        "backtest_end": "2026-01-01",
+        "allocation": {
+            "SPY": 0.10, "QQQ": 0.15, "IWD": 0.10, "TLT": 0.25,
+            "IEF": 0.10, "SHY": 0.05, "GLD": 0.15, "GSG": 0.10,
+        },
+        "asset_class_groups": {
+            "stocks": ["SPY", "QQQ", "IWD"], "long_bonds": ["TLT"],
+            "intermediate_bonds": ["IEF", "SHY"], "gold": ["GLD"],
+            "commodities": ["GSG"],
+        },
+        "asset_class_max_weight": {
+            "stocks": 0.40, "long_bonds": 0.40,
+            "intermediate_bonds": 0.25, "gold": 0.20, "commodities": 0.20,
+        },
+    },
+]
+
+
+# ===========================================================================
 # HELPERS
 # ===========================================================================
 
@@ -1021,7 +1023,9 @@ def _confirmation_gate(exp_name: str,
 # PER-EXPERIMENT RUNNER
 # ===========================================================================
 
-def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
+def run_experiment(exp: dict,
+                   auto_yes: bool = False,
+                   use_manual_for_oos: bool = False) -> dict:
     """
     Run the full 6-step validated workflow for one experiment.
 
@@ -1031,6 +1035,10 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
     block — config.py is never touched on disk.
 
     If auto_yes is True the confirmation gate is bypassed and OOS always runs.
+
+    If use_manual_for_oos is True, steps 5 and 6 use the original manual
+    allocation from the experiment dict instead of the DE-optimised weights.
+    The step label will include "_manual" to distinguish from optimised runs.
     """
     name  = exp["name"]
     alloc = exp["allocation"]
@@ -1272,29 +1280,32 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
             return row
 
         # ------------------------------------------------------------------
-        # Step 5: OOS evaluate (with optimised weights)
+        # Step 5: OOS evaluate
         # ------------------------------------------------------------------
         t_step = time.time()
         config.RUN_MODE = "oos_evaluate"
-        step_label  = f"exp_{name}_s4_oos"
+        oos_alloc   = alloc if use_manual_for_oos else opt_alloc
+        manual_tag  = "_manual" if use_manual_for_oos else ""
+        step_label  = f"exp_{name}_s4_oos{manual_tag}"
         results_dir = make_results_dir(step_label)
 
         tee = None
         try:
             tee = start_run_log(results_dir)
-            print_header(f"STEP 5/6  OOS EVALUATE — {name}")
+            alloc_label = "MANUAL" if use_manual_for_oos else "OPTIMISED"
+            print_header(f"STEP 5/6  OOS EVALUATE — {name}  [{alloc_label} weights]")
             backtest_oos = run_backtest(
-                oos_port, oos_bench, opt_alloc,
+                oos_port, oos_bench, oos_alloc,
                 tlt_prices           = oos_tlt,
                 transaction_cost_pct = config.TRANSACTION_COST_PCT,
                 tax_drag_pct         = config.TAX_DRAG_PCT,
             )
-            oos_stats = compute_stats(backtest_oos)
+            oos_stats = compute_stats(backtest_oos, prices=oos_port, allocation=oos_alloc)
             print_stats(oos_stats)
             export_results(backtest_oos, pd.DataFrame(), oos_stats,
-                           opt_alloc, results_dir, step_label)
-            append_to_master_log(results_dir, oos_stats, opt_alloc, step_label)
-            plot_backtest(backtest_oos, oos_stats, results_dir, step_label, opt_alloc)
+                           oos_alloc, results_dir, step_label)
+            append_to_master_log(results_dir, oos_stats, oos_alloc, step_label)
+            plot_backtest(backtest_oos, oos_stats, results_dir, step_label, oos_alloc)
             row["oos_calmar"] = oos_stats[0].calmar
         finally:
             if tee is not None:
@@ -1303,29 +1314,31 @@ def run_experiment(exp: dict, auto_yes: bool = False) -> dict:
         print(f"  Step 5 complete in {time.time() - t_step:.1f}s")
 
         # ------------------------------------------------------------------
-        # Step 6: Full backtest (with optimised weights)
+        # Step 6: Full backtest
         # ------------------------------------------------------------------
         t_step = time.time()
         config.RUN_MODE = "full_backtest"
-        step_label  = f"exp_{name}_s5_full"
+        full_alloc  = alloc if use_manual_for_oos else opt_alloc
+        step_label  = f"exp_{name}_s5_full{manual_tag}"
         results_dir = make_results_dir(step_label)
 
         tee = None
         try:
             tee = start_run_log(results_dir)
-            print_header(f"STEP 6/6  FULL BACKTEST — {name}")
+            alloc_label = "MANUAL" if use_manual_for_oos else "OPTIMISED"
+            print_header(f"STEP 6/6  FULL BACKTEST — {name}  [{alloc_label} weights]")
             backtest_full = run_backtest(
-                full_port, full_bench, opt_alloc,
+                full_port, full_bench, full_alloc,
                 tlt_prices           = full_tlt,
                 transaction_cost_pct = config.TRANSACTION_COST_PCT,
                 tax_drag_pct         = config.TAX_DRAG_PCT,
             )
-            full_stats = compute_stats(backtest_full)
+            full_stats = compute_stats(backtest_full, prices=full_port, allocation=full_alloc)
             print_stats(full_stats)
             export_results(backtest_full, pd.DataFrame(), full_stats,
-                           opt_alloc, results_dir, step_label)
-            append_to_master_log(results_dir, full_stats, opt_alloc, step_label)
-            plot_backtest(backtest_full, full_stats, results_dir, step_label, opt_alloc)
+                           full_alloc, results_dir, step_label)
+            append_to_master_log(results_dir, full_stats, full_alloc, step_label)
+            plot_backtest(backtest_full, full_stats, results_dir, step_label, full_alloc)
         finally:
             if tee is not None:
                 stop_run_log(tee)
@@ -1382,7 +1395,7 @@ def _print_summary(rows: list[dict], output_path: str) -> None:
         f"EXPERIMENT RESULTS SUMMARY\n"
         f"{sep}\n"
         f"Baseline ({BASELINE_NAME}):  "
-        f"IS Cal={BASELINE_IS_CAL:.3f}   OOS Cal={BASELINE_OOS_CAL:.3f}\n"
+        f"OOS Cal={BASELINE_OOS_CAL:.3f}  (manual allocation, Phase 9 confirmed)\n"
         f"  (S) = spot-check full_backtest; not a validated OOS result\n"
         f"{sep}\n"
         f"{'Name':<32}  {'N':>2}  "
@@ -1434,23 +1447,40 @@ def main():
         help="Automatically proceed to OOS for every experiment "
              "without prompting. Use for overnight unattended runs.",
     )
+    parser.add_argument(
+        "--use-manual-for-oos", action="store_true",
+        help="Use the original manual allocation (not DE-optimised weights) "
+             "for steps 5 (OOS evaluate) and 6 (full backtest). "
+             "Step labels will include '_manual' for easy comparison in the master log.",
+    )
+    parser.add_argument(
+        "--include-validation-checks", action="store_true",
+        help="Also run the one-time validation checks (cost sensitivity and ETF "
+             "substitution spot-checks) from VALIDATION_CHECKS. "
+             "These are excluded by default and are not research experiments.",
+    )
     args = parser.parse_args()
+
+    # ---- Build the candidate pool -------------------------------------------
+    pool = list(EXPERIMENTS)
+    if args.include_validation_checks:
+        pool = pool + list(VALIDATION_CHECKS)
 
     # ---- Filter experiments -------------------------------------------------
     if args.experiments:
         requested = set(args.experiments)
-        selected  = [e for e in EXPERIMENTS if e["name"] in requested]
+        selected  = [e for e in pool if e["name"] in requested]
         unknown   = requested - {e["name"] for e in selected}
         if unknown:
             print(f"WARNING: Unknown experiment name(s): {', '.join(sorted(unknown))}")
             print("Available names:")
-            for e in EXPERIMENTS:
+            for e in pool:
                 print(f"  {e['name']}")
         if not selected:
             print("No matching experiments found. Exiting.")
             sys.exit(1)
     else:
-        selected = EXPERIMENTS
+        selected = pool
 
     # ---- Dry run ------------------------------------------------------------
     if args.dry_run:
@@ -1478,7 +1508,8 @@ def main():
         print(f"  {exp.get('description', '')}")
         print(f"{'#' * 72}")
 
-        row = run_experiment(exp, auto_yes=args.auto_yes)
+        row = run_experiment(exp, auto_yes=args.auto_yes,
+                             use_manual_for_oos=args.use_manual_for_oos)
         rows.append(row)
 
         elapsed_str = f"{row['elapsed_s']:.1f}s"
