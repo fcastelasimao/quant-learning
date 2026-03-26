@@ -62,12 +62,12 @@ USE_LIVE_ETFS = True
 ETF_MODE      = "live" if USE_LIVE_ETFS else "backtest"
 
 _ALLOC_6ASSET_LIVE = {
-    "IVV": 0.15, "QQQM": 0.15, "TLT": 0.30,
-    "TIP": 0.15, "GLDM": 0.15, "PDBC": 0.10,
+    "IVV": 0.13, "QQQM": 0.11, "TLT": 0.19,
+    "TIP": 0.33, "GLDM": 0.14, "PDBC": 0.10,
 }
 _ALLOC_6ASSET_BACKTEST = {
-    "SPY": 0.15, "QQQ": 0.15, "TLT": 0.30,
-    "TIP": 0.15, "GLD": 0.15, "GSG": 0.10,
+    "SPY": 0.13, "QQQ": 0.11, "TLT": 0.19,
+    "TIP": 0.33, "GLD": 0.14, "GSG": 0.10,
 }
 
 _ALLOC_7ASSET_LIVE = {

@@ -126,6 +126,12 @@ def save_run_config(allocation: dict, results_dir: str, label: str):
             "opt_method":  config.WF_OPT_METHOD,
         },
         "run_mode": config.RUN_MODE,
+        "run_tag":  config.RUN_TAG,
+        "asset_overlays": {
+            t: {"enabled": v["enabled"], "threshold": v["threshold"],
+                "d_window": v["d_window"], "reduce_pct": v["reduce_pct"]}
+            for t, v in config.ASSET_OVERLAYS.items()
+        },
         "target_allocation": allocation,
     }
 
@@ -205,6 +211,8 @@ META_COLS = [
     "Timestamp",
     "Label",
     "Run Mode",
+    #"Overlay",        # which assets have momentum overlay active ("none" or "SPY | TLT")
+    #"DE Objective",   # what the optimiser maximises ("Martin", "Calmar", "Sharpe", "—")
     "Backtest Start",
     "Backtest End",
     "OOS Start",
@@ -221,12 +229,12 @@ METRIC_COLS = [
     "CAGR (%)",
     "Max_DD (%)",
     "Max_DD_Daily (%)",
-    "Avg_DD (%)",
-    "Max_DD_Dur",
-    "Avg_Rec",
+    #"Avg_DD (%)",
+    #"Max_DD_Dur",
+    #"Avg_Rec",
     "Ulcer",
     "Sortino",
-    "Sharpe",
+    #"Sharpe",
     "Fin_Val ($)",
 ]
 
@@ -253,6 +261,28 @@ def _all_flat_columns() -> list[str]:
     return cols
 
 
+def _overlay_str() -> str:
+    """Return a readable summary of active overlay assets, or 'none'."""
+    active = sorted(t for t, v in config.ASSET_OVERLAYS.items() if v["enabled"])
+    return " | ".join(active) if active else "none"
+
+
+def _de_objective_str() -> str:
+    """Return the optimiser objective label for the current run mode."""
+    _obj_map = {
+        "differential_evolution": "Martin",
+        "calmar":                 "Calmar",
+        "random":                 "Calmar",
+        "sharpe_slsqp":           "Sharpe",
+        "martin":                 "Martin",
+    }
+    if config.RUN_MODE == "optimise":
+        return _obj_map.get(config.OPT_METHOD, config.OPT_METHOD)
+    if config.RUN_MODE == "walk_forward":
+        return _obj_map.get(config.WF_OPT_METHOD, config.WF_OPT_METHOD) + " (WF)"
+    return "\u2014"   # em-dash for non-optimise modes
+
+
 def build_log_row(results_dir: str,
                   stats_list: list[StrategyStats],
                   weights: dict,
@@ -262,6 +292,8 @@ def build_log_row(results_dir: str,
         "Timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
         "Label":          label,
         "Run Mode":       config.RUN_MODE,
+        #"Overlay":        _overlay_str(),
+        #"DE Objective":   _de_objective_str(),
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
         "OOS Start":      config.OOS_START,
@@ -277,12 +309,12 @@ def build_log_row(results_dir: str,
         row[f"{s.name}_CAGR (%)"]         = s.cagr
         row[f"{s.name}_Max_DD (%)"]       = s.max_drawdown
         row[f"{s.name}_Max_DD_Daily (%)"] = s.max_drawdown_daily
-        row[f"{s.name}_Avg_DD (%)"]       = s.avg_drawdown
-        row[f"{s.name}_Max_DD_Dur"]  = s.max_dd_duration
-        row[f"{s.name}_Avg_Rec"]     = s.avg_recovery_time
+        #row[f"{s.name}_Avg_DD (%)"]       = s.avg_drawdown
+        #row[f"{s.name}_Max_DD_Dur"]  = s.max_dd_duration
+        #row[f"{s.name}_Avg_Rec"]     = s.avg_recovery_time
         row[f"{s.name}_Ulcer"]       = s.ulcer_index
         row[f"{s.name}_Sortino"]     = s.sortino
-        row[f"{s.name}_Sharpe"]      = s.sharpe
+        #row[f"{s.name}_Sharpe"]      = s.sharpe
         row[f"{s.name}_Fin_Val ($)"] = s.final_value
 
     row["Results Folder"] = results_dir

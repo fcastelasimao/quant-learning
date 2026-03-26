@@ -1,36 +1,28 @@
 """
 optimiser.py
 ============
-Portfolio weight optimisation. Five methods, one shared scoring function.
+Portfolio weight optimisation: random/calmar search, SLSQP Sharpe,
+and risk parity (compute_risk_parity_weights).
 
-All methods share _score_allocation() so the objective is computed
-consistently regardless of which method is chosen. The key difference
-between methods is HOW they search the weight space:
+Active methods:
+  random / calmar   -- random weight search, used for walk-forward
+  sharpe_slsqp      -- gradient-based Sharpe maximisation (smooth objective)
+  martin            -- random search with Martin ratio objective
+  risk_parity       -- compute_risk_parity_weights() (primary methodology)
 
-  random / calmar        -- blindly sample random weight combinations
-  differential_evolution -- intelligently evolve a population of candidates
-                            (uses Martin ratio objective by default)
-  sharpe_slsqp           -- follow the gradient of the Sharpe ratio
-  martin                 -- same as calmar but uses Martin ratio (CAGR / Ulcer)
+Differential Evolution is archived in archive/optimiser_de.py.
+It was confirmed to fail OOS across 26 experiments (Phase 9, Gate 1 closed).
 
-DE-specific design decisions:
-  - Per-asset bounds from ASSET_BOUNDS config (fallback: uniform OPT_MIN/MAX_WEIGHT)
-  - Martin ratio objective (smoother than Calmar; not dominated by single worst day)
-  - Weights are projected inside de_objective so DE sees the true landscape
+All scipy optimisers minimise by convention; objectives are negated.
 
-All scipy optimisers minimise by convention, so objectives that should be
-maximised (Calmar, Martin, Sharpe) are negated before being passed to scipy
-and negated again when displaying results.
-
-Dependency: backtest.py (for run_backtest and stat helpers)
-            config.py   (for OPT_RANDOM_SEED, passed in as argument)
+Dependency: backtest.py, config.py
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize, differential_evolution
+from scipy.optimize import minimize
 
 from backtest import run_backtest, compute_cagr, compute_max_drawdown, \
                      compute_sharpe, compute_calmar, compute_ulcer_index
@@ -317,38 +309,6 @@ def optimise_allocation(prices: pd.DataFrame,
             return allocation
 
     # ------------------------------------------------------------------
-    elif method == "differential_evolution":
-        # FIX 2 + FIX 3: project weights inside the objective so DE sees the
-        # true landscape; use Martin ratio (smoother than Calmar for DE).
-        def de_objective(w):
-            w_proj = _project_weights(w, tickers, per_asset_lo, per_asset_hi,
-                                      asset_class_groups, asset_class_max_weight)
-            return _score_allocation(w_proj, tickers, prices,
-                                     benchmark_prices, "martin", min_cagr,
-                                     asset_class_groups, asset_class_max_weight)
-
-        result = differential_evolution(
-            de_objective,
-            bounds   = bounds,
-            maxiter  = 400,
-            popsize  = 15,
-            tol      = 1e-6,
-            seed     = random_seed,
-            disp     = False,
-        )
-
-        if not result.success and result.fun >= 1e5:
-            print(f"WARNING: DE did not converge cleanly: {result.message}")
-
-        # FIX 4: project result.x once -- consistent with what was evaluated
-        # inside de_objective throughout the search.
-        best_weights = _project_weights(result.x, tickers, per_asset_lo, per_asset_hi,
-                                        asset_class_groups, asset_class_max_weight)
-        best_score   = _score_allocation(best_weights, tickers, prices,
-                                         benchmark_prices, "martin", min_cagr,
-                                         asset_class_groups, asset_class_max_weight)
-
-    # ------------------------------------------------------------------
     elif method == "sharpe_slsqp":
         constraints = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
         w0          = np.array(list(allocation.values()))
@@ -375,7 +335,7 @@ def optimise_allocation(prices: pd.DataFrame,
     else:
         raise ValueError(
             f"Unknown method: '{method}'. "
-            f"Choose from: random, calmar, martin, differential_evolution, sharpe_slsqp"
+            f"Choose from: random, calmar, martin, sharpe_slsqp"
         )
 
     # ------------------------------------------------------------------
@@ -396,17 +356,8 @@ def optimise_allocation(prices: pd.DataFrame,
             cap   = asset_class_max_weight.get(group, 1.0)
             print(f"  {group:<15s} {total:.1%}  (cap: {cap:.0%})")
 
-    # Print objective metric(s); for DE also report Calmar alongside Martin
-    if method == "differential_evolution":
-        martin_ratio = -best_score
-        # Compute Calmar separately for comparison
-        bt_final = run_backtest(prices, benchmark_prices, optimised)
-        series   = bt_final["All Weather Value"]
-        years    = (bt_final.index[-1] - bt_final.index[0]).days / 365.25
-        calmar   = compute_calmar(compute_cagr(series, years),
-                                  compute_max_drawdown(series))
-        print(f"\nBest Martin ratio: {martin_ratio:.3f}  |  Calmar: {calmar:.3f}")
-    elif method == "sharpe_slsqp":
+    # Print objective metric
+    if method == "sharpe_slsqp":
         print(f"\nBest Sharpe: {-best_score:.3f}")
     else:
         print(f"\nBest Calmar: {-best_score:.3f}")
@@ -421,7 +372,8 @@ def optimise_allocation(prices: pd.DataFrame,
 def compute_risk_parity_weights(prices: pd.DataFrame,
                                 tickers: list[str],
                                 estimation_years: float = 5.0,
-                                min_weight: float = 0.02) -> dict[str, float]:
+                                min_weight: float = 0.02,
+                                end_date: str | None = None) -> dict[str, float]:
     """
     Compute risk contribution equalisation (risk parity) weights.
 
@@ -443,6 +395,11 @@ def compute_risk_parity_weights(prices: pd.DataFrame,
     tickers          : list of tickers to include
     estimation_years : lookback window for covariance estimation (default 5yr)
     min_weight       : minimum weight per asset (default 2% floor)
+    end_date         : if provided, truncate prices to rows strictly before this
+                       date before computing the covariance matrix. Use this to
+                       enforce IS/OOS discipline — set end_date = OOS_START so
+                       the covariance matrix never sees out-of-sample data.
+                       Without this, RP weights have subtle look-ahead bias.
 
     Returns
     -------
@@ -451,17 +408,18 @@ def compute_risk_parity_weights(prices: pd.DataFrame,
 
     Notes
     -----
-    - This is a diagnostic tool, not an optimiser. Run it once to understand
-      what risk parity suggests, then compare to manual weights.
     - Covariance is estimated from log returns, not arithmetic returns.
-      Log returns are more symmetric and better suited to covariance estimation.
-    - The objective is convex and smooth, so SLSQP converges reliably.
-    - SLSQP is used (not DE) because the risk parity objective is smooth
-      and gradient-based methods outperform population-based methods here.
+    - The objective is convex and smooth; SLSQP converges reliably.
     """
     available = [t for t in tickers if t in prices.columns]
     if not available:
         raise ValueError(f"None of {tickers} found in prices columns.")
+
+    # Enforce IS/OOS boundary: strip out any data on or after end_date
+    if end_date is not None:
+        prices = prices.loc[prices.index < pd.Timestamp(end_date)]
+        if prices.empty:
+            raise ValueError(f"No price data before end_date={end_date}.")
 
     # Slice to estimation window
     cutoff     = prices.index[-1] - pd.DateOffset(years=estimation_years)
@@ -508,8 +466,9 @@ def compute_risk_parity_weights(prices: pd.DataFrame,
     trc   = _risk_contributions(w_rp)
     equal = np.full(n, 1.0 / n)
 
+    _boundary = f", IS-only end={end_date}" if end_date else ""
     print(f"\nRisk Parity Weights  (estimation window: {estimation_years:.0f}yr, "
-          f"{len(log_ret)} daily obs)")
+          f"{len(log_ret)} daily obs{_boundary})")
     print(f"  {'Ticker':<6}  {'RP Weight':>9}  {'Equal Wt':>8}  {'Risk Contrib':>12}")
     print(f"  {'-'*6}  {'-'*9}  {'-'*8}  {'-'*12}")
     for i, t in enumerate(available):

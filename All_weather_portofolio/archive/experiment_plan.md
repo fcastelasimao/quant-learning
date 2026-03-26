@@ -1,17 +1,30 @@
-# Experiment Plan — Phase 3 (post-optimiser-analysis)
+# Experiment Plan — Phase 10D+ (post-RP-diagnostic)
 
-## Status: Phase 2 complete. ALLW discovered. Optimiser bugs identified.
+## Status: Phase 9 + 10C/10D complete. RP framework established.
 
-Phase 2 validated four strategies. Market validation revealed ALLW as the
-primary competitor. Optimiser root-cause analysis revealed that DE's
-"failure" to beat manual allocation was caused by four setup bugs, not
-by the strategy or the optimiser itself. Phase 3 adds optimiser repair
-as a high-priority engineering workstream.
+**⚠️ This document reflects Phase 3 planning. Much of Workstream C is now
+resolved. See session_handoff.md and research_log.md for current state.**
+
+### Summary of resolved questions (as of 2026-03-25)
+- ✅ Workstream C (DE repair + validation): CLOSED. DE confirmed to fail across
+  26 experiments even after all four bug fixes. Gate 1 closed. Do not re-open.
+- ✅ Workstream A (Phase 10A engineering): Rf fix, daily MDD, RP diagnostic done.
+- ✅ Phase 10C: RP 5yr weights on 6asset — OOS Calmar 0.512 vs manual 0.403 (+27%).
+- ✅ Phase 10D: RP 5yr weights on 7asset_vnq — OOS Calmar 0.459 vs manual 0.465 (flat).
+
+### Open questions for Opus session (highest priority)
+1. Static RP vs rolling RP (monthly covariance update)?
+2. Hybrid (50/50 blend of manual + RP)? Captures IS stability + OOS resilience?
+3. Should RP replace manual as Tier 1 production strategy?
+4. RP + overlay combination: complementary or conflicting?
+5. RP-informed bounds for DE tactical layer — is a hybrid approach worth designing?
+
+---
 
 Three parallel workstreams:
-- **Workstream A:** Engineering fixes (code correctness, optimiser repair)
+- **Workstream A:** Engineering fixes (code correctness, RP implementation)
 - **Workstream B:** Market experiments (demand validation, content)
-- **Workstream C:** Optimiser validation (does DE add value once fixed?)
+- **Workstream C:** ~~Optimiser validation~~ **CLOSED — pivoted to risk parity**
 
 ---
 
@@ -47,9 +60,9 @@ Calmar, MaxDD, trade count.
 
 ---
 
-## Blocking experiments — Workstream C (optimiser repair)
+## Blocking experiments — Workstream C (optimiser repair) — ✅ CLOSED
 
-### C0: Implement the four optimiser fixes
+### ~~C0: Implement the four optimiser fixes~~ ✅ DONE
 
 All four changes are in `optimiser.py` (plus config for bounds):
 
@@ -82,43 +95,13 @@ Move `_project_weights()` call inside `de_objective()`, before scoring.
 Every candidate DE evaluates is already feasible. Remove post-convergence
 projection.
 
-### C1: Validate fixes with single-window optimisation
-**Purpose:** Quick sanity check that fixed DE produces sensible weights.
+### ~~C1–C3: Walk-forward validation experiments~~ ✅ SUPERSEDED
 
-**Method:** Run `optimise` mode on IS period (2006-2020) for 6asset_tip_gsg
-with the four fixes applied. Compare optimised Calmar to manual Calmar.
-The optimised result should be equal or better (since the manual allocation
-is now inside the search space).
+Phase 9 ran 26 experiments with the fully fixed optimiser. All failed.
+WF median is not a reliable predictor of OOS performance (retracted).
+Split2022 made results worse. Gate 1 is closed.
 
-**If optimised IS Calmar < manual IS Calmar:** Something is wrong with
-the fix implementation. Debug before proceeding to C2.
-
-### C2: Re-run walk-forward with fixed optimiser ← KEY EXPERIMENT
-**Purpose:** Determine whether DE adds value once the setup bugs are fixed.
-This is the experiment that decides whether "optimised allocation" becomes
-a product feature or stays diagnostic-only.
-
-**Method:** Run walk-forward for 6asset_tip_gsg with all four fixes.
-Use the same WF parameters: train 5yr, test 2yr, step 2yr.
-
-**Decision rule:**
-| WF median | opt beats orig | Verdict |
-|-----------|---------------|---------|
-| ≥ 0.6 | ≥ 50% windows | "Optimised" is a validated product feature |
-| 0.3-0.6 | any | Improved but not production-grade. Keep as diagnostic. |
-| < 0.3 | any | DE genuinely doesn't generalise. Finding confirmed properly. |
-
-If the first row is achieved, add "DE-optimised allocation" as a Pro tier
-feature in the product. This is a genuine differentiator — ALLW uses
-Bridgewater's proprietary model; we offer transparent, inspectable
-optimisation the user can verify.
-
-### C3: Walk-forward with Martin ratio for all four strategies
-**Purpose:** If C2 passes for 6asset_tip_gsg, validate across all four
-paper trading candidates.
-
-**Method:** Run WF for 7asset_tip_gsg_vnq, 7asset_tip_djp, 5asset_dalio
-with the same fixed optimiser. Compare WF metrics to manual baseline.
+**The correct next workstream is risk parity, not further DE experimentation.**
 
 ---
 
@@ -160,27 +143,25 @@ variant of 6asset_tip_gsg as 5th paper trading strategy.
 
 ---
 
-## Principles (updated post-optimiser-analysis)
+## Principles (updated Phase 10D — 2026-03-25)
 
 1. GSG/DJP non-negotiable. TIP essential. QQQ non-negotiable.
-2. ~~Manual allocation beats DE optimiser.~~ **RETRACTED.** Previous DE
-   "failure" was caused by setup bugs (wrong bounds, bad objective,
-   normalisation distortion, post-hoc projection). Pending re-evaluation
-   after fixes (experiment C2). Until C2 is complete, use manual
-   allocation for production but do not treat DE as permanently broken.
+2. ~~Manual allocation beats DE optimiser.~~ **CONFIRMED PERMANENTLY.**
+   26 experiments with the fully fixed DE. Zero beat manual 0.403. Gate 1 closed.
 3. Three OOS windows required for production promotion.
-4. WF median > 0.6 = HIGH reliability. Use median, not mean.
-5. 2022-style shocks recur ~once/decade. Stress test mandatory.
+4. ~~WF median > 0.6 = HIGH reliability.~~ **RETRACTED (Phase 9).**
+5. ~~2022 in IS training improves robustness.~~ **RETRACTED (Phase 9).**
 6. Compare strategies on same window length only.
 7. ALLW is the primary competitive benchmark, not 60/40.
 8. Every experiment should produce both research data AND content.
 9. Validate demand before building product.
 10. GBP/EUR adjustment required for non-US product claims.
 11. Cannot use "All Weather" in the product name.
-12. **Use Martin ratio (CAGR/Ulcer) for optimisation, Calmar for reporting.**
-    Calmar is a useful summary metric but a terrible optimisation objective.
-13. **Per-asset bounds, not uniform bounds.** Different assets have different
-    roles and require different weight ranges.
+12. **Use Martin ratio (CAGR/Ulcer) for reporting. Calmar as primary metric.**
+13. **Per-asset bounds, not uniform bounds.**
+14. **Risk parity is the correct optimisation framework.**
+    RP 5yr: +27% OOS Calmar on 6asset. Flat on 7asset (multiple over-concentrations cancel).
+    Next: rolling RP, hybrid blend, Opus session to design production implementation.
 
 ---
 

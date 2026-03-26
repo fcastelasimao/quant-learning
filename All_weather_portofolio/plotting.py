@@ -72,17 +72,21 @@ def plot_backtest(backtest: pd.DataFrame,
     for ax in [ax1, ax2, ax3]:
         style_ax(ax)
 
+    _pl = config.PLOT_LINES  # shorthand
+
     # ── Panel 1: Portfolio value over time ──────────────────────────────────
     ax1.plot(backtest.index, backtest["All Weather Value"],
              color=COLORS["aw"], lw=2.2,
              label="All Weather (Rebalanced monthly)")
-    ax1.plot(backtest.index, backtest["Buy & Hold All Weather"],
-             color=COLORS["bh"], lw=2.0, linestyle=(0, (4, 2)),
-             label="Buy & Hold All Weather (never rebalanced)")
-    ax1.plot(backtest.index, backtest["S&P 500 Value"],
-             color=COLORS["spy"], lw=1.6, linestyle="--", alpha=0.85,
-             label="S&P 500 (SPY)")
-    if "60/40 Value" in backtest.columns:
+    if _pl.get("buy_and_hold", True):
+        ax1.plot(backtest.index, backtest["Buy & Hold All Weather"],
+                 color=COLORS["bh"], lw=2.0, linestyle=(0, (4, 2)),
+                 label="Buy & Hold All Weather (never rebalanced)")
+    if _pl.get("spy", True):
+        ax1.plot(backtest.index, backtest["S&P 500 Value"],
+                 color=COLORS["spy"], lw=1.6, linestyle="--", alpha=0.85,
+                 label="S&P 500 (SPY)")
+    if _pl.get("sixty_forty", True) and "60/40 Value" in backtest.columns:
         ax1.plot(backtest.index, backtest["60/40 Value"],
                  color=COLORS["6040"], lw=1.6, linestyle="-.", alpha=0.85,
                  label="60/40 (SPY/TLT, rebalanced annually)")
@@ -102,13 +106,24 @@ def plot_backtest(backtest: pd.DataFrame,
 
     s_aw, s_bh, s_spy = stats_list[0], stats_list[1], stats_list[2]
     s_6040 = stats_list[3] if len(stats_list) >= 4 else None
+
+    _ann_lines = [
+        f"All Weather (Rebal.): ${s_aw.final_value:>9,.0f}   CAGR={s_aw.cagr:>6.2f}%   MaxDD={s_aw.max_drawdown:>7.2f}%   Calmar={s_aw.calmar:>5.2f}",
+    ]
+    if _pl.get("buy_and_hold", True):
+        _ann_lines.append(
+            f"Buy & Hold AW:        ${s_bh.final_value:>9,.0f}   CAGR={s_bh.cagr:>6.2f}%   MaxDD={s_bh.max_drawdown:>7.2f}%   Calmar={s_bh.calmar:>5.2f}"
+        )
+    if _pl.get("spy", True):
+        _ann_lines.append(
+            f"S&P 500:              ${s_spy.final_value:>9,.0f}   CAGR={s_spy.cagr:>6.2f}%   MaxDD={s_spy.max_drawdown:>7.2f}%   Calmar={s_spy.calmar:>5.2f}"
+        )
+    if _pl.get("sixty_forty", True) and s_6040 is not None:
+        _ann_lines.append(
+            f"60/40:                ${s_6040.final_value:>9,.0f}   CAGR={s_6040.cagr:>6.2f}%   MaxDD={s_6040.max_drawdown:>7.2f}%   Calmar={s_6040.calmar:>5.2f}"
+        )
     ax1.text(
-        0.99, 0.06,
-        f"All Weather (Rebal.): ${s_aw.final_value:>9,.0f}   CAGR={s_aw.cagr:>6.2f}%   MaxDD={s_aw.max_drawdown:>7.2f}%   Calmar={s_aw.calmar:>5.2f}\n"
-        f"Buy & Hold AW:        ${s_bh.final_value:>9,.0f}   CAGR={s_bh.cagr:>6.2f}%   MaxDD={s_bh.max_drawdown:>7.2f}%   Calmar={s_bh.calmar:>5.2f}\n"
-        f"S&P 500:              ${s_spy.final_value:>9,.0f}   CAGR={s_spy.cagr:>6.2f}%   MaxDD={s_spy.max_drawdown:>7.2f}%   Calmar={s_spy.calmar:>5.2f}"
-        + (f"\n60/40:                ${s_6040.final_value:>9,.0f}   CAGR={s_6040.cagr:>6.2f}%   MaxDD={s_6040.max_drawdown:>7.2f}%   Calmar={s_6040.calmar:>5.2f}"
-           if s_6040 is not None else ""),
+        0.99, 0.06, "\n".join(_ann_lines),
         transform=ax1.transAxes, ha="right", va="bottom",
         color="#c9d1d9", fontsize=8.5,
         family="monospace",
@@ -120,52 +135,46 @@ def plot_backtest(backtest: pd.DataFrame,
     def annual_returns(col: str) -> pd.Series:
         return backtest[col].resample("YE").last().pct_change().dropna() * 100
 
-    aw_ann          = annual_returns("All Weather Value")
-    bh_ann          = annual_returns("Buy & Hold All Weather")
-    spy_ann         = annual_returns("S&P 500 Value")
-    sixty_forty_ann = (annual_returns("60/40 Value")
-                       if "60/40 Value" in backtest.columns else None)
-
+    aw_ann = annual_returns("All Weather Value")
     years_idx = aw_ann.index
-    x         = np.arange(len(years_idx))
-    # Use narrower bars when 60/40 is absent (3 strategies instead of 4)
-    width     = 0.19 if sixty_forty_ann is not None else 0.25
+    x = np.arange(len(years_idx))
 
-    if sixty_forty_ann is not None:
-        offsets = (-width * 1.5, -width * 0.5, width * 0.5, width * 1.5)
-    else:
-        offsets = (-width, 0, width)
+    # Build list of (series, label, pos_color, neg_color, alpha) for visible strategies
+    _bar_series = [(aw_ann, "All Weather (Rebal.)", COLORS["aw"], "#f85149", 0.85)]
+    if _pl.get("buy_and_hold", True):
+        _bar_series.append((
+            annual_returns("Buy & Hold All Weather"),
+            "Buy & Hold AW", COLORS["bh"], "#b08800", 0.85,
+        ))
+    if _pl.get("spy", True):
+        _bar_series.append((
+            annual_returns("S&P 500 Value"),
+            "S&P 500", COLORS["spy"], "#da3633", 0.70,
+        ))
+    if _pl.get("sixty_forty", True) and "60/40 Value" in backtest.columns:
+        _bar_series.append((
+            annual_returns("60/40 Value"),
+            "60/40", COLORS["6040"], "#1a7a35", 0.85,
+        ))
 
-    ax2.bar(x + offsets[0], aw_ann.reindex(years_idx, fill_value=0).values,
-            width, label="All Weather (Rebal.)",
-            color=[COLORS["aw"] if v >= 0 else "#f85149"
-                   for v in aw_ann.reindex(years_idx, fill_value=0).values],
-            alpha=0.85)
-    ax2.bar(x + offsets[1], bh_ann.reindex(years_idx, fill_value=0).values,
-            width, label="Buy & Hold AW",
-            color=[COLORS["bh"] if v >= 0 else "#b08800"
-                   for v in bh_ann.reindex(years_idx, fill_value=0).values],
-            alpha=0.85)
-    ax2.bar(x + offsets[2], spy_ann.reindex(years_idx, fill_value=0).values,
-            width, label="S&P 500",
-            color=[COLORS["spy"] if v >= 0 else "#da3633"
-                   for v in spy_ann.reindex(years_idx, fill_value=0).values],
-            alpha=0.70)
-    if sixty_forty_ann is not None:
-        ax2.bar(x + offsets[3], sixty_forty_ann.reindex(years_idx, fill_value=0).values,
-                width, label="60/40",
-                color=[COLORS["6040"] if v >= 0 else "#1a7a35"
-                       for v in sixty_forty_ann.reindex(years_idx, fill_value=0).values],
-                alpha=0.85)
+    n_bars = len(_bar_series)
+    width  = 0.80 / n_bars  # fill ~80% of year slot
+    centre_offsets = np.linspace(-(n_bars - 1) / 2, (n_bars - 1) / 2, n_bars) * width
+
+    for (ser, lbl, pos_c, neg_c, alpha), offset in zip(_bar_series, centre_offsets):
+        vals = ser.reindex(years_idx, fill_value=0).values
+        ax2.bar(x + offset, vals, width, label=lbl,
+                color=[pos_c if v >= 0 else neg_c for v in vals],
+                alpha=alpha)
 
     ax2.set_xticks(x)
     ax2.set_xticklabels([d.year for d in years_idx], rotation=45, fontsize=8)
     ax2.axhline(0, color="#8b949e", lw=0.8)
     ax2.set_ylabel("Annual Return (%)", fontsize=10)
-    ax2.set_title("Annual Returns by Year -- All Four Strategies",
+    ax2.set_title(f"Annual Returns by Year — {n_bars} {'Strategy' if n_bars == 1 else 'Strategies'}",
                   fontsize=11, pad=8)
     ax2.legend(fontsize=8, facecolor="#21262d", edgecolor="#30363d",
-               labelcolor="white", ncol=4)
+               labelcolor="white", ncol=n_bars)
 
     # ── Panel 3: Buy & Hold allocation drift (stacked area) ─────────────────
     PALETTE = ["#58a6ff", "#3fb950", "#d2a8ff", "#f0b429",

@@ -356,20 +356,14 @@ All parameters live in `config.py`. Key settings:
 | random | Random search | Simple baseline |
 | sharpe_slsqp | Gradient SLSQP | Smooth objectives only |
 
-**Key finding (under review):** In earlier experiments, DE beat manual
-allocation in only 1-3 of 4 walk-forward windows. However, root-cause
-analysis (Phase 8) identified four setup bugs that individually and
-jointly explain this result: the search space excluded the best
-allocations (OPT_MAX_WEIGHT=0.25 but TLT should be 30-40%), normalisation
-distorted DE's search space, Calmar is discontinuous as an optimisation
-objective (depends on a single worst data point), and post-convergence
-projection moved the result away from what DE optimised.
+**Key finding (Phase 9, confirmed):** After fixing all four optimiser bugs,
+DE still fails to beat manual allocation. 26 experiments, zero beat manual
+OOS Calmar 0.403. Root cause: IS period 2006-2020 is a single falling-rates
+regime; DE finds TLT-heavy allocations that collapse in the 2022 rate shock.
+Gate 1 closed — do not run further DE experiments.
 
-Fixes are specified (per-asset bounds, Martin ratio objective, N-1
-parameterisation, in-loop projection). Until the fixed optimiser is
-re-validated via walk-forward (experiment C2), manual allocation remains
-the production recommendation — but DE should not be considered
-permanently broken. See research_log.md Phase 8 for full analysis.
+**Current framework: Risk Parity (Phase 10C).** RP 5yr weights achieve OOS
+Calmar 0.512 vs manual 0.403 (+27%). See research_log.md Phase 10C.
 
 ---
 
@@ -388,20 +382,18 @@ Tests whether optimised weights genuinely generalise or are overfitted.
 | 0.3 – 0.6 | MODERATE — treat with caution |
 | < 0.3 | LOW — do not use for live trading |
 
-**Finding:** Including 2022 in training data dramatically improves WF
-reliability. Strategies trained on data containing a rate-shock regime
-produce more conservative, more generalisable allocations.
+**Finding (retracted):** ~~Including 2022 in training data improves WF
+reliability.~~ Split2022 experiments produced the worst OOS results in the
+entire table (0.129–0.323). The OOS window 2022-2026 is a recovery/Iran war
+period; weights tuned to survive the shock fail the recovery. Retracted Phase 9.
+
+**WF median threshold retracted:** ~~WF median > 0.6 = HIGH reliability.~~
+The highest WF medians (e.g. 2.000) predicted OOS failure, not success.
+WF median is not a reliable predictor of OOS performance. Retracted Phase 9.
 
 **Note:** ALLW does not publish walk-forward validation results. This is
 one of the key differentiators of this project — every validated strategy
 has published overfit ratios across multiple training windows.
-
-**Note on objective function:** Walk-forward results to date used Calmar
-as the optimisation objective. Calmar depends on a single worst data point,
-making it discontinuous and prone to overfitting within each training
-window. Future walk-forward runs will use the Martin ratio (CAGR / Ulcer
-Index), which is smooth and uses all drawdown data. See research_log.md
-Phase 8.
 
 ---
 
@@ -443,24 +435,24 @@ pytest tests/ -v -m "not integration"
 
 ## Known Limitations
 
-**Monthly max drawdown understates true drawdowns.**
-The backtest computes drawdowns from month-end values. Intra-month crashes
-that partially recover are invisible. Daily max drawdown should be computed
-separately for reporting to investors.
+**Monthly max drawdown understates true drawdowns (partially fixed).**
+Monthly MDD from month-end values is reported. Daily max drawdown is also
+computed and stored (`max_drawdown_daily` in StrategyStats, added Phase 10A).
+Use the daily figure for investor-facing reporting.
 
 **Backtest rebalances unconditionally; live portfolio uses 5% threshold.**
 `run_backtest()` rebalances every period. `portfolio.py` only rebalances
 when drift exceeds 5%. This creates tracking error between model and reality.
+Comparison experiment planned (threshold=0.0 vs threshold=0.05).
 
 **No currency adjustment.**
 All returns are in USD. Non-US investors face currency risk that can easily
 exceed the portfolio's annual return. GBP and EUR-adjusted backtests are
 planned.
 
-**Sharpe/Sortino assume zero risk-free rate.**
-With Fed funds at 3.5-3.75%, the excess return is materially lower than
-the total return. Internal rankings are unaffected but external comparisons
-require adjustment.
+**Sharpe/Sortino risk-free rate (fixed Phase 10A).**
+Rf = 0.035 (US Fed funds March 2026). Pre-Phase 10A runs used Rf = 0 and
+are not directly comparable.
 
 **No direct comparison to ALLW yet.**
 ALLW launched in March 2025, providing roughly one year of data. A head-to-
@@ -490,8 +482,7 @@ Sortino calculations.
 
 ## Key Research Findings
 
-These principles emerged from Phase 1-2 experiments (23 universes, 229 runs)
-and should guide all future work.
+These principles emerged from 33 experiments across Phases 1–10 (Phase 9: 26 DE experiments, Phase 10: RP framework).
 
 1. **Commodities (GSG/DJP) are non-negotiable.** Removing them costs -0.118
    OOS Calmar. Every validated strategy includes commodity exposure.
@@ -502,17 +493,19 @@ and should guide all future work.
 3. **QQQ (growth equity) is non-negotiable.** Removing QQQ for bonds produced
    the highest IS Calmar (0.626) but lowest OOS Calmar (0.198) — pure overfitting.
 
-4. **Manual allocation vs DE optimiser is an open question.** DE appeared to
-   lose to manual allocation, but this was caused by setup bugs (wrong bounds,
-   bad objective, normalisation distortion). Pending re-validation after fixes.
-   Use manual for production until the fixed optimiser passes walk-forward.
+4. **Return-based DE optimisation does not beat manual allocation. Gate 1 closed.**
+   26 experiments with the fully fixed DE optimiser: zero beat manual baseline (0.403).
+   Root cause: IS period (2006-2020) is a single falling-rates regime. DE over-learns it.
+   The fix (risk parity) is now confirmed — see finding 14.
 
 5. **Three independent OOS windows required** for production promotion.
 
-6. **WF median > 0.6 = HIGH reliability.** Always report median, not mean.
+6. ~~**WF median > 0.6 = HIGH reliability.**~~ **RETRACTED (Phase 9).**
+   WF median is not predictive of OOS performance. The highest WF median experiments
+   (e.g. 5asset_dalio_split2022: 2.000) produced the worst OOS results (0.140).
 
-7. **Including 2022 in training improves robustness.** Re-train as new
-   extreme regimes accumulate.
+7. ~~**Including 2022 in IS training improves robustness.**~~ **RETRACTED (Phase 9).**
+   Split2022 results are the worst in the entire table (best: 0.323, worst: 0.129).
 
 8. **2022-style shocks recur ~once per decade.** Stress testing is not academic.
    Current active risk (March 2026): Iran war, oil shock, sticky inflation.
@@ -524,15 +517,22 @@ and should guide all future work.
     drawdowns keep investors invested through bear markets.
 
 11. **ALLW is the primary competitive benchmark.** Not 60/40, not Portfolio
-    Visualizer. Every experiment and comparison must now include ALLW. The
-    product's value proposition is transparency, no leverage, customisation,
-    and lower cost — not performance superiority in all environments.
+    Visualizer. Every experiment must include ALLW. The value proposition is
+    transparency, no leverage, customisation, and lower cost.
 
 12. **Use Martin ratio for optimisation, Calmar for reporting.** Calmar
-    depends on a single worst data point — terrible for optimisation
-    (discontinuous, overfits to one event). Martin ratio (CAGR / Ulcer Index)
-    uses all drawdown data and produces a smooth optimisation landscape.
+    depends on a single worst data point — discontinuous, overfits to one event.
+    Martin ratio (CAGR / Ulcer Index) uses all drawdown data.
 
-13. **Use per-asset bounds, not uniform bounds.** TLT needs [0.20, 0.45]
-    to accommodate the All Weather thesis. GSG needs [0.05, 0.15]. Uniform
-    [0.05, 0.25] excludes the best allocations from the search space.
+13. **Use per-asset bounds, not uniform bounds.** TLT needs [0.20, 0.45].
+    GSG needs [0.05, 0.15]. Uniform bounds exclude the best allocations.
+
+14. **Risk parity is the correct optimisation foundation.**
+    RP 5yr weights achieve OOS Calmar 0.512 on 6asset vs manual 0.403 (+27%).
+    RP hurts full-period Calmar (0.292 vs 0.382) due to IS falling-rates regime — expected.
+    RP gain depends on degree of over-concentration corrected: +27% on 6asset (TLT dominant),
+    flat on 7asset (multiple over-concentrated assets cancel). Static RP is the current
+    approach; rolling RP and hybrid (manual + RP blend) are the next experiments.
+
+15. **High IS optimised Calmar is a red flag, not a green light.**
+    IS optimised Calmar > 0.7 consistently predicts OOS collapse across 26 experiments.

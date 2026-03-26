@@ -18,7 +18,7 @@ from config import validate_config
 from data      import fetch_prices
 from portfolio import (load_holdings, save_holdings, initialise_holdings,
                        rebalancing_instructions)
-from backtest  import run_backtest, compute_stats
+from backtest  import run_backtest, run_backtest_with_overlay, compute_stats
 from optimiser import optimise_allocation
 from validation import run_walk_forward, run_pareto_frontier
 from plotting  import plot_backtest
@@ -146,11 +146,17 @@ def main():
             print_rebalancing(instructions, total_value)
 
             # ---- Backtest ----
+            _active_overlays = [t for t, v in config.ASSET_OVERLAYS.items()
+                                if v["enabled"]]
+            overlay_tag = (f"  [OVERLAY: {', '.join(_active_overlays)}]"
+                           if _active_overlays else "")
             print_header(
                 f"RUNNING BACKTEST ({price_start} to {price_end})"
-                f"  [MODE: {config.RUN_MODE}]"
+                f"  [MODE: {config.RUN_MODE}]{overlay_tag}"
             )
-            backtest   = run_backtest(port_prices, bench_prices, allocation,
+            _backtest_fn = (run_backtest_with_overlay
+                            if _active_overlays else run_backtest)
+            backtest   = _backtest_fn(port_prices, bench_prices, allocation,
                                       tlt_prices=tlt_prices,
                                       transaction_cost_pct=config.TRANSACTION_COST_PCT,
                                       tax_drag_pct=config.TAX_DRAG_PCT)

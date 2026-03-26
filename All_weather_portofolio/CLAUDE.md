@@ -2,40 +2,14 @@
 
 ## Role
 
-Operate as both a **quantitative finance researcher** and a **software engineer** on this project. This means:
-- Challenge methodology, not just implement instructions. If an approach has a structural flaw, say so.
-- Apply rigorous IS/OOS discipline to all analysis. Never let data leakage pass silently.
-- Write production-quality code: correct, minimal, well-documented where non-obvious.
-- Ground all strategic recommendations in the data. Cite experiment results, not intuition.
-- Think about second-order effects: does this change break comparability with prior runs?
+Operate as **quantitative finance researcher**, **software engineer**, and
+**product strategist**. Challenge methodology, enforce IS/OOS discipline,
+ground all recommendations in data.
 
 ## Environment
 
-Always run inside the `allweather` conda environment:
-```
+```bash
 conda run -n allweather python3 <script>
-```
-Never use `python`, always `python3`. Never activate the environment with `conda activate` — use `conda run -n allweather` so it works non-interactively.
-
-## Running experiments
-
-```bash
-# Full pipeline for all experiments (IS → optimise → walk-forward → OOS → full)
-conda run -n allweather python3 run_experiment.py
-
-# Preview what would run without executing
-conda run -n allweather python3 run_experiment.py --dry-run
-
-# Single named experiment
-conda run -n allweather python3 run_experiment.py --experiments 6asset_tip_gsg
-
-# One-off backtest / optimise run (config.py controls RUN_MODE)
-conda run -n allweather python3 main.py
-```
-
-## Running tests
-
-```bash
 conda run -n allweather python3 -m pytest tests/
 ```
 
@@ -43,97 +17,70 @@ conda run -n allweather python3 -m pytest tests/
 
 | File | Purpose |
 |---|---|
-| `config.py` | **Single source of truth for all parameters.** Never define config values elsewhere. |
-| `main.py` | Entry point for single runs controlled by `config.py` |
-| `run_experiment.py` | Batch pipeline runner — defines `EXPERIMENTS` list |
-| `backtest.py` | Core backtesting engine and `compute_stats()` |
-| `optimiser.py` | DE / random / SLSQP optimisers |
-| `validation.py` | Walk-forward validation |
-| `data.py` | yfinance price fetching with validation |
-| `export.py` | Results folders, master log, run logging |
-| `plotting.py` | All chart generation |
-| `portfolio.py` | Portfolio state and rebalancing logic |
-| `compare_allw.py` | Backtest vs live ALLW ETF comparison |
-| `strategies.json` | Registry of all validated strategies (source of truth for allocations) |
-| `results/` | Auto-generated output — never edit manually |
+| `config.py` | Single source of truth for all parameters |
+| `main.py` | Entry point for single runs |
+| `run_rp_validation.py` | Automated 3-split RP vs manual validation |
+| `scan_universes.py` | ETF universe scan by diversification ratio |
+| `run_overlay_grid.py` | SPY overlay grid search (conclusion: no value) |
+| `compare_allw.py` | ALLW ETF head-to-head comparison |
+| `backtest.py` | Core engine, `compute_stats()`, overlay signal |
+| `optimiser.py` | RP weights, random/SLSQP search |
+| `data.py` | yfinance price fetching |
+| `export.py` | Results folders, master log |
+| `plotting.py` | Charts |
+| `portfolio.py` | Live portfolio state and rebalancing |
 
-## IS/OOS discipline — do not violate
+## IS/OOS discipline — never violate
 
-The three-date boundary is a research integrity constraint:
-- `BACKTEST_START` → `OOS_START`: **in-sample (IS)** — optimise and validate here only
-- `OOS_START` → `BACKTEST_END`: **out-of-sample (OOS)** — evaluate only, never tune
-- Default split: IS = 2006-01-01 to 2020-01-01, OOS = 2020-01-01 to today
-- Never look at OOS results while making IS decisions. Never tune weights to improve OOS numbers.
+- IS = 2006-01-01 to OOS_START. Optimise and tune here only.
+- OOS = OOS_START to today. Evaluate only, never tune.
+- RP covariance must use IS data only (`end_date` parameter).
 
-## Production strategy
+## Production strategy: 6asset_tip_gsg with averaged RP weights
 
-`6asset_tip_gsg` is the current Tier 1 production strategy (OOS Calmar 0.403, manual allocation).
-- Tickers: SPY 15%, QQQ 15%, TLT 30%, TIP 15%, GLD 15%, GSG 10%
-- `config.py` and `strategies.json` both default to this allocation
-- Manual allocation beats DE-optimised weights on the 2020-split OOS (regime mismatch — see below)
-
-## Key findings (do not re-investigate without new data)
-
-**DE optimiser status:** After fixing four bugs (bounds, normalisation, objective, projection),
-DE still fails to beat manual allocation for the 2020-split OOS. Root cause: IS period 2006-2020
-is a single falling-rates regime; DE finds TLT-heavy weights that collapse in the 2022 rate shock.
-This is a training data coverage problem, not an optimiser bug. The split2022 experiment
-(OOS_START = 2022-01-01) is the pending test.
-
-**Primary metric:** Calmar ratio (CAGR / |max drawdown|). Martin ratio also reported.
-Sharpe/Sortino are reported but currently use Rf = 0 — numbers are inflated, do not publish externally.
-
-**Data frequency:** Monthly (`ME`) is the standard. `SHARPE_ANNUALISATION` must match: 12 for ME, 52 for W.
-
-**Pricing model:** Always `total_return`. Price return is unrealistic (TLT price return: -5%, total return: +79%).
-
-## Rejected experiments — do not re-suggest
-
-| Strategy | OOS Calmar | Why it failed |
+| Asset | Weight | Role |
 |---|---|---|
-| `8asset_agg_replaces_qqq` | 0.198 | Universe failure — worst result |
-| `8asset_lqd_replaces_shy` | 0.291 | LQD fails in rate shocks |
-| `7asset_vnq_reits` (no TIP+GSG) | 0.287 | REITs without inflation anchor |
-| `7asset_6tip_plus_ief` | 0.310 | Duration overlap, no new information |
-| `6asset_duration_ladder` | 0.253 | Highest IS overfit, worst OOS collapse |
-| `6asset_intl_equity` (EFA) | 0.308 | Marginal improvement, adds complexity |
-| `7asset_tip_gsg_dual` | 0.162 | IEF+TIP overlap |
-| `8asset_tip_replaces_shy` | 0.161 | Worst Phase 9 result |
+| SPY | 13% | US broad equity |
+| QQQ | 11% | US tech/growth |
+| TLT | 19% | Long bonds / deflation hedge |
+| TIP | 33% | Inflation-linked bonds |
+| GLD | 14% | Gold / crisis hedge |
+| GSG | 10% | Commodities / stagflation |
 
-## Experiment naming convention (auto-generated by `config.py`)
+Weights averaged across 3 independent RP computations (2020/2018/2022 splits).
 
-```
-backtest_{n}assets_{freq}_{start}_{end}
-oos_evaluate_{n}assets_{freq}_{start}_{end}
-full_backtest_{n}assets_{freq}_{start}_{end}
-opt_{n}assets_{method}_w{min}_{max}_{freq}_{start}_{end}
-wf_{n}assets_{method}_tr{train}y_te{test}y_{freq}_{start}_{end}
-```
+## Validation summary
 
-Do not manually name result folders — the label is built from active config parameters.
+**RP vs manual (3 OOS windows):**
 
-## Files to exclude from git / public sharing
+| Split | Manual | RP | Improvement |
+|---|---|---|---|
+| 2020 | 0.406 | 0.480 | +18% |
+| 2018 | 0.417 | 0.462 | +11% |
+| 2022 | 0.345 | 0.385 | +12% |
 
-Do not commit or expose: `results/`, `strategies.json`, `research_log.md`, `session_handoff.md`.
-These contain proprietary research findings and experimental results.
-The engine code (`backtest.py`, `optimiser.py`, `validation.py`, etc.) is safe to share.
+**ALLW comparison (March 2025-2026, live ETFs, fee-adjusted):**
 
-## What not to change without explicit instruction
+| Metric | 6asset RP | ALLW |
+|---|---|---|
+| Calmar | 2.782 | 1.779 |
+| Max DD | -5.66% | -8.79% |
+| CAGR | 15.75% | 15.64% |
 
-- `OOS_START` — changing this invalidates all prior comparisons
-- `PRICING_MODEL` — must stay `total_return`
-- `DATA_FREQUENCY` / `SHARPE_ANNUALISATION` — must stay in sync (ME/12)
-- `TRANSACTION_COST_PCT` / `TAX_DRAG_PCT` — results with costs > 0 are NOT comparable to pre-cost baselines
-- `OPT_RANDOM_SEED` — changing this changes optimiser results; document if changed
-- `RISK_FREE_RATE` — currently 0.035 (Fed funds March 2026). Pre-fix runs used 0.0; not comparable.
+## Closed investigations
 
-## Phase 10A changes (2026-03-23) — what changed
+| Investigation | Result | Status |
+|---|---|---|
+| DE optimiser (26 experiments) | All fail vs manual | Gate CLOSED |
+| WF median as OOS predictor | Does not predict | Retracted |
+| Split2022 improves robustness | Makes OOS worse | Retracted |
+| SPY overlay (126 param combos) | +1.3% on 2/3 splits, -5.3% on hardest | CLOSED — no value |
+| Universe scan (16k subsets) | Confirms 6-asset is near-optimal | Complete |
 
-- `config.py`: `RISK_FREE_RATE = 0.035` added
-- `backtest.py`: `compute_sharpe`/`compute_sortino` now use Rf. `compute_max_drawdown_daily` added. `StrategyStats.max_drawdown_daily` added.
-- `optimiser.py`: `compute_risk_parity_weights()` added (diagnostic, not yet used in experiments)
-- `export.py`: `Max_DD_Daily (%)` column added to master log
-- `validation.py`: WF overfit_ratio thresholds marked as unreliable (Phase 9 retraction)
-- `run_experiment.py`: baseline updated to `6asset_tip_gsg_manual` OOS 0.403
+## Metrics
 
-All 55 tests pass after these changes.
+Calmar (primary), Max DD daily, CAGR, Ulcer, Sortino, Martin.
+
+## Files excluded from git
+
+`results/`, `strategies.json`, `research_log.md`, `session_handoff.md`, `portfolio_holdings.json`
