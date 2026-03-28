@@ -3,6 +3,9 @@ results/
 
 # Live portfolio state
 portfolio_holdings.json
+strategies.json          
+research_log.md         
+session_handoff.md 
 
 # Python
 __pycache__/
@@ -23,8 +26,4 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
-
-# --- Exclude before making repo public ---
-# strategies.json          # proprietary: validated allocations with OOS results
-# research_log.md          # proprietary: methodology and findings
-# session_handoff.md       # proprietary: strategic context
+      

@@ -4,81 +4,57 @@
 
 ## Project goal
 
-Backtesting and validation engine for risk-balanced portfolios. Primary metric: Calmar.
-Product positioned against Bridgewater's ALLW ETF ($1B+ AUM, 0.85% fees, ~2x leverage).
-
----
+Backtesting and validation engine for risk-balanced portfolios.
+Primary metric: Calmar ratio. Positioned against Bridgewater's ALLW ETF.
 
 ## Phase 1-8 (2026-03-18 to 2026-03-20)
-
-8 asset universe experiments. Key: TIP replaces LQD, Calmar as primary metric,
-6asset_tip_gsg as best universe, 8asset demoted.
+Explored 8 universes. TIP replaces LQD. 6asset_tip_gsg as best universe.
 
 ## Phase 9 — DE optimiser (2026-03-21 to 2026-03-23)
+26 experiments, all fail vs manual. Gate 1 closed.
 
-26 experiments with fixed DE. All fail vs manual (0.403). Root cause: regime mismatch.
-Gate 1 closed permanently.
+## Phase 10 — RP foundation (2026-03-23 to 2026-03-25)
+Rf=0.035. Daily MDD. RP diagnostic: TLT 2x overweighted, TIP 2x underweighted.
+RP 5yr OOS Calmar 0.512 vs manual 0.403.
 
-## Phase 10A — Fixes (2026-03-23)
+## Phase 11 — Validation (2026-03-25 to 2026-03-26)
 
-Rf=0.035, daily MDD, RP diagnostic function added.
+### Data integrity: OOS results in strategies.json corrected.
 
-## Phase 10B-D — Risk parity discovery (2026-03-25)
-
-TLT 2x overweighted vs RP, TIP 2x underweighted. Window-stable across 3/5/10yr.
-RP 5yr OOS Calmar 0.512 vs manual 0.403 on 2020-split (+27%).
-
-## Phase 11 — Validation sprint (2026-03-25 to 2026-03-26)
-
-### Data integrity audit
-OOS numbers in strategies.json were wrong (used DE weights, not manual). Corrected.
-
-### RP multi-window validation — Gate 2 PASSED
-
+### RP multi-window: Gate 2 PASSED
 | Split | Manual | RP | Improvement |
 |---|---|---|---|
 | 2020 | 0.406 | 0.480 | +18% |
 | 2018 | 0.417 | 0.462 | +11% |
 | 2022 | 0.345 | 0.385 | +12% |
 
-Production weights (averaged): SPY 13%, QQQ 11%, TLT 19%, TIP 33%, GLD 14%, GSG 10%.
+### Universe scan: 15 ETFs, 16k subsets. Confirms 6-asset universe.
 
-### Universe scan
-15 ETFs, 16,415 subsets, scored by diversification ratio under RP weights.
-With min 4% vol and max 40% single-asset filters applied.
-Result: TLT, GLD, GSG in all top-20. TIP absent (covariance-redundant in normal regimes
-but essential in rate shocks — proven by OOS). Confirms 6-asset universe.
+### Overlay grid: 126 combos, 3-split OOS. Does not add value. Closed.
 
-### ALLW comparison (RP weights, live ETFs, fee-adjusted)
-CAGR 15.75% vs 15.64% (tied). Max DD -5.66% vs -8.79% (36% less drawdown).
-Calmar 2.782 vs 1.779 (+56%). Caveat: 1 year of data only, rising-rate environment
-favours unlevered strategy. ALLW's 2x leverage would help in falling rates.
+### ALLW comparison (monthly rebalanced, fee-adjusted, Mar 2025-Mar 2026)
+| Metric | rpavg | ALLW |
+|---|---|---|
+| CAGR | 16.05% | 17.23% |
+| Max DD | -5.74% | -8.79% |
+| Calmar | 2.797 | 1.961 |
+| Ulcer | 1.134 | 1.845 |
 
-### SPY overlay — Gate 3 CLOSED
-126 parameter combinations grid-searched on IS. 110/126 beat baseline on IS.
-Best params (d=15, th=12%, rp=100%) tested on 3 OOS splits:
+## Phase 12 — Rolling RP + rebalancing frequency (current)
 
-| Split | Baseline | Overlay | Result |
-|---|---|---|---|
-| 2020 | 0.452 | 0.458 | +1.3% ✓ |
-| 2018 | 0.450 | 0.456 | +1.3% ✓ |
-| 2022 | 0.359 | 0.340 | -5.3% ✗ |
+### Rolling RP concept
+Instead of static weights computed once, recompute RP weights quarterly
+from trailing 5-year covariance. Weights adapt to structural shifts
+(e.g. rising rate regime post-2021) without predicting regimes.
 
-Marginal gains on 2/3 splits, meaningful loss on hardest split. Not worth the complexity.
-Root cause: re-entry timing — by the time D1>0 AND D2>0, recovery is already 5-10% in.
+### Weekly rebalancing
+Test DATA_FREQUENCY="W" with transaction costs. Compare to monthly.
+Hypothesis: weekly won't improve Calmar after costs because RP weights
+don't drift meaningfully in one week.
 
 ---
 
-## Current state (2026-03-26)
-
-Research phase substantially complete. Production allocation decided.
-Next steps: full-period backtest with production weights, paper trading,
-blog post for demand validation, FCA consultation.
-
 ## Open questions
-
-- Brand name
-- FCA compliance for "rebalancing instructions"
-- Rolling RP (quarterly recompute) — Phase 12 feature
-- Rebalancing mismatch (backtest monthly vs live 5% threshold)
-- GBP/EUR adjusted backtest
+- Does rolling RP beat or match static RP across 3 OOS windows?
+- Does weekly rebalancing improve Calmar after transaction costs?
+- Brand name, FCA compliance, GBP/EUR adjustment

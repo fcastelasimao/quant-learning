@@ -14,8 +14,10 @@ BACKTEST_START = "2006-01-01"
 BACKTEST_END   = date.today().strftime("%Y-%m-%d")
 OOS_START      = "2022-01-01"
 
-RUN_MODE = "full_backtest"
+RUN_MODE = "oos_evaluate"
 # Options: backtest, optimise, walk_forward, pareto, oos_evaluate, full_backtest
+
+RUN_TAG = "rpavg_monthly_2022oos" #run tag
 
 PRICING_MODEL = "total_return"
 REBALANCE_THRESHOLD = 0.05
@@ -28,25 +30,28 @@ RISK_FREE_RATE = 0.035  # US Fed funds ~3.5-3.75% as of March 2026
 
 BENCHMARK_TICKER = "SPY"
 
-# ---- Run tagging ----
-
-RUN_TAG = "manual_2022oss"
+# ---- Rolling RP ----
+RP_LOOKBACK_YEARS = 5.0    # covariance estimation window
+RP_RECOMPUTE_FREQ = "QS"   # "QS" = quarterly, "MS" = monthly, "YS" = yearly
 
 # ---- Costs ----
 
-TRANSACTION_COST_PCT = 0.0   # 0.001 = 0.1% per trade
+TRANSACTION_COST_PCT = 0.001   # 0.001 = 0.1% per trade
 TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 
 # ---- Target allocation ----
+# Load from strategies.json. Override by setting DEFAULT_STRATEGY.
+DEFAULT_STRATEGY = "6asset_tip_gsg_rp"
 
-TARGET_ALLOCATION = {
-    "SPY": 0.13,
-    "QQQ": 0.11,
-    "TLT": 0.19,
-    "TIP": 0.33,
-    "GLD": 0.14,
-    "GSG": 0.10,
-}
+def _load_default_allocation():
+    import json
+    strategies_path = os.path.join(os.path.dirname(__file__), "strategies.json")
+    with open(strategies_path) as f:
+        data = json.load(f)
+    return data["strategies"][DEFAULT_STRATEGY]["allocation"]
+
+TARGET_ALLOCATION = _load_default_allocation()
+
 
 assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
     f"TARGET_ALLOCATION must sum to 1.0, got {sum(TARGET_ALLOCATION.values()):.4f}"

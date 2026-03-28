@@ -1,32 +1,41 @@
 # Session Handoff — 2026-03-26
 
 ## Current state
+Phase 12: Implementing rolling RP and weekly rebalancing experiments.
 
-Research phase complete. Production allocation decided. Moving to demand validation.
+## What needs to be implemented
 
-## What was accomplished
-- RP validated across 3 OOS splits: +11% to +18% vs manual (Gate 2 passed)
-- Universe scan: 6-asset confirmed (16k subsets)
-- ALLW comparison with RP weights: Calmar 2.78 vs 1.78
-- Overlay grid search: 126 combos, closed — no value (Gate 3 closed)
-- All md files updated to reflect final state
+### Rolling RP (backtest.py)
+Add `run_backtest_rolling_rp()` function that:
+- Takes daily prices and a list of tickers (no fixed allocation)
+- At each recomputation date (quarterly by default), calls
+  `compute_risk_parity_weights()` with `end_date` set to that date
+- Uses the new RP weights as the allocation until next recomputation
+- Returns (backtest_df, weight_history) — same format as run_backtest
+  plus a log of how weights changed over time
+
+Config additions:
+- `RP_LOOKBACK_YEARS = 5.0`
+- `RP_RECOMPUTE_FREQ = "QS"` (quarter start)
+
+### run_rolling_rp.py
+New experiment script that:
+- Runs rolling RP on full period (2006-2026) and each OOS split
+- Compares to static RP results
+- Saves weight evolution to CSV
+- Logs to master log
+
+### Weekly rebalancing test
+Change `DATA_FREQUENCY = "W"`, `SHARPE_ANNUALISATION = 52`.
+Run with `TRANSACTION_COST_PCT = 0.001`.
+Compare monthly vs weekly Calmar on 2020-split OOS.
+
+## ALLW comparison note
+compare_allw.py now uses monthly rebalancing (build_daily_series with
+rebalance=True). Results are consistent with the 20-year backtest methodology.
+Bug fixed: PDBC 0.98 → 0.098 in rpavg_live allocation.
+Bug to fix: `cell.font = "C9D1D9"` in save_comparison_excel footer — should
+be `cell.font = small_grey`.
 
 ## Production allocation
-SPY 13%, QQQ 11%, TLT 19%, TIP 33%, GLD 14%, GSG 10%
-
-## Immediate next actions
-1. Full-period backtest with production weights (config change + main.py)
-2. Start paper trading (portfolio.py + monthly tracking)
-3. Update strategies.json with RP weights
-4. Write ALLW comparison blog post
-5. FCA compliance consultation
-
-## All gates
-| Gate | Status |
-|---|---|
-| DE adds value | CLOSED — No |
-| RP robust | PASSED |
-| Overlay adds value | CLOSED — No |
-| Demand (100 signups) | Open |
-| Paper trading | Open |
-| FCA review | Open |
+SPY: 13%  QQQ: 11%  TLT: 19%  TIP: 33%  GLD: 14%  GSG: 10%

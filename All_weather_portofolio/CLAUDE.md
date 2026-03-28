@@ -20,6 +20,7 @@ conda run -n allweather python3 -m pytest tests/
 | `config.py` | Single source of truth for all parameters |
 | `main.py` | Entry point for single runs |
 | `run_rp_validation.py` | Automated 3-split RP vs manual validation |
+| `run_rolling_rp.py` | Rolling RP vs Static RP — IS sanity + 3 OOS splits |
 | `scan_universes.py` | ETF universe scan by diversification ratio |
 | `run_overlay_grid.py` | SPY overlay grid search (conclusion: no value) |
 | `compare_allw.py` | ALLW ETF head-to-head comparison |
@@ -76,6 +77,7 @@ Weights averaged across 3 independent RP computations (2020/2018/2022 splits).
 | Split2022 improves robustness | Makes OOS worse | Retracted |
 | SPY overlay (126 param combos) | +1.3% on 2/3 splits, -5.3% on hardest | CLOSED — no value |
 | Universe scan (16k subsets) | Confirms 6-asset is near-optimal | Complete |
+| Rolling RP (quarterly recompute) | TBD — run `run_rolling_rp.py` | In progress |
 
 ## Metrics
 

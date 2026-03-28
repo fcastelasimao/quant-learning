@@ -1,5 +1,21 @@
 {
   "strategies": {
+    "6asset_tip_gsg_rp": {
+      "description": "Risk parity optimised 6-asset allocation (production)",
+      "status": "validated",
+      "tier": "Production",
+      "validated_date": "2026-03-27",
+      "allocation": {
+          "SPY": 0.13, "QQQ": 0.11, "TLT": 0.19,
+          "TIP": 0.33, "GLD": 0.14, "GSG": 0.10
+      },
+      "oos_results": {
+          "2020-2026": {"calmar": 0.480, "cagr": 7.74, "max_dd": -16.51},
+          "2018-2026": {"calmar": 0.462, "cagr": 7.85, "max_dd": -17.28},
+          "2022-2026": {"calmar": 0.385, "cagr": 5.80, "max_dd": -15.73}
+      },
+      "notes": "Production allocation. RP weights averaged across 3 OOS splits. Beats manual allocation on all 3 splits."
+    },
     "6asset_tip_gsg": {
       "description": "Six-asset growth allocation with inflation and commodity protection",
       "status": "validated",
