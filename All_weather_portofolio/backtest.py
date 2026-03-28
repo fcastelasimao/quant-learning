@@ -192,14 +192,10 @@ def compute_max_drawdown_duration(series: pd.Series) -> int:
     """
     peak = series.cummax()
     underwater = (series < peak)
-    max_duration = 0
-    current = 0
-    for u in underwater:
-        if u:
-            current += 1
-            max_duration = max(max_duration, current)
-        else:
-            current = 0
+    if not underwater.any():
+        return 0
+    groups = (~underwater).cumsum()
+    max_duration = int(underwater.groupby(groups).sum().max())
     return max_duration
 
 
@@ -609,7 +605,7 @@ def compute_overlay_signal(asset_prices: pd.Series,
     """
     prices = asset_prices.dropna()
     if prices.empty:
-        return pd.Series(1.0, index=spy_prices.index)
+        return pd.Series(1.0, index=asset_prices.index)
 
     running_peak = prices.cummax()
     drawdown     = (prices - running_peak) / running_peak   # negative values
@@ -623,11 +619,16 @@ def compute_overlay_signal(asset_prices: pd.Series,
     reduced     = 1.0 - reduce_pct
     signals     = []
 
+    d1_arr = d1.values
+    d2_arr = d2.values
+    p_arr  = prices.values
+    dd_arr = drawdown.values
+
     for i in range(len(prices)):
-        d1_v = d1.iloc[i]
-        d2_v = d2.iloc[i]
-        p    = prices.iloc[i]
-        dd   = drawdown.iloc[i]
+        d1_v = d1_arr[i]
+        d2_v = d2_arr[i]
+        p    = p_arr[i]
+        dd   = dd_arr[i]
 
         # Warmup: not enough data to compute D1/D2 reliably — stay in
         if np.isnan(d1_v) or np.isnan(d2_v):
@@ -786,8 +787,9 @@ def run_backtest_with_overlay(prices: pd.DataFrame,
             aw_cash *= (1.0 + config.OVERLAY_CASH_RETURN / 252.0)
 
         # ---- Portfolio values ----
-        aw_value  = sum(aw_holdings[t] * float(row[t]) for t in tickers) + aw_cash
-        bh_value  = sum(bh_holdings[t] * float(row[t]) for t in tickers)
+        prices_now = {t: float(row[t]) for t in tickers}
+        aw_value = sum(sh * prices_now[t] for t, sh in aw_holdings.items()) + aw_cash
+        bh_value = sum(sh * prices_now[t] for t, sh in bh_holdings.items())
         spy_value = bench_shares * float(bench.loc[date])
 
         # ---- Month-end: record + rebalance ----

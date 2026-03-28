@@ -477,14 +477,6 @@ def append_to_master_log(results_dir: str,
 
     os.makedirs("results", exist_ok=True)
 
-    archive_path = os.path.join("results", "master_log_archive_phase1.xlsx")
-    if os.path.exists(log_path) and not os.path.exists(archive_path):
-        import shutil
-        shutil.copy2(log_path, archive_path)
-        print(f"  Archived old master log -> {archive_path}")
-        os.remove(log_path)
-        existing_rows = []
-
     existing_rows = []
     if os.path.exists(log_path):
         # Read existing data rows (skip the two header rows).

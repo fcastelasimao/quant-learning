@@ -199,4 +199,3 @@ def plot_backtest(backtest: pd.DataFrame,
     plt.savefig(save_path, dpi=150, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     print(f"  Plot saved -> {save_path}")
-    plt.show()

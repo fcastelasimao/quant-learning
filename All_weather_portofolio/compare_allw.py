@@ -123,19 +123,19 @@ TEXT_COL    = "#c9d1d9"
 BORDER_COL  = "#30363d"
 
 COLORS = {
-    "6asset_manual_live":           "#58a6ff",   # blue
-    "6asset_manual_backtest":       "#FF1919",   # blue
-    "6asset_rpsplit2020_live":      "#d2a8ff",   # purple
-    "6asset_rpsplit2020_backtest":  "#ff3939",   # purple
-    "6asset_rpavg_live":            "#d2a8ff",   # purple
-    "6asset_rpavg_backtest":        "#58a6ff",   # purple
-    "5dalio_live":                  "#3ddc97",   # mint green
-    "5dalio_backtest":              "#3ddc97",   # mint green
-    "ALLW":                         "#f0b429",   # amber / gold
-    "60/40":                        "#3fb950",   # green
-    "SPY":                          "#f78166",   # coral
-    "ALLW_fa":                      "#b08800",   # muted amber for fee-adjusted ALLW
-    "6asset_fa":                    "#1f6feb",   # muted blue for fee-adjusted 6asset
+    "6asset_manual_live":           "#58a6ff",   
+    "6asset_manual_backtest":       "#FF1919",   
+    "6asset_rpsplit2020_live":      "#d2a8ff",   
+    "6asset_rpsplit2020_backtest":  "#ff3939",   
+    "6asset_rpavg_live":            "#d2a8ff",   
+    "6asset_rpavg_backtest":        "#58a6ff",   
+    "5dalio_live":                  "#3ddc97",   
+    "5dalio_backtest":              "#3ddc97",   
+    "ALLW":                         "#f0b429",   
+    "60/40":                        "#3fb950",   
+    "SPY":                          "#f78166",   
+    "ALLW_fa":                      "#b08800",   
+    "6asset_fa":                    "#1f6feb",   
 }
 
 # DATA FETCHING ------------------------------------------------------------------
@@ -784,12 +784,28 @@ def main():
                     f"{len(prices)/252:.2f} yrs)  ")
 
     # ── 2. Build daily portfolio value series ────────────────────────────────
-    s_6asset_manual_live = build_daily_series(prices, ALLOC_6ASSET_MANUAL_LIVE, rebalance=True)
-    s_6asset_manual_backtest = build_daily_series(prices, ALLOC_6ASSET_MANUAL_BACKTEST, rebalance=True)
-    s_6asset_rpsplit2020_live = build_daily_series(prices, ALLOC_6ASSET_RPsplit2020_LIVE, rebalance=True)
-    s_6asset_rpsplit2020_backtest = build_daily_series(prices, ALLOC_6ASSET_RPsplit2020_BACKTEST, rebalance=True)
-    s_6asset_rpavg_live = build_daily_series(prices, ALLOC_6ASSET_RPAVG_LIVE, rebalance=True)
-    s_6asset_rpavg_backtest = build_daily_series(prices, ALLOC_6ASSET_RPAVG_BACKTEST, rebalance=True)
+
+    STRATEGIES = [
+        ("6asset_manual_live", ALLOC_6ASSET_MANUAL_LIVE, DIY_FEE, "6asset_manual_live (gross)"),
+        ("6asset_manual_backtest", ALLOC_6ASSET_MANUAL_BACKTEST, DIY_FEE, "6asset_manual_backtest (gross)"),
+        ("6asset_rpsplit2020_live", ALLOC_6ASSET_RPsplit2020_LIVE, DIY_FEE, "6asset_rpsplit2020_live (gross)"),
+        ("6asset_rpsplit2020_backtest", ALLOC_6ASSET_RPsplit2020_BACKTEST, DIY_FEE, "6asset_rpsplit2020_backtest (gross)"),
+        ("6asset_rpavg_live", ALLOC_6ASSET_RPAVG_LIVE, DIY_FEE, "6asset_rpavg_live (gross)"),
+        ("6asset_rpavg_backtest", ALLOC_6ASSET_RPAVG_BACKTEST, DIY_FEE, "6asset_rpavg_backtest (gross)"),
+        ("5asset_dalio_live", ALLOC_5ASSET_DALIO_LIVE, DIY_FEE, "5asset_dalio_live (gross)"),
+        ("5asset_dalio_backtest", ALLOC_5ASSET_DALIO_BACKTEST, DIY_FEE, "5asset_dalio_backtest (gross)"),
+    ]
+
+    series = {}
+    rows = []
+    for key, alloc, fee, label in STRATEGIES:
+        s = build_daily_series(prices, alloc, rebalance=True)
+        s_fa = apply_annual_fee(s, fee)
+        series[key] = s
+        rows.append(_daily_stats(s, label, allocation=alloc))
+        rows.append(_daily_stats(s_fa, f"  → fee-adj {fee:.2%} p.a."))
+        rows.append(None)  # spacer
+
     s_allw   = prices["ALLW"] / prices["ALLW"].iloc[0] * 100.0
     s_spy    = prices["SPY"]  / prices["SPY"].iloc[0]  * 100.0
     # 60/40: 60% SPY, 40% TLT, buy-and-hold
@@ -801,99 +817,29 @@ def main():
         s_6040   = s_6040 / s_6040.iloc[0] * 100.0
     else:
         s_6040 = None
-    s_5dalio_live = build_daily_series(prices, ALLOC_5ASSET_DALIO_LIVE, rebalance=True)
-    s_5dalio_backtest = build_daily_series(prices, ALLOC_5ASSET_DALIO_BACKTEST, rebalance=True)
 
-    # Fee-adjusted versions
-    s_6asset_manual_live_fa         = apply_annual_fee(s_6asset_manual_live,  DIY_FEE)
-    s_6asset_manual_backtest_fa     = apply_annual_fee(s_6asset_manual_backtest,  DIY_FEE)
-    s_6asset_rpsplit2020_live_fa    = apply_annual_fee(s_6asset_rpsplit2020_live,  DIY_FEE)
-    s_6asset_rpsplit2020_backtest_fa         = apply_annual_fee(s_6asset_rpsplit2020_backtest,  DIY_FEE)
-    s_6asset_rpavg_live_fa              = apply_annual_fee(s_6asset_rpavg_live,  DIY_FEE)
-    s_6asset_rpavg_backtest_fa         = apply_annual_fee(s_6asset_rpavg_backtest,  DIY_FEE)
-    s_5dalio_live_fa                = apply_annual_fee(s_5dalio_live,  DIY_FEE)
-    s_5dalio_backtest_fa            = apply_annual_fee(s_5dalio_backtest,  DIY_FEE)
-    s_allw_fa                       = apply_annual_fee(s_allw,    ALLW_FEE)
+    # Fee-adjusted versions of ALLW
+    s_allw_fa = apply_annual_fee(s_allw,    ALLW_FEE)
 
-    # ── 3. Compute statistics ────────────────────────────────────────────────
-    rows = [
-        _daily_stats(s_6asset_manual_live, 
-                     "6asset_manual_live  (gross)",
-                     allocation = ALLOC_6ASSET_MANUAL_LIVE),
-        _daily_stats(s_6asset_manual_live_fa, 
-                     "→ fee-adj 0.12% p.a.", 
-                     allocation = None),
-        None,   
-        _daily_stats(s_6asset_manual_backtest,    
-                     "6asset_manual_backtest  (gross)",
-                     allocation = ALLOC_6ASSET_MANUAL_BACKTEST),
-        _daily_stats(s_6asset_manual_backtest_fa, 
-                     "  → fee-adj 0.12% p.a.",
-                     allocation = None),
-        None,
-        _daily_stats(s_6asset_rpsplit2020_live,    
-                     "6asset_rpsplit2020_live  (gross)",
-                     allocation = ALLOC_6ASSET_RPsplit2020_LIVE),
-        _daily_stats(s_6asset_rpsplit2020_live_fa, "  → fee-adj 0.12% p.a.", allocation = None),
-        None, 
-        _daily_stats(s_6asset_rpsplit2020_backtest,    
-                     "6asset_rpsplit2020_backtest  (gross)",
-                     allocation = ALLOC_6ASSET_RPsplit2020_BACKTEST),
-        _daily_stats(s_6asset_rpsplit2020_backtest_fa, 
-                     "  → fee-adj 0.12% p.a."),
-        None,
-        _daily_stats(s_6asset_rpavg_live,    
-                     "6asset_rpavg_live  (gross)",
-                     allocation = ALLOC_6ASSET_RPAVG_LIVE),
-        _daily_stats(s_6asset_rpavg_live_fa, "  → fee-adj 0.12% p.a.", allocation = None),
-        None,   
-        _daily_stats(s_6asset_rpavg_backtest,    
-                     "6asset_rpavg_backtest  (gross)",
-                     allocation = ALLOC_6ASSET_RPAVG_BACKTEST),
-        _daily_stats(s_6asset_rpavg_backtest_fa, 
-                     "  → fee-adj 0.12% p.a."),
-        None,
-        _daily_stats(s_5dalio_live,    
-                     "5asset_dalio  (gross)", 
-                     allocation = ALLOC_5ASSET_DALIO_LIVE),
-        _daily_stats(s_5dalio_live_fa, 
-                     "  -> fee-adj 0.12% p.a.", 
-                     allocation = None),
-        None,
-        _daily_stats(s_5dalio_backtest,    
-                     "5asset_dalio  (gross)", 
-                     allocation = ALLOC_5ASSET_DALIO_BACKTEST),
-        _daily_stats(s_5dalio_backtest_fa, 
-                     "  -> fee-adj 0.12% p.a.", 
-                     allocation = None),
-        None,
-        _daily_stats(s_allw,      "ALLW  (Bridgewater, gross)"),
-        _daily_stats(s_allw_fa,   "  → fee-adj 0.85% p.a.", allocation = None),
-        None,
-        _daily_stats(s_spy,       "SPY  (benchmark)", allocation = None),
-    ]
+    # Add ALLW and benchmark rows at the end for better visibility
+    rows.append(_daily_stats(s_allw,      "ALLW  (Bridgewater, gross)"))
+    rows.append(_daily_stats(s_allw_fa,   "  → fee-adj 0.85% p.a.", allocation = None)) 
+    rows.append(None)  # spacer
+    rows.append(_daily_stats(s_spy,       "SPY  (benchmark)", allocation = None))
     if s_6040 is not None:
         rows.append(_daily_stats(s_6040, "60/40  (SPY 60% / TLT 40%)"))
 
-    # ── 4. Print table ───────────────────────────────────────────────────────
+    # ── 3. Print table ───────────────────────────────────────────────────────
     print_comparison_table(rows, period_label)
 
-    # ── 4b. Excel export ─────────────────────────────────────────────────────
+    # ── 3b. Excel export ─────────────────────────────────────────────────────
     save_comparison_excel(rows, period_label)
 
-    # ── 5. Chart 1: Growth chart ──────────────────────────────────────────────
-    daily_series = {
-        "6asset_manual_live":               s_6asset_manual_live,
-        "6asset_manual_backtest":           s_6asset_manual_backtest,
-        "6asset_rpavg_live":                s_6asset_rpavg_live,
-        "6asset_rpavg_backtest":            s_6asset_rpavg_backtest,
-        "6asset_rpsplit2020_live":          s_6asset_rpsplit2020_live,
-        "6asset_rpsplit2020_backtest":      s_6asset_rpsplit2020_backtest,
-        "5asset_dalio_live":                s_5dalio_live,
-        "5asset_dalio_backtest":            s_5dalio_backtest,
-        "ALLW":                             s_allw,
-        "SPY":                  s_spy,
-    }
+    # ── 4. Chart 1: Growth chart ──────────────────────────────────────────────
+    daily_series = {asset: s for asset, s in series.items()}
+    daily_series["ALLW"] = s_allw
+    daily_series["SPY"]  = s_spy
+    
     if s_6040 is not None:
         daily_series["60/40"] = s_6040
 

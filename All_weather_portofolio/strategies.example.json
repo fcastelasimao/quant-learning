@@ -1,0 +1,48 @@
+{
+  "strategies": {
+    "5asset_dalio": {
+      "description": "Classic Dalio All Weather allocation",
+      "status": "validated",
+      "tier": "Conservative",
+      "validated_date": "2026-03-21",
+      "allocation": {
+        "SPY": 0.30,
+        "TLT": 0.40,
+        "IEF": 0.15,
+        "GLD": 0.075,
+        "GSG": 0.075
+      },
+      "asset_class_groups": {
+        "stocks":             ["SPY"],
+        "long_bonds":         ["TLT"],
+        "intermediate_bonds": ["IEF"],
+        "gold":               ["GLD"],
+        "commodities":        ["GSG"]
+      },
+      "asset_class_max_weight": {
+        "stocks":             0.50,
+        "long_bonds":         0.50,
+        "intermediate_bonds": 0.30,
+        "gold":               0.20,
+        "commodities":        0.20
+      },
+      "live_tickers": {
+        "SPY": "IVV",
+        "TLT": "TLT",
+        "IEF": "IEF",
+        "GLD": "GLDM",
+        "GSG": "PDBC"
+      },
+      "oos_results": {
+        "2020-2026": {"calmar": 0.383, "cagr": 6.50, "max_dd": -16.97},
+        "2022-2026": {"calmar": 0.337, "cagr": 5.34, "max_dd": -15.83}
+      },
+      "walk_forward": {
+        "mean": 1.073,
+        "median": 0.918,
+        "verdict": "high"
+      },
+      "notes": "Classic Dalio allocation. Simplest implementation. Lowest MaxDD in 2022 stress. Best for conservative investors."
+    }
+  }
+}

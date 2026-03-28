@@ -44,10 +44,20 @@ TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 DEFAULT_STRATEGY = "6asset_tip_gsg_rp"
 
 def _load_default_allocation():
-    import json
-    strategies_path = os.path.join(os.path.dirname(__file__), "strategies.json")
+    base_path = os.path.dirname(__file__)
+    strategies_path = os.path.join(base_path, "strategies.json")
+    example_path = os.path.join(base_path, "strategies.example.json")
+
+    # Check if the private file exists; if not, use the example
+    if not os.path.exists(strategies_path):
+        if os.path.exists(example_path):
+            strategies_path = example_path
+        else:
+            raise FileNotFoundError("Neither strategies.json nor strategies.example.json found.")
+
     with open(strategies_path) as f:
         data = json.load(f)
+    
     return data["strategies"][DEFAULT_STRATEGY]["allocation"]
 
 TARGET_ALLOCATION = _load_default_allocation()

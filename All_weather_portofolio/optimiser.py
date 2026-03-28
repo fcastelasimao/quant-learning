@@ -436,14 +436,8 @@ def compute_risk_parity_weights(prices: pd.DataFrame,
         marginal = cov @ w
         return (w * marginal) / portfolio_var
 
-    def _objective(w: np.ndarray) -> float:
-        """Sum of squared pairwise differences in risk contributions."""
-        trc = _risk_contributions(w)
-        total = 0.0
-        for i in range(n):
-            for j in range(i + 1, n):
-                total += (trc[i] - trc[j]) ** 2
-        return total
+    def _objective(w):
+        return float(np.var(_risk_contributions(w)))
 
     # Initial guess: equal weight
     w0          = np.full(n, 1.0 / n)
