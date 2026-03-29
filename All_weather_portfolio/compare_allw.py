@@ -54,8 +54,8 @@ os.makedirs("results", exist_ok=True)
 # GSG → | PDBC | 0.16% | ✅ Better contango management |
 # QQQ → | QQQM | 0.05% | ✅ Same index |
 
-#DATE_START = "2025-03-06"  # ALLW launch date
-DATE_START = "2026-01-01"
+DATE_START = "2025-03-06"  # ALLW launch date
+#DATE_START = "2026-01-01"
 
 #DATE_END   = "2025-06-30"
 DATE_END   = date.today().strftime("%Y-%m-%d")
@@ -846,7 +846,7 @@ def main():
     plot_growth_chart(daily_series)
 
     # ── 6. Chart 2: Fee drag projection ──────────────────────────────────────
-    plot_fee_drag_chart()
+    #plot_fee_drag_chart()
 
     print("\nDone.")
 
