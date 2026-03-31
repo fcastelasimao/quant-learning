@@ -34,6 +34,12 @@ Also save weight history CSV to show how allocations evolve over time.
 Change `DATA_FREQUENCY = "W"` and `SHARPE_ANNUALISATION = 52`.
 Run with transaction costs (0.001). Compare Calmar to monthly.
 
+### A4: add Energy and oil EFTs to test universe.
+
+### A5: Undestand ALLW comparison: is this just investing in the company or what would have happened if I gave my money to the company?
+
+### A6: Some functions are still dependent on global variables
+
 ---
 
 ## 🟡 NEXT — Product launch

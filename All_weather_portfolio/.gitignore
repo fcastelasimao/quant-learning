@@ -27,4 +27,6 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+ALPACA_MONTHLY_REBALANCE_LOGS/
       

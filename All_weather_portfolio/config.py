@@ -41,7 +41,7 @@ TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 
 # ---- Target allocation ----
 # Load from strategies.json. Override by setting DEFAULT_STRATEGY.
-DEFAULT_STRATEGY = "6asset_tip_gsg_rp"
+DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"
 
 def _load_default_allocation():
     base_path = os.path.dirname(__file__)

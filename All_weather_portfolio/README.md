@@ -15,14 +15,27 @@ Bridgewater launched the ALLW ETF in March 2025 (~$1B+ AUM, 0.85% expense ratio,
 
 | Metric | DIY Risk Parity | ALLW (Bridgewater) | Advantage |
 |--------|----------------|-------------------|-----------|
-| CAGR | 16.05% | 17.23% | ALLW +1.2% |
+| CAGR | 15.91% | 17.20% | ALLW +1.29% |
 | Max Drawdown | **-5.74%** | -8.79% | **35% shallower** |
-| Calmar Ratio | **2.797** | 1.961 | **43% better** |
-| Ulcer Index | **1.134** | 1.845 | **39% lower** |
-| Sortino Ratio | **2.335** | 1.576 | **48% better** |
+| Calmar Ratio | **2.775** | 1.959 | **42% better** |
+| Ulcer Index | **1.184** | 1.949 | **39% lower** |
+| Sortino Ratio | **2.299** | 1.549 | **48% better** |
 | Annual Cost (on $100k) | ~$120 | ~$850 | **85% cheaper** |
 
 ALLW earns ~1% more in raw return because of its 2x bond leverage. But it pays for that leverage with 35% deeper drawdowns and meaningfully worse risk-adjusted metrics.
+
+### What This Means for Your Decision
+
+**If you're choosing between the two:**
+
+- **Choose ALLW if** you want maximum returns and can tolerate deeper drawdowns (e.g., long-term wealth building, high risk tolerance)
+- **Choose us if** you prioritise capital preservation, stable drawdowns, and transparency (e.g., life savings, sleep-at-night investing, institutional mandate for modest volatility)
+
+**The key trade-off:**
+- **ALLW**: 1.2% higher return, but -8.79% max drawdown, 0.85% annual fee
+- **Our strategy**: 1.2% lower return, but -5.74% max drawdown, 0.12% annual fee, fully transparent
+
+Put another way: *You sacrifice 1.2% annual return to eliminate 3% of downside risk and save 0.73% in fees—a sensible trade if capital preservation matters more than maximum growth.*
 
 ---
 
@@ -36,10 +49,10 @@ The objective function:
 
 ```
 Minimise: Var(RC)   where RC_i = w_i × (Σw)_i / (wᵀΣw)
-Subject to: Σw_i = 1, w_i ≥ 0.02
+Subject to: Σ_i w_i = 1, w_i ≥ 0.02
 ```
 
-Solved via scipy's SLSQP (Sequential Least Squares Programming). The covariance matrix Σ is estimated from 5 years of daily log returns. Weights are computed independently for three OOS windows and averaged.
+Solved via scipy's SLSQP (Sequential Least Squares Programming). The covariance matrix Σ is estimated from 5 years of daily log returns. Weights are computed independently for three OOS windows ending at 2018, 2020, 2022, and averaged.
 
 ### Production Allocation
 
@@ -81,7 +94,7 @@ RP beats manual allocation on all three independent windows.
 
 ```bash
 git clone https://github.com/fcastelasimao/quant-learning.git
-cd quant-learning/All_weather_portofolio
+cd quant-learning/All_weather_portfolio
 
 conda create -n allweather python=3.11
 conda activate allweather
@@ -92,22 +105,22 @@ pip install -r requirements.txt
 
 ```bash
 # Run a full backtest with production RP weights
-python main.py
+python3 main.py
 
 # Compare against Bridgewater's ALLW ETF
-python compare_allw.py
+python3 compare_allw.py
 
 # Validate RP weights across 3 OOS windows
-python run_rp_validation.py
+python3 run_rp_validation.py
 
 # Run rolling RP vs static RP experiment
-python run_rolling_rp.py
+python3 run_rolling_rp.py
 
 # Scan ETF universe for optimal subsets
-python scan_universes.py
+python3 scan_universes.py
 
 # Run tests
-python -m pytest tests/ -v
+python3 -m pytest tests/ -v
 ```
 
 ## Project Structure

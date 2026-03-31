@@ -140,13 +140,11 @@ COLORS = {
 
 # DATA FETCHING ------------------------------------------------------------------
 
-
 def _strip_tz(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """Remove timezone info so all indices compare cleanly."""
     if idx.tz is not None:
         return idx.tz_localize(None)
     return idx
-
 
 def fetch_daily_prices(start: str = DATE_START,
                        end:   str = DATE_END) -> pd.DataFrame:
@@ -187,7 +185,7 @@ def fetch_daily_prices(start: str = DATE_START,
         sys.exit(1)
 
     if failed:
-        print(f"  WARNING: could not fetch {failed}; proceeding without them.")
+        print(f"=== > WARNING: could not fetch {failed}; proceeding without them.")
 
     prices = pd.DataFrame(frames).dropna(how="all")
     prices = prices.ffill()

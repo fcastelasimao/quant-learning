@@ -1,0 +1,37 @@
+2026-03-31 12:43:18 [INFO] Logging session started. Full log: /Users/franciscosimao/Documents/quant-learning/All_weather_portfolio/logs/2026-03-31_07-43-18_alpaca_rebalance.log
+2026-03-31 12:43:18 [INFO] ========================================================================
+2026-03-31 12:43:18 [INFO] ALPACA MONTHLY PAPER REBALANCER
+2026-03-31 12:43:18 [INFO] ========================================================================
+2026-03-31 12:43:18 [INFO] Strategy ID: 6asset_tip_gsg_rpavg
+2026-03-31 12:43:18 [INFO] Mode: PREVIEW ONLY
+2026-03-31 12:43:18 [INFO] Force flag: False
+2026-03-31 12:43:18 [INFO] Alpaca credentials found in environment.
+2026-03-31 12:43:18 [INFO] Loading strategy: 6asset_tip_gsg_rpavg
+2026-03-31 12:43:18 [INFO] Strategy loaded with 6 assets
+2026-03-31 12:43:18 [INFO] Connecting to Alpaca paper trading...
+2026-03-31 12:43:18 [INFO] Successfully connected to Alpaca
+2026-03-31 12:43:18 [INFO] Validating target assets...
+2026-03-31 12:43:18 [INFO] All 6 target assets validated as tradable
+2026-03-31 12:43:18 [INFO] Checking calendar and market status...
+2026-03-31 12:43:19 [INFO] Last trading day of month: 2026-03-31
+2026-03-31 12:43:19 [INFO] Today is month-end: True
+2026-03-31 12:43:19 [INFO] Market is open: False
+2026-03-31 12:43:19 [INFO] Fetching account snapshot...
+2026-03-31 12:43:19 [INFO] Account equity: $100,000.00
+2026-03-31 12:43:19 [INFO] Account cash: $100,000.00
+2026-03-31 12:43:19 [INFO] Current positions: 0
+2026-03-31 12:43:19 [INFO] Building rebalance plan...
+2026-03-31 12:43:19 [INFO] Rebalance plan built: 6 positions analyzed
+2026-03-31 12:43:19 [DEBUG] 
+Rebalance plan:
+Symbol Action  Target %  Current %  Target $  Current $  Delta $  Qty  Notional $ Reason
+   TIP    BUY      34.8        0.0   34626.0        0.0  34626.0 None     34626.0       
+   TLT    BUY      17.5        0.0   17412.5        0.0  17412.5 None     17412.5       
+   GLD    BUY      14.2        0.0   14129.0        0.0  14129.0 None     14129.0       
+   SPY    BUY      13.4        0.0   13333.0        0.0  13333.0 None     13333.0       
+   QQQ    BUY      10.3        0.0   10248.5        0.0  10248.5 None     10248.5       
+   GSG    BUY       9.8        0.0    9751.0        0.0   9751.0 None      9751.0       
+2026-03-31 12:43:19 [INFO] Preview mode: no orders submitted
+2026-03-31 12:43:19 [INFO] Recording performance snapshot (preview mode)...
+2026-03-31 12:43:19 [WARNING] Could not calculate benchmark returns: 'SPY'
+2026-03-31 12:43:19 [INFO] Performance snapshot: 2026-03-31 | Portfolio $100,000.00 (+0.00%) | Benchmarks SPY +0.00% | ALLW +0.00% | 60/40 +0.00%
