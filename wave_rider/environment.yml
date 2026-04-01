@@ -1,0 +1,8 @@
+name: wave_rider
+channels:
+  - defaults
+dependencies:
+  - python=3.12.11
+  - pip
+  - pip:
+      - -r requirements.txt

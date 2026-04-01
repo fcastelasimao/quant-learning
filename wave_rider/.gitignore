@@ -1,0 +1,6 @@
+data/*.csv
+results/*.csv
+results/*.txt
+results/*.png
+results/validation/
+results/runs/

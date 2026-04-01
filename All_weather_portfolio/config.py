@@ -14,7 +14,7 @@ BACKTEST_START = "2006-01-01"
 BACKTEST_END   = date.today().strftime("%Y-%m-%d")
 OOS_START      = "2022-01-01"
 
-RUN_MODE = "oos_evaluate"
+RUN_MODE = "backtest"
 # Options: backtest, optimise, walk_forward, pareto, oos_evaluate, full_backtest
 
 RUN_TAG = "rpavg_monthly_2022oos" #run tag
