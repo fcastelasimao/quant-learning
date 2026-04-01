@@ -1,0 +1,42 @@
+2026-03-31 18:23:28,260 [INFO] simulator_ws: Starting websocket paper trading mode
+2026-03-31 18:23:28,448 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-03-31 18:23:29,601 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-03-31 18:50:47,298 [INFO] simulator_ws: Shutdown signal received
+2026-03-31 18:50:49,070 [INFO] simulator_ws: WebSocket simulation ended
+2026-03-31 18:50:56,144 [INFO] simulator_ws: Starting websocket paper trading mode
+2026-03-31 18:50:56,333 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-03-31 18:50:57,429 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-03-31 18:58:27,214 [INFO] simulator_ws: Shutdown signal received
+2026-03-31 18:58:28,439 [INFO] simulator_ws: WebSocket simulation ended
+2026-03-31 18:58:33,311 [INFO] simulator_ws: Starting websocket paper trading mode
+2026-03-31 18:58:33,504 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-03-31 18:58:34,650 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-03-31 19:55:56,719 [INFO] simulator_ws: Shutdown signal received
+2026-03-31 19:55:57,666 [INFO] simulator_ws: WebSocket simulation ended
+2026-03-31 19:56:00,946 [INFO] simulator_ws: Starting websocket paper trading mode
+2026-03-31 19:56:01,224 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-03-31 19:56:02,366 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-03-31 21:06:57,725 [WARNING] simulator_ws: Bitstamp WebSocket disconnected: sent 1011 (internal error) keepalive ping timeout; no close frame received
+2026-03-31 21:06:58,834 [WARNING] simulator_ws: Kraken WebSocket disconnected: sent 1011 (internal error) keepalive ping timeout; no close frame received
+2026-03-31 21:07:02,956 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-03-31 21:07:05,195 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-03-31 21:22:21,101 [WARNING] simulator_ws: Bitstamp WebSocket disconnected: no close frame received or sent
+2026-03-31 21:22:26,266 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-03-31 21:22:53,311 [WARNING] simulator_ws: Kraken WebSocket disconnected: sent 1011 (internal error) keepalive ping timeout; no close frame received
+2026-03-31 21:22:59,600 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-04-01 04:01:24,072 [WARNING] simulator_ws: Kraken WebSocket disconnected: no close frame received or sent
+2026-04-01 04:01:29,324 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-04-01 08:53:05,541 [INFO] simulator_ws: Shutdown signal received
+2026-04-01 08:53:15,703 [INFO] simulator_ws: WebSocket simulation ended
+2026-04-01 09:01:02,852 [INFO] simulator_ws: Starting websocket paper trading mode
+2026-04-01 09:01:03,220 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-04-01 09:01:04,323 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-04-01 09:07:50,887 [INFO] simulator_ws: Shutdown signal received
+2026-04-01 09:07:51,232 [INFO] simulator_ws: WebSocket simulation ended
+2026-04-01 09:07:57,121 [INFO] simulator_ws: Starting websocket paper trading mode
+2026-04-01 09:07:57,121 [WARNING] binance_client: Binance API key not configured. Using public endpoints only.
+2026-04-01 09:07:57,121 [INFO] simulator_ws: Testing Binance connection...
+2026-04-01 09:07:57,564 [INFO] simulator_ws: Connected to Bitstamp WebSocket
+2026-04-01 09:07:57,690 [INFO] simulator_ws: Connected to Kraken WebSocket
+2026-04-01 09:10:34,097 [INFO] simulator_ws: Shutdown signal received
+2026-04-01 09:10:35,661 [INFO] simulator_ws: WebSocket simulation ended
