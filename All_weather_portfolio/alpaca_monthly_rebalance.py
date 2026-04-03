@@ -27,13 +27,18 @@ Set Alpaca paper keys in your shell before running:
     export APCA_API_KEY_ID="..."
     export APCA_API_SECRET_KEY="..."
 
+For multiple accounts, add a suffix (e.g. --account live):
+
+    export APCA_API_KEY_ID_LIVE="..."
+    export APCA_API_SECRET_KEY_LIVE="..."
+
 Examples
 --------
-Preview only:
+Preview only (default account, backtest tickers):
     conda run -n allweather python alpaca_monthly_rebalance.py
 
-Preview a specific strategy:
-    conda run -n allweather python alpaca_monthly_rebalance.py --strategy-id 5asset_dalio
+Preview with live tickers on the "live" account:
+    conda run -n allweather python alpaca_monthly_rebalance.py --account live --use-live-tickers
 
 Execute on the last trading day:
     conda run -n allweather python alpaca_monthly_rebalance.py --execute
@@ -668,6 +673,15 @@ def parse_args() -> argparse.Namespace:
         help="Translate backtest tickers via strategy live_tickers when available.",
     )
     parser.add_argument(
+        "--account",
+        default=None,
+        help=(
+            "Named account suffix for env vars. E.g. --account live reads "
+            "APCA_API_KEY_ID_LIVE / APCA_API_SECRET_KEY_LIVE. "
+            "Omit to use the default APCA_API_KEY_ID / APCA_API_SECRET_KEY."
+        ),
+    )
+    parser.add_argument(
         "--timeout-seconds",
         type=int,
         default=DEFAULT_TIMEOUT_SECONDS,
@@ -687,16 +701,26 @@ def main() -> None:
     logger.info(f"Strategy ID: {args.strategy_id}")
     logger.info(f"Mode: {'EXECUTE' if args.execute else 'PREVIEW ONLY'}")
     logger.info(f"Force flag: {args.force}")
-    
-    api_key = os.getenv("APCA_API_KEY_ID")
-    secret_key = os.getenv("APCA_API_SECRET_KEY")
+
+    # Resolve credentials: --account <suffix> reads APCA_API_KEY_ID_<SUFFIX>
+    if args.account:
+        suffix = args.account.upper()
+        key_var = f"APCA_API_KEY_ID_{suffix}"
+        secret_var = f"APCA_API_SECRET_KEY_{suffix}"
+    else:
+        key_var = "APCA_API_KEY_ID"
+        secret_var = "APCA_API_SECRET_KEY"
+
+    api_key = os.getenv(key_var)
+    secret_key = os.getenv(secret_var)
     if not api_key or not secret_key:
-        logger.error("Missing Alpaca credentials. Set APCA_API_KEY_ID and APCA_API_SECRET_KEY.")
+        logger.error(f"Missing Alpaca credentials. Set {key_var} and {secret_var}.")
         raise SystemExit(
-            "Missing Alpaca credentials. Set APCA_API_KEY_ID and APCA_API_SECRET_KEY."
+            f"Missing Alpaca credentials. Set {key_var} and {secret_var}."
         )
-    
-    logger.info("Alpaca credentials found in environment.")
+
+    account_label = args.account or "default"
+    logger.info(f"Alpaca credentials found for account '{account_label}' ({key_var}).")
 
     try:
         logger.info(f"Loading strategy: {args.strategy_id}")

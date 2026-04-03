@@ -14,7 +14,7 @@ Outputs
 -------
   - Side-by-side performance table (stdout)
   - results/allw_comparison_growth.png
-  - results/allw_fee_drag.png              
+  - results/allw_comparison_*.xlsx
 
 Usage
 -----
@@ -23,9 +23,11 @@ Usage
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import warnings
+from dataclasses import dataclass
 from datetime import date, datetime
 
 import matplotlib.pyplot as plt
@@ -44,15 +46,8 @@ warnings.filterwarnings("ignore", message=".*auto_adjust.*")
 os.makedirs("results", exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# STRATEGY DEFINITIONS
+# CONSTANTS
 # ---------------------------------------------------------------------------
-
-# Backtest ETF | Live ETF | Annual fee saving | Status |
-#-------------|---------|-------------------|--------|
-# SPY → | IVV | 0.03% | ✅ Confirmed identical |
-# GLD → | GLDM | 0.30% | ✅ Confirmed identical |
-# GSG → | PDBC | 0.16% | ✅ Better contango management |
-# QQQ → | QQQM | 0.05% | ✅ Same index |
 
 DATE_START = "2025-03-06"  # ALLW launch date
 #DATE_START = "2026-01-01"
@@ -60,61 +55,13 @@ DATE_START = "2025-03-06"  # ALLW launch date
 #DATE_END   = "2025-06-30"
 DATE_END   = date.today().strftime("%Y-%m-%d")
 
-ALLOC_6ASSET_MANUAL_LIVE = {
-    "IVV": 0.15, "QQQM": 0.15, "TLT": 0.30,
-    "TIP": 0.15, "GLDM": 0.15, "PDBC": 0.10,
-}
-ALLOC_6ASSET_MANUAL_BACKTEST = {
-    "SPY": 0.15, "QQQ": 0.15, "TLT": 0.30,
-    "TIP": 0.15, "GLD": 0.15, "GSG": 0.10,
-}
-
-ALLOC_6ASSET_RPsplit2020_LIVE = {
-    "IVV": 0.13, "QQQM": 0.11, "TLT": 0.19,
-    "TIP": 0.33, "GLDM": 0.14, "PDBC": 0.1,
-}
-ALLOC_6ASSET_RPsplit2020_BACKTEST = {
-    "SPY": 0.13, "QQQ": 0.11, "TLT": 0.19,
-    "TIP": 0.33, "GLD": 0.14, "GSG": 0.1,
-}
-
-ALLOC_6ASSET_RPAVG_LIVE = {
-    "IVV": 0.134, "QQQM": 0.103, "TLT": 0.175,
-    "TIP": 0.348, "GLDM": 0.142, "PDBC": 0.098,
-}
-ALLOC_6ASSET_RPAVG_BACKTEST = {
-    "SPY": 0.134, "QQQ": 0.103, "TLT": 0.175,
-    "TIP": 0.348, "GLD": 0.142, "GSG": 0.098,
-}
-
-ALLOC_5ASSET_DALIO_LIVE = {
-    "IVV": 0.30, "TLT": 0.40, "IEF": 0.15, "GLDM": 0.075, "PDBC": 0.075,
-}
-ALLOC_5ASSET_DALIO_BACKTEST = {
-    "SPY": 0.30, "TLT": 0.40, "IEF": 0.15, "GLD": 0.075, "GSG": 0.075,
-}
-
-ALL_TICKERS   = sorted(set(
-    list(ALLOC_6ASSET_MANUAL_LIVE) 
-    + list(ALLOC_6ASSET_MANUAL_BACKTEST)
-    + list(ALLOC_6ASSET_RPsplit2020_LIVE) 
-    + list(ALLOC_6ASSET_RPsplit2020_BACKTEST)
-    + list(ALLOC_6ASSET_RPAVG_LIVE) 
-    + list(ALLOC_6ASSET_RPAVG_BACKTEST)
-    + list(ALLOC_5ASSET_DALIO_LIVE) 
-    + list(ALLOC_5ASSET_DALIO_BACKTEST)
-))
-
-# SPY and TLT are always needed: SPY as benchmark, TLT for the 60/40 series.
-FETCH_TICKERS = sorted(set(ALL_TICKERS + ["ALLW", "SPY", "TLT"]))
-
 ALLW_FEE = 0.0085    # Bridgewater ALLW annual expense ratio
 DIY_FEE  = 0.0012    # Weighted avg ETF expense ratio for DIY strategies
 
 IRAN_WAR_DATE = pd.Timestamp("2026-02-28")
 WATERMARK     = "github.com/fcastelasimao/quant-learning"
 
-# DARK THEME COLOURS ------------------------------------------------------------
+# DARK THEME COLOURS (charts only) ---------------------------------------------
 
 DARK_BG     = "#0d1117"
 PANEL_BG    = "#161b22"
@@ -122,21 +69,154 @@ GRID_COL    = "#30363d"
 TEXT_COL    = "#c9d1d9"
 BORDER_COL  = "#30363d"
 
-COLORS = {
-    "6asset_manual_live":           "#58a6ff",   
-    "6asset_manual_backtest":       "#FF1919",   
-    "6asset_rpsplit2020_live":      "#d2a8ff",   
-    "6asset_rpsplit2020_backtest":  "#ff3939",   
-    "6asset_rpavg_live":            "#d2a8ff",   
-    "6asset_rpavg_backtest":        "#58a6ff",   
-    "5dalio_live":                  "#3ddc97",   
-    "5dalio_backtest":              "#3ddc97",   
-    "ALLW":                         "#f0b429",   
-    "60/40":                        "#3fb950",   
-    "SPY":                          "#f78166",   
-    "ALLW_fa":                      "#b08800",   
-    "6asset_fa":                    "#1f6feb",   
-}
+# ---------------------------------------------------------------------------
+# LOAD ALLOCATIONS FROM strategies.json
+# ---------------------------------------------------------------------------
+
+def _load_strategies_json() -> dict:
+    """Load strategies.json from the same directory as this script."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "strategies.json")
+    if not os.path.exists(path):
+        print(f"WARNING: {path} not found — using hardcoded fallback allocations")
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f).get("strategies", {})
+
+_STRATEGIES_JSON = _load_strategies_json()
+
+
+def _alloc_from_json(strategy_id: str, use_live: bool = False) -> dict[str, float]:
+    """
+    Read allocation from strategies.json, optionally translating to live tickers.
+    Falls back to empty dict if strategy_id not found (caller should handle).
+    """
+    payload = _STRATEGIES_JSON.get(strategy_id)
+    if payload is None:
+        return {}
+    alloc = dict(payload["allocation"])
+    if use_live:
+        live_map = payload.get("live_tickers", {})
+        translated = {}
+        for ticker, weight in alloc.items():
+            tradable = live_map.get(ticker, ticker)
+            translated[tradable] = translated.get(tradable, 0.0) + weight
+        return translated
+    return alloc
+
+# ---------------------------------------------------------------------------
+# STRATEGY & BENCHMARK REGISTRY
+# ---------------------------------------------------------------------------
+# Every strategy is defined ONCE here. Allocations are read from
+# strategies.json. To add a new strategy, add one entry below and
+# (if new) one entry in strategies.json. Set enabled=False to skip.
+
+@dataclass
+class StrategyDef:
+    """Single source of truth for a portfolio strategy."""
+    key: str                            # unique identifier
+    label: str                          # display name for tables & legends
+    strategy_id: str                    # key in strategies.json
+    use_live_tickers: bool              # use live_tickers translation?
+    fee: float                          # annual expense ratio
+    color: str                          # hex colour for charts
+    allocation: dict[str, float] = None # populated from strategies.json at startup
+    enabled: bool = True                # False = skip entirely
+    line_width: float = 2.2             # matplotlib line width
+    line_style: str = "-"               # matplotlib line style
+    rebalance: str = "monthly"          # "monthly" | "buy_and_hold"
+    show_in_chart: bool = True          # include in growth chart?
+    chart_order: int = 50               # lower = plotted first (back layer)
+
+
+@dataclass
+class BenchmarkDef:
+    """Chart-only benchmark (no allocation dict, built ad-hoc in main)."""
+    key: str
+    label: str
+    color: str
+    line_width: float = 1.5
+    line_style: str = "-"
+    chart_order: int = 90
+
+
+STRATEGY_REGISTRY: list[StrategyDef] = [
+    # ── 6-asset manual (equal-ish weights) ────────────────────────────────
+    StrategyDef(
+        key="6asset_manual_live", label="6asset_manual_live",
+        strategy_id="6asset_tip_gsg", use_live_tickers=True,
+        fee=DIY_FEE, color="#58a6ff",
+        enabled=False,
+        line_width=2.2, line_style="--", show_in_chart=False, chart_order=10,
+    ),
+    StrategyDef(
+        key="6asset_manual_backtest", label="6asset_manual_backtest",
+        strategy_id="6asset_tip_gsg", use_live_tickers=False,
+        fee=DIY_FEE, color="#FF1919",
+        enabled=False,
+        line_width=1.5, line_style="--", show_in_chart=False, chart_order=11,
+    ),
+    # ── 6-asset risk-parity average (production weights) ──────────────────
+    StrategyDef(
+        key="6asset_rpavg_live", label="6asset_rpavg_live",
+        strategy_id="6asset_tip_gsg_rpavg", use_live_tickers=True,
+        fee=DIY_FEE, color="#d2a8ff",
+        line_width=2.2, line_style="-", show_in_chart=True, chart_order=30,
+    ),
+    StrategyDef(
+        key="6asset_rpavg_backtest", label="My_strategy",
+        strategy_id="6asset_tip_gsg_rpavg", use_live_tickers=False,
+        fee=DIY_FEE, color="#58a6ff",
+        line_width=2.2, line_style="-", show_in_chart=True, chart_order=31,
+    ),
+    StrategyDef(
+        key="6asset_rpavg_bh", label="My_strategy BUY&HOLD",
+        strategy_id="6asset_tip_gsg_rpavg", use_live_tickers=False,
+        fee=DIY_FEE, color="#ff7b72",
+        line_width=1.8, line_style="--",
+        rebalance="buy_and_hold", show_in_chart=True, chart_order=32,
+    ),
+    # ── 5-asset Dalio classic ─────────────────────────────────────────────
+    StrategyDef(
+        key="5asset_dalio_live", label="5asset_dalio_live",
+        strategy_id="5asset_dalio", use_live_tickers=True,
+        fee=DIY_FEE, color="#3ddc97",
+        enabled=False,
+        line_width=1.5, line_style="-.", show_in_chart=False, chart_order=40,
+    ),
+    StrategyDef(
+        key="5asset_dalio_backtest", label="5asset_dalio (Dalio classic)",
+        strategy_id="5asset_dalio", use_live_tickers=False,
+        fee=DIY_FEE, color="#3ddc97",
+        line_width=1.5, line_style="-.", show_in_chart=True, chart_order=41,
+    ),
+]
+
+BENCHMARK_REGISTRY: list[BenchmarkDef] = [
+    BenchmarkDef("ALLW",  "ALLW (Bridgewater, 0.85% fee)", "#f0b429", 2.2, "-",  80),
+    BenchmarkDef("SPY",   "SPY (S&P 500)",                 "#f78166", 1.5, ":",  90),
+    BenchmarkDef("60/40", "60/40 (SPY/TLT)",               "#3fb950", 1.5, "-.", 95),
+]
+
+
+def _resolve_allocations() -> None:
+    """Populate each StrategyDef.allocation from strategies.json at import time."""
+    for s in STRATEGY_REGISTRY:
+        if not s.enabled:
+            continue
+        alloc = _alloc_from_json(s.strategy_id, use_live=s.use_live_tickers)
+        if not alloc:
+            print(f"WARNING: strategy_id '{s.strategy_id}' not found in strategies.json — disabling {s.key}")
+            s.enabled = False
+        s.allocation = alloc  # type: ignore[attr-defined]
+
+_resolve_allocations()
+
+# ── Derived ticker lists (auto-computed from enabled strategies) ──────────
+ALL_TICKERS = sorted({t for s in STRATEGY_REGISTRY if s.enabled for t in s.allocation})
+# SPY and TLT are always needed: SPY as benchmark, TLT for the 60/40 series.
+FETCH_TICKERS = sorted(set(ALL_TICKERS + ["ALLW", "SPY", "TLT"]))
+
 
 # DATA FETCHING ------------------------------------------------------------------
 
@@ -195,7 +275,7 @@ def fetch_daily_prices(start: str = DATE_START,
     return prices
 
 
-# DAILY PORTFOLIO SERIES (buy-and-hold from day 1) -----------------------------------
+# DAILY PORTFOLIO SERIES -----------------------------------------------------------
 
 def build_daily_series_buy_and_hold(prices: pd.DataFrame,
                        allocation: dict,
@@ -203,12 +283,9 @@ def build_daily_series_buy_and_hold(prices: pd.DataFrame,
     """
     Compute daily portfolio value using a buy-and-hold strategy
     (initial weights, no rebalancing). Starting value = start_value.
-
-    Returns a Series indexed by date.
     """
     tickers  = [t for t in allocation if t in prices.columns]
     alloc    = {t: allocation[t] for t in tickers}
-    # Renormalise in case some tickers are missing
     total_w  = sum(alloc.values())
     alloc    = {t: w / total_w for t, w in alloc.items()}
 
@@ -248,12 +325,7 @@ def build_daily_series(prices: pd.DataFrame,
     return pd.Series(values, index=prices[tickers].index, name="portfolio")
 
 def apply_annual_fee(series: pd.Series, annual_fee: float) -> pd.Series:
-    """
-    Apply a compounding annual expense-ratio drag to a value series.
-
-    Formula: value[n] *= (1 - annual_fee) ^ (n / 252)
-    where n = number of trading days since inception.
-    """
+    """Apply a compounding annual expense-ratio drag to a value series."""
     n_days   = np.arange(len(series))
     discount = (1.0 - annual_fee) ** (n_days / 252.0)
     return series * discount
@@ -265,15 +337,7 @@ def _daily_stats(series: pd.Series,
                  label:  str,
                  allocation: dict = None,
                  annualise: int = 252) -> dict:
-    """
-    Compute all comparison metrics from a daily value series.
-
-    Parameters
-    ----------
-    series    : daily portfolio value (any starting level)
-    label     : display name
-    annualise : trading days per year for Sharpe / Sortino (default 252)
-    """
+    """Compute all comparison metrics from a daily value series."""
     s     = series.dropna()
     if len(s) < 2:
         return {k: float("nan") for k in
@@ -300,18 +364,14 @@ def _daily_stats(series: pd.Series,
     else:
         sortino = float((rets.mean() / down.std()) * np.sqrt(annualise))
 
-    # Annualised daily volatility (%)
     vol = float(rets.std() * np.sqrt(annualise) * 100)
 
-    # Monthly returns for worst/best month
     monthly_prices = s.resample("ME").last()
     monthly_rets   = monthly_prices.pct_change().dropna() * 100
     worst_month    = float(monthly_rets.min()) if len(monthly_rets) > 0 else float("nan")
     best_month     = float(monthly_rets.max()) if len(monthly_rets) > 0 else float("nan")
 
-    # Allocations
     allocs = " | ".join(f"{t}={w:.1%}" for t, w in allocation.items()) if allocation is not None else ""
-
 
     return {
         "label":       label,
@@ -356,7 +416,6 @@ def print_comparison_table(rows: list[dict],
         calmar   = f"{r['calmar']:.3f}"
         ulcer    = f"{r['ulcer']:.3f}"
         sortino  = f"{r['sortino']:+.3f}"
-        indent   = "  → " if label.startswith("  ") else ""
         print(f"  {label:<35}  {allocation:<75}  {tot_r:>8} {cagr:>8} {max_dd:>9} " \
               f"{calmar:>8} {ulcer:>8} {sortino:>9}")
 
@@ -393,25 +452,7 @@ def _add_watermark(ax):
     )
 
 def _save_both(fig, base_name: str):
-    """Save chart at Twitter (1200×675) and Reddit (1080×1080) resolutions."""
-    #tw_path = os.path.join("results", f"{base_name}_twitter.png")
-    #rd_path = os.path.join("results", f"{base_name}_reddit.png")
-    #just save one
     path = os.path.join("results", f"{base_name}.png")
-
-    """
-    # Twitter: 16:9 -- save at current fig dimensions then resize via dpi
-    fig.set_size_inches(12.0, 6.75)
-    plt.savefig(tw_path, dpi=100, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
-    print(f"  Saved → {tw_path}  (1200×675)")
-
-    # Reddit square: 1:1 -- pad with equal margins
-    fig.set_size_inches(10.8, 10.8)
-    plt.savefig(rd_path, dpi=100, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
-    print(f"  Saved → {rd_path}  (1080×1080)")
-    """
     plt.savefig(path, dpi=100, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     print(f"  Saved → {path}")
@@ -422,11 +463,6 @@ def _save_both(fig, base_name: str):
 def plot_growth_chart(daily_series: dict[str, pd.Series]) -> None:
     """
     Cumulative growth chart: $10,000 invested on ALLW launch date.
-
-    Plots all series rebased to $10,000 on the ALLW start date.
-    Annotates terminal value for each line and the Iran war start.
-    Dark theme. Watermark bottom-right.
-    Saved as allw_comparison_growth_twitter.png / _reddit.png.
     """
     print("Building growth chart ...")
 
@@ -436,21 +472,16 @@ def plot_growth_chart(daily_series: dict[str, pd.Series]) -> None:
     fig.patch.set_facecolor(DARK_BG)
     _style_ax(ax)
 
-    plot_order = [
-        #("6asset_manual_live",     COLORS["6asset_manual_live"],  2.2, "--",  "6asset_manual_live "),
-        ("6asset_manual_backtest",     COLORS["6asset_manual_backtest"],  1.5, "--",  "6asset_manual_backtest "),
-        #("6asset_rpsplit2020_live", COLORS["6asset_rpsplit2020_live"],  2.2, "--", "6asset_rpsplit2020_live "),
-        #("6asset_rpsplit2020_backtest", COLORS["6asset_rpsplit2020_backtest"],  1.5, "--", "6asset_rpsplit2020_backtest "),
-        #("6asset_ravg_live", COLORS["6asset_ravg_live"],  2.2, "-", "6asset_ravg_live "),
-        ("6asset_rpavg_backtest", COLORS["6asset_rpavg_backtest"], 2.2, "-", "6asset_rpavg_backtest"),
-        #("5asset_dalio_live",       COLORS["5dalio_live"],  1.5, "-.", "5asset_dalio (Dalio classic)"),
-        #("5asset_dalio_backtest",       COLORS["5dalio_backtest"],  1.5, "-.", "5asset_dalio (Dalio classic)"),
-        ("ALLW",               COLORS["ALLW"],    2.2, "-",  "ALLW (Bridgewater, 0.85% fee)"),
-        ("SPY",                COLORS["SPY"],     1.5, ":",  "SPY (S&P 500)"),
-        #("60/40",              COLORS["60/40"],   1.5, "-.", "60/40 (SPY/TLT)"),
-    ]
+    # Build plot order from registries
+    plot_items: list[tuple[str, str, float, str, str, int]] = []
+    for s in STRATEGY_REGISTRY:
+        if s.enabled and s.show_in_chart:
+            plot_items.append((s.key, s.color, s.line_width, s.line_style, s.label, s.chart_order))
+    for b in BENCHMARK_REGISTRY:
+        plot_items.append((b.key, b.color, b.line_width, b.line_style, b.label, b.chart_order))
+    plot_items.sort(key=lambda x: x[5])
 
-    for key, color, lw, ls, label in plot_order:
+    for key, color, lw, ls, label, _ in plot_items:
         if key not in daily_series:
             continue
         raw = daily_series[key].dropna()
@@ -460,7 +491,6 @@ def plot_growth_chart(daily_series: dict[str, pd.Series]) -> None:
         ax.plot(s.index, s.values, color=color, lw=lw, linestyle=ls,
                 label=label, alpha=0.92)
 
-        # Terminal value annotation at right edge
         final_val  = s.iloc[-1]
         final_date = s.index[-1]
         ax.annotate(
@@ -474,7 +504,7 @@ def plot_growth_chart(daily_series: dict[str, pd.Series]) -> None:
             va="center",
         )
 
-    # --- Iran war annotation (range-check, not exact index membership) ---
+    # Iran war annotation
     ref = daily_series.get("SPY", daily_series.get("ALLW"))
     if ref is not None:
         s_ref = ref.loc[allw_start:]
@@ -510,23 +540,28 @@ def plot_growth_chart(daily_series: dict[str, pd.Series]) -> None:
     _save_both(fig, f"{date.today().strftime('%Y-%m-%d')}_allw_comparison_growth_from{DATE_START}_to{DATE_END}")
     plt.close(fig)
 
+
 # CHART 2: CUMULATIVE FEE DRAG PROJECTION -----------------------------------------
 
 def plot_fee_drag_chart() -> None:
-    """
-    Projected cost of fees on a $100k portfolio over 30 years.
-
-    Assumes 7% gross annual return.
-    Two lines: ALLW (0.85% p.a.) vs DIY (0.12% p.a.)
-    Annotated dollar amounts at 10 / 20 / 30 year marks.
-    Dark theme. Watermark bottom-right.
-    """
+    """Projected cost of fees on a $100k portfolio over 30 years."""
     print("Building fee drag chart ...")
 
     STARTING_VALUE = 100_000
     GROSS_RETURN   = 0.07
     YEARS          = np.linspace(0, 30, 1000)
     MARKS          = [10, 20, 30]
+
+    diy_color = "#58a6ff"
+    allw_color = "#f0b429"
+    for s in STRATEGY_REGISTRY:
+        if "rpavg" in s.key and "live" in s.key:
+            diy_color = s.color
+            break
+    for b in BENCHMARK_REGISTRY:
+        if b.key == "ALLW":
+            allw_color = b.color
+            break
 
     gross     = STARTING_VALUE * (1 + GROSS_RETURN) ** YEARS
     allw_net  = STARTING_VALUE * (1 + GROSS_RETURN - ALLW_FEE) ** YEARS
@@ -538,40 +573,35 @@ def plot_fee_drag_chart() -> None:
 
     ax.plot(YEARS, gross,    color="#8b949e", lw=1.5, linestyle=":",
             label="Gross (no fees) — 7.00% p.a.", alpha=0.7)
-    ax.plot(YEARS, diy_net,  color=COLORS["6asset_manual_live"], lw=2.5,
+    ax.plot(YEARS, diy_net,  color=diy_color, lw=2.5,
             label=f"DIY all-weather — 0.12% p.a. fee (net {GROSS_RETURN - DIY_FEE:.2%})")
-    ax.plot(YEARS, allw_net, color=COLORS["ALLW"], lw=2.5,
+    ax.plot(YEARS, allw_net, color=allw_color, lw=2.5,
             label=f"ALLW ETF        — 0.85% p.a. fee (net {GROSS_RETURN - ALLW_FEE:.2%})")
 
-    # Fill the fee drag gap
     ax.fill_between(YEARS, diy_net, allw_net,
                     color="#f0b429", alpha=0.08, label="Fee drag gap")
 
-    # --- Annotate 10 / 20 / 30 year marks ---
     for yr in MARKS:
         idx    = np.searchsorted(YEARS, yr)
         diy_v  = diy_net[idx]
         allw_v = allw_net[idx]
         gap    = diy_v - allw_v
 
-        # Dots
-        ax.plot(yr, diy_v,  "o", color=COLORS["6asset_manual_live"],  ms=7, zorder=5)
-        ax.plot(yr, allw_v, "o", color=COLORS["ALLW"],    ms=7, zorder=5)
+        ax.plot(yr, diy_v,  "o", color=diy_color,  ms=7, zorder=5)
+        ax.plot(yr, allw_v, "o", color=allw_color,  ms=7, zorder=5)
 
-        # Dollar labels — DIY above, ALLW below
         ax.annotate(
             f"${diy_v/1e3:.0f}k",
             xy=(yr, diy_v), xytext=(yr + 0.4, diy_v * 1.035),
-            color=COLORS["6asset_manual_live"], fontsize=9, fontweight="bold",
-            arrowprops=dict(arrowstyle="-", color=COLORS["6asset_manual_live"], lw=0.7),
+            color=diy_color, fontsize=9, fontweight="bold",
+            arrowprops=dict(arrowstyle="-", color=diy_color, lw=0.7),
         )
         ax.annotate(
             f"${allw_v/1e3:.0f}k",
             xy=(yr, allw_v), xytext=(yr + 0.4, allw_v * 0.93),
-            color=COLORS["ALLW"], fontsize=9, fontweight="bold",
-            arrowprops=dict(arrowstyle="-", color=COLORS["ALLW"], lw=0.7),
+            color=allw_color, fontsize=9, fontweight="bold",
+            arrowprops=dict(arrowstyle="-", color=allw_color, lw=0.7),
         )
-        # Gap label centred between the two
         ax.text(
             yr - 0.6, (diy_v + allw_v) / 2,
             f"−${gap/1e3:.0f}k\ngap",
@@ -590,7 +620,7 @@ def plot_fee_drag_chart() -> None:
     ax.yaxis.set_major_formatter(
         mticker.FuncFormatter(lambda x, _: f"${x/1e3:,.0f}k"))
 
-    legend = ax.legend(
+    ax.legend(
         fontsize=9.5, facecolor="#21262d", edgecolor=BORDER_COL,
         labelcolor=TEXT_COL, loc="upper left", framealpha=0.92,
     )
@@ -601,78 +631,46 @@ def plot_fee_drag_chart() -> None:
     plt.close(fig)
 
 
-# EXCEL EXPORT ---------------------------------------------------------------------
+# EXCEL EXPORT -----------------------------------------------------------------
 
-# Column definitions: (header, dict_key, col_width, number_format | None)
 _EXCEL_COLS = [
-    ("Strategy",      "label",       25,  None),
+    ("Strategy",      "label",       30,  None),
     ("Allocations",   "allocations", 70,  None),
-    ("Total Ret (%)", "total_ret",   13,  "0.0"),
-    ("CAGR (%)",      "cagr",        11,  "0.0"),
-    ("Max DD (%)",    "max_dd",      11,  "0.0"),
+    ("Total Ret (%)", "total_ret",   13,  "0.00"),
+    ("CAGR (%)",      "cagr",        11,  "0.00"),
+    ("Max DD (%)",    "max_dd",      11,  "0.00"),
     ("Calmar",        "calmar",      10,  "0.000"),
     ("Ulcer",         "ulcer",       10,  "0.000"),
-    ("Sortino",       "sortino",     10,  "0.000"),
-    ("Vol (%)",       "vol",         10,  "0.0"),
-    ("Worst Mo (%)",  "worst_month", 13,  "0.0"),
-    ("Best Mo (%)",   "best_month",  13,  "0.0"),
+    ("Sortino",       "sortino",     10,  "+0.000;-0.000"),
+    ("Vol (%)",       "vol",         10,  "0.00"),
+    ("Worst Mo (%)",  "worst_month", 13,  "0.00"),
+    ("Best Mo (%)",   "best_month",  13,  "0.00"),
 ]
 
-# Row background colours per strategy group (openpyxl expects no leading #)
-_GROUP_COLOURS = {
-    "6asset_manual_live": "0D2137",
-    "6asset_manual_backtest": "1A0D37",
-    "6asset_rpsplit2020_live": "0D2A1A",
-    "6asset_rpsplit2020_backtest": "2A1F00",
-    "6asset_ravg_live": "0D2A1A",
-    "6asset_ravg_backtest": "2A1F00",
-    "5asset_dalio_live": "2A0D0D",
-    "5asset_dalio_backtest": "0D2A0D",
-}
-_DEFAULT_ROW_COLOUR = "161B22"
-_SPACER_COLOUR      = "21262D"
+
+_HEADER_FILL = PatternFill("solid", fgColor="D9D9D9")  # light grey
 
 
-def _xfill(hex_colour: str) -> PatternFill:
-    return PatternFill("solid", fgColor=hex_colour.lstrip("#").upper())
+def _xfont(bold: bool = False, italic: bool = False, size: int = 10) -> Font:
+    return Font(bold=bold, italic=italic, size=size)
 
 
-def _xfont(bold: bool = False, italic: bool = False,
-           colour: str = "C9D1D9", size: int = 10) -> Font:
-    return Font(bold=bold, italic=italic,
-                color=colour.lstrip("#").upper(), size=size)
-
-
-def _xborder(bottom_colour: str = "444444") -> Border:
-    thin   = Side(style="thin", color="444444")
-    bottom = Side(style="thin", color=bottom_colour.lstrip("#").upper())
-    return Border(left=thin, right=thin, top=thin, bottom=bottom)
-
-
-def _row_colour(label: str, current_group: str) -> str:
-    """Return the background hex for a data row (no leading #)."""
-    for prefix, colour in _GROUP_COLOURS.items():
-        if label.startswith(prefix):
-            return colour
-    if label.startswith("  "):   # fee-adjusted row: inherit parent group
-        return current_group
-    return _DEFAULT_ROW_COLOUR
+def _xborder() -> Border:
+    thin = Side(style="thin", color="CCCCCC")
+    return Border(left=thin, right=thin, top=thin, bottom=thin)
 
 
 def save_comparison_excel(rows: list, period_label: str) -> None:
     """
     Write the comparison table to results/allw_comparison_<YYYYMMDD>.xlsx.
-
-    Completely independent of master_log.xlsx — never reads from or writes
-    to that file.
+    Clean layout: no background colours, empty row between strategy groups.
     """
     today    = datetime.now()
     filename = f"{date.today().strftime('%Y-%m-%d')}_allw_comparison_from{DATE_START}_to{DATE_END}.xlsx"
     out_path = os.path.join("results", filename)
 
     n_cols       = len(_EXCEL_COLS)
-    center_align = Alignment(horizontal="center", vertical="center",
-                             wrap_text=True)
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
     right_align  = Alignment(horizontal="right",  vertical="center")
     left_align   = Alignment(horizontal="left",   vertical="center")
 
@@ -684,84 +682,69 @@ def save_comparison_excel(rows: list, period_label: str) -> None:
     ws.merge_cells(start_row=1, start_column=1,
                    end_row=1,   end_column=n_cols)
     cell           = ws.cell(row=1, column=1, value=period_label)
-    cell.fill      = _xfill("0D1117")
-    cell.font      = _xfont(bold=True, colour="FFFFFF", size=11)
+    cell.font      = _xfont(bold=True, size=11)
     cell.alignment = center_align
+    cell.fill      = _HEADER_FILL
 
     # ── Row 2: column headers ────────────────────────────────────────────────
     for col_i, (header, _, width, _) in enumerate(_EXCEL_COLS, start=1):
         cell           = ws.cell(row=2, column=col_i, value=header)
-        cell.fill      = _xfill("161B22")
-        cell.font      = _xfont(bold=True, colour="FFFFFF", size=10)
+        cell.font      = _xfont(bold=True)
         cell.alignment = center_align
         cell.border    = _xborder()
+        cell.fill      = _HEADER_FILL
         ws.column_dimensions[get_column_letter(col_i)].width = width
 
     # ── Data rows ────────────────────────────────────────────────────────────
-    current_group = _DEFAULT_ROW_COLOUR
-    excel_row     = 3
+    excel_row = 3
 
-    for i, row in enumerate(rows):
+    for row in rows:
         if row is None:
-            # Spacer: fill every cell, no border
-            for col_i in range(1, n_cols + 1):
-                ws.cell(row=excel_row, column=col_i).fill = _xfill(_SPACER_COLOUR)
+            # Empty spacer row — still grey-fill col 1
+            ws.cell(row=excel_row, column=1).fill = _HEADER_FILL
             excel_row += 1
             continue
 
-        label       = row.get("label", "")
-        row_colour  = _row_colour(label, current_group)
-        is_fee_row  = label.startswith("  ")
-        if not is_fee_row:
-            current_group = row_colour
-
-        # Thick bottom border when the next item is None or end-of-list
-        next_item      = rows[i + 1] if i + 1 < len(rows) else None
-        is_group_end   = (next_item is None)
-        bottom_col     = "888888" if is_group_end else "444444"
+        label      = row.get("label", "")
+        is_fee_row = label.startswith("  ")
 
         for col_i, (_, key, _, num_fmt) in enumerate(_EXCEL_COLS, start=1):
             value = row.get(key, float("nan"))
-            # Replace nan with empty string
             if isinstance(value, float) and pd.isna(value):
                 value = ""
 
             cell        = ws.cell(row=excel_row, column=col_i, value=value)
-            cell.fill   = _xfill(row_colour)
-            cell.border = _xborder(bottom_colour=bottom_col)
+            cell.border = _xborder()
 
-            if col_i == 1:   # Strategy column
-                cell.font      = _xfont(bold=not is_fee_row,
-                                        italic=is_fee_row,
-                                        colour="C9D1D9")
+            if col_i == 1:
+                cell.font      = _xfont(bold=not is_fee_row, italic=is_fee_row)
                 cell.alignment = left_align
+                cell.fill      = _HEADER_FILL
             else:
-                cell.font      = _xfont(colour="C9D1D9")
+                cell.font      = _xfont()
                 cell.alignment = right_align
                 if num_fmt and isinstance(value, (int, float)):
                     cell.number_format = num_fmt
 
         excel_row += 1
 
-    # ── Footer (blank gap, then three lines) ─────────────────────────────────
-    excel_row += 1   # blank gap
+    # ── Footer ───────────────────────────────────────────────────────────────
+    excel_row += 1
     footer_lines = [
         f"Generated: {today.strftime('%Y-%m-%d %H:%M')}",
         f"Period: {period_label}",
         ("Note: All metrics computed from daily prices. ALLW data from "
-         "Yahoo Finance. DIY strategies use buy-and-hold from ALLW launch "
-         "date. Fee-adjusted rows apply annual expense ratio drag compounded "
-         "daily. Rf = 0 assumed for Sortino."),
+         "Yahoo Finance. Fee-adjusted rows apply annual expense ratio drag "
+         "compounded daily. Rf = 0 assumed for Sortino."),
     ]
-    small_grey = _xfont(colour="8B949E", size=9)
+    small_font = _xfont(italic=True, size=9)
     for line in footer_lines:
         ws.merge_cells(start_row=excel_row, start_column=1,
                        end_row=excel_row,   end_column=n_cols)
         cell      = ws.cell(row=excel_row, column=1, value=line)
-        cell.font = small_grey
+        cell.font = small_font
         excel_row += 1
 
-    # ── Freeze at B3 ─────────────────────────────────────────────────────────
     ws.freeze_panes = "B3"
 
     wb.save(out_path)
@@ -774,56 +757,49 @@ def main():
     # ── 1. Fetch data ────────────────────────────────────────────────────────
     prices = fetch_daily_prices(start=DATE_START, end=DATE_END)
 
-    # Align all series to the ALLW window
     allw_start = prices["ALLW"].first_valid_index()
     prices     = prices.loc[allw_start:]
     period_label = (f"{prices.index[0].date()} → {prices.index[-1].date()}  "
                     f"({len(prices)} trading days,  "
                     f"{len(prices)/252:.2f} yrs)  ")
 
-    # ── 2. Build daily portfolio value series ────────────────────────────────
-
-    STRATEGIES = [
-        ("6asset_manual_live", ALLOC_6ASSET_MANUAL_LIVE, DIY_FEE, "6asset_manual_live (gross)"),
-        ("6asset_manual_backtest", ALLOC_6ASSET_MANUAL_BACKTEST, DIY_FEE, "6asset_manual_backtest (gross)"),
-        ("6asset_rpsplit2020_live", ALLOC_6ASSET_RPsplit2020_LIVE, DIY_FEE, "6asset_rpsplit2020_live (gross)"),
-        ("6asset_rpsplit2020_backtest", ALLOC_6ASSET_RPsplit2020_BACKTEST, DIY_FEE, "6asset_rpsplit2020_backtest (gross)"),
-        ("6asset_rpavg_live", ALLOC_6ASSET_RPAVG_LIVE, DIY_FEE, "6asset_rpavg_live (gross)"),
-        ("6asset_rpavg_backtest", ALLOC_6ASSET_RPAVG_BACKTEST, DIY_FEE, "6asset_rpavg_backtest (gross)"),
-        ("5asset_dalio_live", ALLOC_5ASSET_DALIO_LIVE, DIY_FEE, "5asset_dalio_live (gross)"),
-        ("5asset_dalio_backtest", ALLOC_5ASSET_DALIO_BACKTEST, DIY_FEE, "5asset_dalio_backtest (gross)"),
-    ]
-
+    # ── 2. Build daily portfolio value series from registry ─────────────────
     series = {}
     rows = []
-    for key, alloc, fee, label in STRATEGIES:
-        s = build_daily_series(prices, alloc, rebalance=True)
-        s_fa = apply_annual_fee(s, fee)
-        series[key] = s
-        rows.append(_daily_stats(s, label, allocation=alloc))
-        rows.append(_daily_stats(s_fa, f"  → fee-adj {fee:.2%} p.a."))
-        rows.append(None)  # spacer
 
+    for strat in STRATEGY_REGISTRY:
+        if not strat.enabled:
+            continue
+
+        if strat.rebalance == "monthly":
+            s = build_daily_series(prices, strat.allocation, rebalance=True)
+        else:
+            s = build_daily_series_buy_and_hold(prices, strat.allocation)
+
+        s_fa = apply_annual_fee(s, strat.fee)
+        series[strat.key] = s
+        gross_label = strat.label if "(gross)" in strat.label else f"{strat.label} (gross)"
+        rows.append(_daily_stats(s, gross_label, allocation=strat.allocation))
+        rows.append(_daily_stats(s_fa, f"  → fee-adj {strat.fee:.2%} p.a."))
+        rows.append(None)  # spacer after every strategy+fee pair
+
+    # ── Benchmarks ──────────────────────────────────────────────────────────
     s_allw   = prices["ALLW"] / prices["ALLW"].iloc[0] * 100.0
     s_spy    = prices["SPY"]  / prices["SPY"].iloc[0]  * 100.0
-    # 60/40: 60% SPY, 40% TLT, buy-and-hold
     if "TLT" in prices.columns:
         spy_sh   = 0.60 / float(prices["SPY"].iloc[0])
         tlt_sh   = 0.40 / float(prices["TLT"].iloc[0])
-        s_6040   = (spy_sh * prices["SPY"] + tlt_sh * prices["TLT"]) * 100.0 / 1.0
-        # Re-base to 100
+        s_6040   = (spy_sh * prices["SPY"] + tlt_sh * prices["TLT"]) * 100.0
         s_6040   = s_6040 / s_6040.iloc[0] * 100.0
     else:
         s_6040 = None
 
-    # Fee-adjusted versions of ALLW
-    s_allw_fa = apply_annual_fee(s_allw,    ALLW_FEE)
+    s_allw_fa = apply_annual_fee(s_allw, ALLW_FEE)
 
-    # Add ALLW and benchmark rows at the end for better visibility
-    rows.append(_daily_stats(s_allw,      "ALLW  (Bridgewater, gross)"))
-    rows.append(_daily_stats(s_allw_fa,   "  → fee-adj 0.85% p.a.", allocation = None)) 
-    rows.append(None)  # spacer
-    rows.append(_daily_stats(s_spy,       "SPY  (benchmark)", allocation = None))
+    rows.append(_daily_stats(s_allw,    "ALLW  (Bridgewater, gross)"))
+    rows.append(_daily_stats(s_allw_fa, "  → fee-adj 0.85% p.a."))
+    rows.append(None)
+    rows.append(_daily_stats(s_spy,     "SPY  (benchmark)"))
     if s_6040 is not None:
         rows.append(_daily_stats(s_6040, "60/40  (SPY 60% / TLT 40%)"))
 
@@ -833,17 +809,16 @@ def main():
     # ── 3b. Excel export ─────────────────────────────────────────────────────
     save_comparison_excel(rows, period_label)
 
-    # ── 4. Chart 1: Growth chart ──────────────────────────────────────────────
+    # ── 4. Chart ─────────────────────────────────────────────────────────────
     daily_series = {asset: s for asset, s in series.items()}
     daily_series["ALLW"] = s_allw
     daily_series["SPY"]  = s_spy
-    
+
     if s_6040 is not None:
         daily_series["60/40"] = s_6040
 
     plot_growth_chart(daily_series)
 
-    # ── 6. Chart 2: Fee drag projection ──────────────────────────────────────
     #plot_fee_drag_chart()
 
     print("\nDone.")

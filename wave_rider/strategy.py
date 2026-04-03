@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Optional
 
 import pandas as pd
 
@@ -11,6 +12,7 @@ from signals import (
     annualized_volatility,
     blended_momentum_score,
     defense_scale,
+    hmm_defense_scale,
     trend_breadth,
 )
 
@@ -27,6 +29,7 @@ class StrategyParameters:
     target_vol: float
     defense_breadth_thresholds: tuple[tuple[float, float], ...]
     parking_asset: str | None
+    use_hmm_defense: bool = False
 
 
 DEFAULT_PARAMETERS = StrategyParameters(
@@ -40,6 +43,7 @@ DEFAULT_PARAMETERS = StrategyParameters(
     target_vol=config.TARGET_VOL,
     defense_breadth_thresholds=config.DEFENSE_BREADTH_THRESHOLDS,
     parking_asset=config.PARKING_ASSET,
+    use_hmm_defense=False,
 )
 
 def with_overrides(params: StrategyParameters, **overrides: object) -> StrategyParameters:
@@ -57,7 +61,20 @@ def build_strategy_callback(
     params: StrategyParameters,
     strategy_assets: list[str] | None = None,
     asset_buckets: dict[str, str] | None = None,
+    regime_detector: Optional[object] = None,
+    equity_prices: Optional[pd.Series] = None,
+    vix_prices: Optional[pd.Series] = None,
 ):
+    """
+    Build the strategy callback that generates target weights.
+
+    Parameters
+    ----------
+    regime_detector : fitted RegimeDetector instance (only used if params.use_hmm_defense)
+    equity_prices   : full daily close prices for a broad equity index (e.g. SPY)
+                      used by the regime detector to compute features
+    vix_prices      : VIX close prices (optional, falls back to realised vol proxy)
+    """
     active_assets = strategy_assets or config.STRATEGY_ASSETS
     bucket_map = asset_buckets or config.ASSET_BUCKETS
 
@@ -76,7 +93,25 @@ def build_strategy_callback(
         vol_values = annualized_volatility(asset_returns, params.vol_window)
 
         breadth = trend_breadth(eligible_assets)
-        gross_scale = defense_scale(breadth, params.defense_breadth_thresholds)
+
+        # Determine gross_scale from HMM regime or breadth thresholds
+        hmm_regime_label = None
+        hmm_gross_scale = None
+        if params.use_hmm_defense and regime_detector is not None and equity_prices is not None:
+            current_date = window_returns.index[-1]
+            eq_slice = equity_prices.loc[:current_date]
+            vix_slice = vix_prices.loc[:current_date] if vix_prices is not None else None
+            regime_probs = regime_detector.predict(eq_slice, vix_slice)
+            if not regime_probs.empty:
+                latest_probs = regime_probs.iloc[-1]
+                gross_scale = hmm_defense_scale(latest_probs)
+                hmm_regime_label = str(latest_probs.idxmax())
+                hmm_gross_scale = gross_scale
+            else:
+                gross_scale = defense_scale(breadth, params.defense_breadth_thresholds)
+        else:
+            gross_scale = defense_scale(breadth, params.defense_breadth_thresholds)
+
         selected_assets = select_distinct_assets(
             scores=momentum_scores,
             eligible_assets=eligible_assets,
@@ -110,6 +145,10 @@ def build_strategy_callback(
             "parking_asset": params.parking_asset or "cash",
             "parking_weight": parking_weight,
         }
+
+        if hmm_regime_label is not None:
+            diagnostics["hmm_regime"] = hmm_regime_label
+            diagnostics["hmm_gross_scale"] = hmm_gross_scale
 
         for asset, value in momentum_scores.sort_values(ascending=False).items():
             diagnostics[f"score_{asset.lower()}"] = float(value) if pd.notna(value) else float("nan")

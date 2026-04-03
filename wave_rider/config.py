@@ -116,11 +116,21 @@ ALTERNATE_DEFENSE_BREADTH_THRESHOLDS = (
     (0.00, 0.25),
 )
 
+# ── HMM Regime Detection ──────────────────────────────────────────────────
+HMM_N_STATES = 3
+HMM_CHANNEL_WINDOW = 60
+HMM_N_RESTARTS = 30
+HMM_MIN_DURATION = 5
+HMM_FIXED_DOF = True
+HMM_INIT_DOF = 4.0
+HMM_FIT_WINDOW = 504  # ~2 years of trading days used to fit the HMM
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 RESULTS_DIR = BASE_DIR / "results"
 RUNS_DIR = RESULTS_DIR / "runs"
 CACHE_FILE = DATA_DIR / f"{UNIVERSE_PRESET}_prices.csv"
+VIX_CACHE_FILE = DATA_DIR / "vix_prices.csv"
 
 WALKFORWARD_WINDOWS = (
     ("2013_2015", "2013-01-01", "2015-12-31"),

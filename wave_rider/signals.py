@@ -54,3 +54,23 @@ def defense_scale(
         if breadth >= minimum_breadth:
             return scale
     return 0.25
+
+
+def hmm_defense_scale(
+    regime_probs: pd.Series,
+    regime_scales: dict[str, float] | None = None,
+) -> float:
+    """
+    Map HMM regime posterior probabilities to a gross exposure scalar.
+
+    Parameters
+    ----------
+    regime_probs  : Series with index [bull, sideways, bear], values ~sum to 1.0
+    regime_scales : optional custom mapping from regime label to exposure scalar
+
+    Returns
+    -------
+    float in [0.25, 1.0] — probability-weighted exposure scale
+    """
+    from regime import regime_defense_scale
+    return regime_defense_scale(regime_probs, regime_scales)

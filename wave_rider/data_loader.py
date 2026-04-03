@@ -50,3 +50,29 @@ def load_data(
         prices.to_csv(cache_file)
 
     return prices
+
+
+def load_vix(
+    start: str,
+    cache_file: Path | None = None,
+    refresh: bool = False,
+) -> pd.Series:
+    """Download VIX close prices as a pd.Series (for HMM regime detection)."""
+    if cache_file and cache_file.exists() and not refresh:
+        cached = pd.read_csv(cache_file, index_col=0, parse_dates=True)
+        return cached.squeeze().sort_index()
+
+    raw = yf.download("^VIX", start=start, progress=False, auto_adjust=False)
+    if isinstance(raw.columns, pd.MultiIndex):
+        vix = raw["Close"].squeeze()
+    else:
+        vix = raw["Close"].squeeze()
+
+    vix = vix.dropna().sort_index()
+    vix.name = "VIX"
+
+    if cache_file:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        vix.to_csv(cache_file)
+
+    return vix

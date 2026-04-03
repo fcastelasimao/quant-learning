@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 
 import config
 from backtest import BacktestResult, format_stats_table, run_backtest
-from data_loader import load_data
+from data_loader import load_data, load_vix
 from portfolio import Portfolio
 from plotting import plot_backtest_overview, plot_strategy_state
 from research_io import archive_selected_outputs, save_run_metadata, timestamp_label
 from strategy import (
     AGGRESSIVE_PARAMETERS,
     DEFENSIVE_PARAMETERS,
+    StrategyParameters,
     build_strategy_callback,
     warmup_bars,
+    with_overrides,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _load_all_weather_proxy_weights() -> dict[str, float]:
@@ -158,13 +163,72 @@ def save_results(
     return run_dir
 
 
-def run(refresh_data: bool = False) -> BacktestResult:
+def _fit_regime_detector(
+    prices: pd.DataFrame,
+    vix: pd.Series | None,
+    fit_window: int = config.HMM_FIT_WINDOW,
+) -> object | None:
+    """
+    Fit a RegimeDetector on the first fit_window days of the equity proxy.
+
+    Uses US_LC (SPY) as the equity signal. Returns None if fitting fails.
+    """
+    try:
+        from regime import RegimeDetector
+    except ImportError:
+        logger.warning("regime module not available — skipping HMM defense")
+        return None
+
+    equity_col = "US_LC"
+    if equity_col not in prices.columns:
+        logger.warning("US_LC not in prices — cannot fit HMM")
+        return None
+
+    equity_prices = prices[equity_col].dropna()
+    training_prices = equity_prices.iloc[:fit_window]
+
+    if len(training_prices) < fit_window // 2:
+        logger.warning("Not enough equity data to fit HMM")
+        return None
+
+    vix_train = vix.loc[:training_prices.index[-1]] if vix is not None else None
+
+    detector = RegimeDetector(
+        n_states=config.HMM_N_STATES,
+        channel_window=config.HMM_CHANNEL_WINDOW,
+        n_restarts=config.HMM_N_RESTARTS,
+        min_duration=config.HMM_MIN_DURATION,
+        fixed_dof=config.HMM_FIXED_DOF,
+        init_dof=config.HMM_INIT_DOF,
+    )
+    try:
+        detector.fit(training_prices, vix_train)
+        logger.info("HMM regime detector fitted on %d days", len(training_prices))
+        return detector
+    except Exception as e:
+        logger.warning("HMM fitting failed: %s", e)
+        return None
+
+
+def run(refresh_data: bool = False, include_hmm: bool = True) -> BacktestResult:
     prices = load_data(
         config.ASSET_TO_TICKER,
         start=config.START_DATE,
         cache_file=config.CACHE_FILE,
         refresh=refresh_data,
     )
+
+    # Load VIX for HMM regime detection
+    vix = None
+    if include_hmm:
+        try:
+            vix = load_vix(
+                start=config.START_DATE,
+                cache_file=config.VIX_CACHE_FILE,
+                refresh=refresh_data,
+            )
+        except Exception as e:
+            logger.warning("Could not load VIX: %s", e)
 
     aggressive_result = run_backtest(
         prices,
@@ -190,8 +254,41 @@ def run(refresh_data: bool = False) -> BacktestResult:
         benchmark_weights=None,
     )
 
+    # HMM defense profile
+    hmm_result = None
+    if include_hmm:
+        regime_detector = _fit_regime_detector(prices, vix)
+        if regime_detector is not None:
+            equity_prices = prices["US_LC"].dropna() if "US_LC" in prices.columns else None
+            hmm_params = with_overrides(AGGRESSIVE_PARAMETERS, use_hmm_defense=True)
+            hmm_result = run_backtest(
+                prices,
+                build_strategy_callback(
+                    hmm_params,
+                    regime_detector=regime_detector,
+                    equity_prices=equity_prices,
+                    vix_prices=vix,
+                ),
+                strategy_name="Wave Rider HMM Defense",
+                initial_capital=config.INITIAL_CAPITAL,
+                rebalance_frequency=config.REBALANCE_FREQUENCY,
+                warmup_bars=max(warmup_bars(hmm_params), config.HMM_FIT_WINDOW),
+                transaction_cost_pct=config.TRANSACTION_COST_PCT,
+                rebalance_threshold=config.NO_TRADE_BAND,
+                benchmark_weights=None,
+            )
+
     all_weather_proxy = _build_all_weather_proxy(prices, aggressive_result.history.index)
     result = _combine_results(aggressive_result, defensive_result, all_weather_proxy)
+
+    # Merge HMM results into the combined result
+    if hmm_result is not None:
+        result = BacktestResult(
+            history=result.history.join(hmm_result.history, how="left"),
+            signal_log=result.signal_log,
+            stats={**result.stats, **hmm_result.stats},
+        )
+
     run_dir = save_results(
         result,
         aggressive_result,
@@ -208,6 +305,9 @@ def run(refresh_data: bool = False) -> BacktestResult:
     if not defensive_result.signal_log.empty:
         print("\nLatest defensive signal snapshot:")
         print(defensive_result.signal_log.tail(1).T)
+    if hmm_result is not None and not hmm_result.signal_log.empty:
+        print("\nLatest HMM defense signal snapshot:")
+        print(hmm_result.signal_log.tail(1).T)
     print(f"\nSaved latest results to: {config.RESULTS_DIR}")
     print(f"Archived run to: {run_dir}")
 
