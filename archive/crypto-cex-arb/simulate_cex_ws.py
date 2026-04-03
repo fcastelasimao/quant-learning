@@ -17,7 +17,7 @@ import signal
 import sys
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from arb_engine import scan_for_arbs
@@ -98,7 +98,7 @@ def print_sim_dashboard(
     print("=" * 90)
     print("  CRYPTO CEX ARBITRAGE SCANNER — WEBSOCKET PAPER MODE")
     print("=" * 90)
-    print(f"  Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    print(f"  Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"  Scan #{scan_count} | Trading pairs: {len(current_prices)}")
     print("-" * 90)
 
@@ -421,7 +421,7 @@ async def run_simulation_ws():
                         "mid": bn_quote["mid"],
                     }
 
-            opportunities = scan_for_arbs(
+            opportunities, near_misses = scan_for_arbs(
                 {
                     "binance": binance_prices,
                     "bitstamp": bitstamp_prices,

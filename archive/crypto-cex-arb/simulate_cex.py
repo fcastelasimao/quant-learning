@@ -10,7 +10,7 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from config import STRATEGY
@@ -56,6 +56,8 @@ def print_sim_dashboard(
     arbs_total: int,
     all_arbs: list,
     current_prices: dict,
+    near_misses: list = None,
+    dex_prices: dict = None,
 ):
     """Print a live dashboard to terminal."""
     if STRATEGY.quote_currency == "USD":
@@ -70,7 +72,7 @@ def print_sim_dashboard(
     print("=" * 90)
     print("  CRYPTO CEX ARBITRAGE SCANNER — PAPER TRADING MODE")
     print("=" * 90)
-    print(f"  Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    print(f"  Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"  Scan #{scan_count} | Trading pairs: {len(current_prices)}")
     print("-" * 90)
 
@@ -137,6 +139,33 @@ def print_sim_dashboard(
                 f"{currency_symbol}{arb.guaranteed_profit_quote:>9.2f}"
             )
 
+    # Near-miss diagnostics — show closest spreads to threshold
+    if near_misses:
+        print("-" * 90)
+        print(f"  CLOSEST SPREADS (vs {STRATEGY.min_edge_pct}% threshold)")
+        print(
+            f"  {'Pair':<10} {'Direction':<28} {'Net edge%':>10} {'Gap%':>8}"
+        )
+        for nm in near_misses[:5]:
+            direction = f"{nm.buy_exchange.value} → {nm.sell_exchange.value}"
+            print(
+                f"  {nm.pair:<10} {direction:<28} "
+                f"{nm.net_edge_pct:>9.4f}% "
+                f"{nm.gap_pct:>7.4f}%"
+            )
+
+    # DEX prices (Uniswap v3 on Arbitrum)
+    if dex_prices:
+        print("-" * 90)
+        print("  DEX PRICES (Uniswap v3 / Arbitrum)")
+        for pair, snap in dex_prices.items():
+            mid = snap.mid_price or 0.0
+            print(
+                f"  {pair:<10} mid={format_price(mid, currency_symbol):<14} "
+                f"bid={format_price(snap.bid or 0.0, currency_symbol):<14} "
+                f"ask={format_price(snap.ask or 0.0, currency_symbol):<14}"
+            )
+
     print()
     print("=" * 90)
     print("  Press Ctrl+C to stop")
@@ -177,6 +206,15 @@ def run_simulation():
     trader = PaperTrader()
     cooldown = CooldownManager(cooldown_seconds=15.0)
 
+    # DEX monitor (optional — requires web3 package)
+    dex_monitor = None
+    try:
+        from dex_monitor import UniswapV3Monitor
+        dex_monitor = UniswapV3Monitor(rpc_url=STRATEGY.arbitrum_rpc_url)
+        logger.info("DEX monitor enabled (Uniswap v3 / Arbitrum)")
+    except Exception as e:
+        logger.info(f"DEX monitor not available: {e}")
+
     # Check connections
     logger.info("Testing Binance connection...")
     if not binance.test_connection():
@@ -194,6 +232,8 @@ def run_simulation():
     arbs_total = 0
     all_arbs = []
     current_prices = {}
+    near_misses = []
+    dex_prices = {}
 
     try:
         while RUNNING:
@@ -258,13 +298,27 @@ def run_simulation():
                         "mid": kr_quote["mid"],
                     }
 
-            # Scan for arbitrage across Binance, Bitstamp, and Kraken
-            opportunities = scan_for_arbs(
-                {
-                    "binance": binance_prices,
-                    "bitstamp": bitstamp_prices,
-                    "kraken": kraken_prices,
-                },
+            # Fetch DEX prices if monitor is active
+            dex_prices = {}
+            if dex_monitor:
+                try:
+                    eth_snap = kraken_prices.get("ETH/USD") or bitstamp_prices.get("ETH/USD")
+                    eth_price = eth_snap.mid_price if eth_snap else 3000.0
+                    dex_prices = dex_monitor.get_all_snapshots(eth_price=eth_price)
+                except Exception as e:
+                    logger.debug(f"DEX price fetch error: {e}")
+
+            # Scan for arbitrage across Binance, Bitstamp, Kraken, and DEX
+            exchange_map = {
+                "binance": binance_prices,
+                "bitstamp": bitstamp_prices,
+                "kraken": kraken_prices,
+            }
+            if dex_prices:
+                exchange_map["uniswap_arb"] = dex_prices
+
+            opportunities, near_misses = scan_for_arbs(
+                exchange_map,
                 bankroll=trader.portfolio.bankroll,
             )
 
@@ -283,7 +337,11 @@ def run_simulation():
 
             # Print dashboard
             if scan_count % STRATEGY.dashboard_update_interval_scans == 0:
-                print_sim_dashboard(trader, scan_count, arbs_total, all_arbs, current_prices)
+                print_sim_dashboard(
+                    trader, scan_count, arbs_total, all_arbs, current_prices,
+                    near_misses=near_misses,
+                    dex_prices=dex_prices if dex_prices else None,
+                )
 
             # Log snapshot
             if scan_count % STRATEGY.snapshot_log_interval_scans == 0:

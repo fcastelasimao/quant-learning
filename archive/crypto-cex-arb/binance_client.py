@@ -25,6 +25,9 @@ except ImportError:
 class BinanceClient:
     """Binance exchange client for fetching order books and executing trades."""
 
+    # Binance uses USDT, not USD — translate at the wire level only.
+    _QUOTE_REMAP = {"USD": "USDT"}
+
     def __init__(self):
         self.name = "Binance"
         self.api_key = BINANCE_API_KEY
@@ -32,6 +35,15 @@ class BinanceClient:
         self.exchange = None
         self._connected = False
         self._initialize()
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        """Translate internal /USD pair names to Binance-native /USDT equivalents.
+
+        E.g. BTC/USD → BTC/USDT. The original symbol is kept in returned dicts
+        so the arb engine can join prices across exchanges by the same key.
+        """
+        base, quote = symbol.split("/", 1)
+        return f"{base}/{self._QUOTE_REMAP.get(quote, quote)}"
 
     def _initialize(self):
         """Initialize Binance exchange connection."""
@@ -63,9 +75,10 @@ class BinanceClient:
         Fetch ticker data for a symbol (e.g., 'BTC/USDT').
         Returns: {bid, ask, mid, timestamp}
         """
+        binance_symbol = self._normalize_symbol(symbol)
         try:
             if HAVE_CCXT and self.exchange:
-                ticker = self.exchange.fetch_ticker(symbol)
+                ticker = self.exchange.fetch_ticker(binance_symbol)
                 return {
                     "exchange": "Binance",
                     "symbol": symbol,
@@ -78,7 +91,7 @@ class BinanceClient:
                 # Fallback: public REST endpoint
                 import requests
                 url = "https://api.binance.com/api/v3/ticker/24hr"
-                params = {"symbol": symbol.replace("/", "")}
+                params = {"symbol": binance_symbol.replace("/", "")}
                 resp = requests.get(url, params=params, timeout=5)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -101,9 +114,10 @@ class BinanceClient:
         Fetch order book snapshot for a symbol.
         Returns: {bids: [[price, quantity], ...], asks: [...]}
         """
+        binance_symbol = self._normalize_symbol(symbol)
         try:
             if HAVE_CCXT and self.exchange:
-                order_book = self.exchange.fetch_order_book(symbol, depth)
+                order_book = self.exchange.fetch_order_book(binance_symbol, depth)
                 return {
                     "exchange": "Binance",
                     "symbol": symbol,
@@ -115,7 +129,7 @@ class BinanceClient:
                 # Fallback: public REST endpoint
                 import requests
                 url = "https://api.binance.com/api/v3/depth"
-                params = {"symbol": symbol.replace("/", ""), "limit": depth}
+                params = {"symbol": binance_symbol.replace("/", ""), "limit": depth}
                 resp = requests.get(url, params=params, timeout=5)
                 if resp.status_code == 200:
                     data = resp.json()

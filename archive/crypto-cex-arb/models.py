@@ -15,6 +15,7 @@ class Exchange(str, Enum):
     BITSTAMP = "bitstamp"
     KRAKEN = "kraken"
     BINANCE = "binance"
+    UNISWAP_ARB = "uniswap_arb"
 
 
 class Side(str, Enum):
@@ -63,6 +64,16 @@ class PriceSnapshot:
         if self.ask and self.ask_volume:
             return self.ask * self.ask_volume
         return 0.0
+
+
+@dataclass
+class NearMiss:
+    """A spread that was detected but did not clear the minimum edge threshold."""
+    pair: str
+    buy_exchange: Exchange
+    sell_exchange: Exchange
+    net_edge_pct: float   # Actual net edge after commissions (may be negative)
+    gap_pct: float        # How many % points short of the threshold
 
 
 @dataclass

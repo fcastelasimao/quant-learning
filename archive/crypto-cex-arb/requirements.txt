@@ -8,3 +8,4 @@ websockets>=12.0     # WebSocket client for lower-overhead streaming market data
 
 # Development & optional
 python-dotenv>=1.0.0  # (Optional) For loading API credentials from .env files
+web3>=6.0.0          # (Optional) Ethereum JSON-RPC client for DEX price monitoring (Uniswap v3)

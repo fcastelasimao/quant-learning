@@ -20,6 +20,7 @@ from config import EXCHANGE_CONFIGS, STRATEGY
 from models import (
     PriceSnapshot,
     ArbOpportunity,
+    NearMiss,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ def calculate_arb(
 def scan_for_arbs(
     exchange_price_maps: dict[str, dict[str, PriceSnapshot]],
     bankroll: float,
-) -> list[ArbOpportunity]:
+) -> tuple[list[ArbOpportunity], list[NearMiss]]:
     """
     Scan all trading pairs across all available exchanges for arbitrage opportunities.
 
@@ -154,9 +155,11 @@ def scan_for_arbs(
         exchange_price_maps: dict of exchange name -> pair -> PriceSnapshot
 
     Returns:
-        list of ArbOpportunity objects
+        (opportunities, near_misses) — near_misses are sorted best-first so the
+        caller can surface the closest spreads to the threshold in the dashboard.
     """
     opportunities = []
+    near_misses = []
     all_pairs = set()
     for prices in exchange_price_maps.values():
         all_pairs |= set(prices.keys())
@@ -171,8 +174,42 @@ def scan_for_arbs(
             for sell_exchange_name, sell_snap in available:
                 if buy_exchange_name == sell_exchange_name:
                     continue
+
+                # Collect spread data for near-miss diagnostics before the
+                # threshold check inside calculate_arb discards it silently.
+                if buy_snap.ask and sell_snap.bid:
+                    buy_comm = EXCHANGE_CONFIGS[buy_snap.exchange.value]["commission"]
+                    sell_comm = EXCHANGE_CONFIGS[sell_snap.exchange.value]["commission"]
+                    profit_per_unit = (
+                        sell_snap.bid * (1 - sell_comm)
+                        - buy_snap.ask * (1 + buy_comm)
+                    )
+                    net_edge_pct = round((profit_per_unit / buy_snap.ask) * 100, 4)
+                    gap_pct = round(STRATEGY.min_edge_pct - net_edge_pct, 4)
+                    near_misses.append(
+                        NearMiss(
+                            pair=pair,
+                            buy_exchange=buy_snap.exchange,
+                            sell_exchange=sell_snap.exchange,
+                            net_edge_pct=net_edge_pct,
+                            gap_pct=gap_pct,
+                        )
+                    )
+
                 arb = calculate_arb(buy_snap, sell_snap, pair, bankroll)
                 if arb:
                     opportunities.append(arb)
 
-    return opportunities
+    # Sort: closest to threshold (smallest positive gap) first.
+    near_misses.sort(key=lambda x: x.gap_pct)
+
+    # Log the top 3 closest spreads so the operator can see how far off we are.
+    for nm in near_misses[:3]:
+        if nm.net_edge_pct < STRATEGY.min_edge_pct:
+            logger.info(
+                f"NEAR MISS: {nm.pair} {nm.buy_exchange.value}→{nm.sell_exchange.value} | "
+                f"net_edge={nm.net_edge_pct:.4f}% "
+                f"(need {STRATEGY.min_edge_pct}%, gap={nm.gap_pct:.4f}%)"
+            )
+
+    return opportunities, near_misses

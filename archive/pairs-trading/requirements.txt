@@ -1,0 +1,5 @@
+# Pairs Trading — Statistical Arbitrage on Crypto
+numpy>=1.24.0
+pandas>=2.0.0
+statsmodels>=0.14.0    # Engle-Granger cointegration, OLS
+requests>=2.31.0       # Binance public OHLCV API

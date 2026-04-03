@@ -114,6 +114,12 @@ class StrategyConfig:
     alert_on_trade: bool = True
     min_profit_for_alert: float = 0.50  # Alert if profit > £0.50
 
+    # DEX MONITOR (Uniswap v3 on Arbitrum One)
+    # Free public RPC — no API key needed for read-only paper trading.
+    arbitrum_rpc_url: str = "https://arb1.arbitrum.io/rpc"
+    uniswap_slippage_buffer_pct: float = 0.05   # Conservative slippage for paper mode
+    gas_units_per_swap: int = 150_000            # Typical Uniswap v3 swap gas cost
+
     @property
     def min_edge_pct(self) -> float:
         """Active minimum edge threshold based on running mode."""
@@ -152,8 +158,15 @@ BINANCE_CONFIG = {
     "commission": STRATEGY.binance_commission,
 }
 
+UNISWAP_ARB_CONFIG = {
+    "name": "Uniswap v3 (Arbitrum)",
+    # 0.05% Uniswap pool fee + ~0.10% gas/slippage buffer for paper-mode estimate
+    "commission": 0.0015,
+}
+
 EXCHANGE_CONFIGS = {
     "bitstamp": BITSTAMP_CONFIG,
     "kraken": KRAKEN_CONFIG,
     "binance": BINANCE_CONFIG,
+    "uniswap_arb": UNISWAP_ARB_CONFIG,
 }
