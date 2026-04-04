@@ -12,12 +12,12 @@ import numpy as np
 INITIAL_PORTFOLIO_VALUE = 10_000
 BACKTEST_START = "2006-01-01"
 BACKTEST_END   = date.today().strftime("%Y-%m-%d")
-OOS_START      = "2022-01-01"
+OOS_START      = "2018-01-01"
 
-RUN_MODE = "backtest"
+RUN_MODE = "oos_evaluate"
 # Options: backtest, optimise, walk_forward, pareto, oos_evaluate, full_backtest
 
-RUN_TAG = "rpavg_monthly_2022oos" #run tag
+RUN_TAG = "monthly_2018oos" #run tag
 
 PRICING_MODEL = "total_return"
 REBALANCE_THRESHOLD = 0.05
@@ -35,7 +35,6 @@ RP_LOOKBACK_YEARS = 5.0    # covariance estimation window
 RP_RECOMPUTE_FREQ = "QS"   # "QS" = quarterly, "MS" = monthly, "YS" = yearly
 
 # ---- Costs ----
-
 TRANSACTION_COST_PCT = 0.001   # 0.001 = 0.1% per trade
 TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 

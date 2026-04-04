@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_all_weather_proxy_weights() -> dict[str, float]:
-    strategies_path = Path("All_weather_portfolio/strategies.json")
+    strategies_path = Path(__file__).resolve().parents[1] / "all-weather" / "strategies.json"
     if not strategies_path.exists():
         return {
             "US_LC": 0.134,

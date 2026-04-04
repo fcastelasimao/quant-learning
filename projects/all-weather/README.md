@@ -15,27 +15,12 @@ Bridgewater launched the ALLW ETF in March 2025 (~$1B+ AUM, 0.85% expense ratio,
 
 | Metric | DIY Risk Parity | ALLW (Bridgewater) | Advantage |
 |--------|----------------|-------------------|-----------|
-| CAGR | 15.91% | 17.20% | ALLW +1.29% |
-| Max Drawdown | **-5.74%** | -8.79% | **35% shallower** |
-| Calmar Ratio | **2.775** | 1.959 | **42% better** |
-| Ulcer Index | **1.184** | 1.949 | **39% lower** |
-| Sortino Ratio | **2.299** | 1.549 | **48% better** |
+| CAGR | 17.4% | 19.1% | ALLW +1.7% |
+| Max Drawdown | **-5.7%** | -8.8% | **35% shallower** |
+| Calmar Ratio | **3.03** | 2.18 | **39% better** |
 | Annual Cost (on $100k) | ~$120 | ~$850 | **85% cheaper** |
 
-ALLW earns ~1% more in raw return because of its 2x bond leverage. But it pays for that leverage with 35% deeper drawdowns and meaningfully worse risk-adjusted metrics.
-
-### What This Means for Your Decision
-
-**If you're choosing between the two:**
-
-- **Choose ALLW if** you want maximum returns and can tolerate deeper drawdowns (e.g., long-term wealth building, high risk tolerance)
-- **Choose us if** you prioritise capital preservation, stable drawdowns, and transparency (e.g., life savings, sleep-at-night investing, institutional mandate for modest volatility)
-
-**The key trade-off:**
-- **ALLW**: 1.2% higher return, but -8.79% max drawdown, 0.85% annual fee
-- **Our strategy**: 1.2% lower return, but -5.74% max drawdown, 0.12% annual fee, fully transparent
-
-Put another way: *You sacrifice 1.2% annual return to eliminate 3% of downside risk and save 0.73% in fees—a sensible trade if capital preservation matters more than maximum growth.*
+ALLW earns ~1.7% more in raw return because of its ~2x bond leverage. But it pays for that leverage with 35% deeper drawdowns and worse risk-adjusted metrics. Different product, different investor.
 
 ---
 
@@ -58,12 +43,12 @@ Solved via scipy's SLSQP (Sequential Least Squares Programming). The covariance 
 
 | Asset | ETF | Weight | Role |
 |-------|-----|--------|------|
-| US Broad Equity | SPY | 13% | Core equity exposure |
-| US Tech/Growth | QQQ | 11% | Growth engine |
-| Long-Term Bonds | TLT | 19% | Deflation hedge |
-| Inflation Bonds | TIP | 33% | Rate-shock buffer |
-| Gold | GLD | 14% | Crisis hedge |
-| Commodities | GSG | 10% | Stagflation hedge |
+| US Broad Equity | SPY | 13.4% | Core equity exposure |
+| US Tech/Growth | QQQ | 10.3% | Growth engine |
+| Long-Term Bonds | TLT | 17.5% | Deflation hedge |
+| Inflation Bonds | TIP | 34.8% | Rate-shock buffer |
+| Gold | GLD | 14.2% | Crisis hedge |
+| Commodities | GSG | 9.8% | Stagflation hedge |
 
 ### IS/OOS Validation
 
@@ -85,8 +70,11 @@ RP beats manual allocation on all three independent windows.
 |----------|------------|--------|--------|
 | Differential Evolution (return-based optimisation) | 26 | All failed OOS — IS period is a single falling-rate regime | Closed |
 | SPY momentum overlay (derivative-based exit/re-entry) | 126 parameter combos | +1.3% on 2/3 splits, -5.3% on hardest | Closed |
-| Rolling RP (quarterly recompute) | 3 OOS splits | Wins 2/3 but differences are small; converges to same weights | Optional |
+| Rolling RP (quarterly recompute) | 3 OOS splits | Converges to same weights as static | Closed |
 | Weekly rebalancing | 3 OOS splits with costs | No improvement after transaction costs | Closed |
+| 100-ETF universe scan (8–12 asset subsets) | 50k random subsets | 6-asset universe confirmed optimal | Closed |
+| 8-asset universe (CPER, DBA, IEF, IJR added) | 3 OOS splits | 6-asset beats on all Calmar windows | Closed |
+| Bond leverage (1.0x–2.5x on TLT+TIP) | 7 levels × 3 splits | Every 0.25x adds ~3% drawdown, destroys Calmar | Closed |
 
 ---
 
@@ -94,7 +82,7 @@ RP beats manual allocation on all three independent windows.
 
 ```bash
 git clone https://github.com/fcastelasimao/quant-learning.git
-cd quant-learning/All_weather_portfolio
+cd quant-learning/projects/all-weather
 
 conda create -n allweather python=3.11
 conda activate allweather
@@ -110,14 +98,12 @@ python3 main.py
 # Compare against Bridgewater's ALLW ETF
 python3 compare_allw.py
 
-# Validate RP weights across 3 OOS windows
-python3 run_rp_validation.py
+# Generate LinkedIn comparison plot
+python3 plot_linkedin.py
 
-# Run rolling RP vs static RP experiment
-python3 run_rolling_rp.py
-
-# Scan ETF universe for optimal subsets
-python3 scan_universes.py
+# Paper trade via Alpaca
+python3 alpaca_monthly_rebalance.py --preview
+python3 alpaca_monthly_rebalance.py --execute
 
 # Run tests
 python3 -m pytest tests/ -v
@@ -126,28 +112,27 @@ python3 -m pytest tests/ -v
 ## Project Structure
 
 ```
-├── main.py                 Entry point — orchestrates a single backtest run
-├── config.py               All parameters — loads allocation from strategies.json
-├── strategies.json          Validated strategy registry
-├── data.py                  Price fetching via yfinance with data quality checks
-├── backtest.py              Simulation engine, performance metrics, rolling RP
-├── optimiser.py             Risk parity (SLSQP), random search, weight projection
-├── portfolio.py             Live holdings management and rebalancing
-├── validation.py            Walk-forward and Pareto frontier analysis
-├── plotting.py              Dark-theme backtest charts
-├── export.py                Excel master log, CSV export, terminal formatting
-├── compare_allw.py          Head-to-head ALLW ETF comparison
-├── run_rp_validation.py     3-split RP vs manual validation
-├── run_rolling_rp.py        Rolling RP vs static RP experiment
-├── scan_universes.py        ETF universe scan (diversification ratio scoring)
-├── run_overlay_grid.py      SPY overlay grid search (concluded: no value)
+├── main.py                      Entry point — orchestrates a single backtest run
+├── config.py                    All parameters — loads allocation from strategies.json
+├── strategies.json              Validated strategy registry
+├── data.py                      Price fetching via yfinance with data quality checks
+├── backtest.py                  Simulation engine, performance metrics, rolling RP
+├── optimiser.py                 Risk parity (SLSQP), random search, weight projection
+├── portfolio.py                 Live holdings management and rebalancing
+├── validation.py                Walk-forward and Pareto frontier analysis
+├── plotting.py                  Dark-theme backtest charts
+├── export.py                    Excel master log, CSV export, terminal formatting
+├── compare_allw.py              Head-to-head ALLW ETF comparison
+├── plot_linkedin.py             Two-panel LinkedIn comparison figure
+├── alpaca_monthly_rebalance.py  Paper trading via Alpaca (multi-account)
+├── run_rolling_rp.py            Rolling RP vs static RP experiment
 ├── tests/
 │   ├── conftest.py
 │   ├── test_stats.py
 │   ├── test_data.py
 │   └── test_rolling_rp.py
-├── archive/                 Dead code kept for reference
-└── results/                 Generated output (.gitignore'd)
+├── archive/                     Completed experiments and dead code
+└── results/                     Generated output (.gitignore'd)
 ```
 
 ## Configuration
@@ -155,7 +140,7 @@ python3 -m pytest tests/ -v
 All parameters live in `config.py`. The default strategy is loaded from `strategies.json`:
 
 ```python
-DEFAULT_STRATEGY = "6asset_tip_gsg_rp"  # change to load a different strategy
+DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"  # production RP-averaged weights
 ```
 
 Key settings:
@@ -183,6 +168,6 @@ For actual implementation, use lower-cost ETF equivalents:
 
 - ALLW comparison covers ~1 year only (March 2025 launch)
 - No currency adjustment for non-US investors (GBP, EUR)
-- No paper trading track record yet
+- Paper trading started April 2026 via Alpaca (two accounts: backtest ETFs and live ETFs)
 - Sortino uses downside std, not standard semi-deviation
 - Max drawdown on 20-year backtest computed from monthly data (daily MDD available for ALLW comparison period)

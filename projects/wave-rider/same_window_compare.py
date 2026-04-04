@@ -175,7 +175,7 @@ def _plot_growth_comparison(
         ax.plot(series.index, series / series.iloc[0], linewidth=2.2, label=name)
 
     all_weather_growth = _load_all_weather_growth(
-        Path("All_weather_portfolio/results"),
+        Path(__file__).resolve().parents[1] / "all-weather" / "results",
         start_date,
         end_date,
     )
@@ -201,7 +201,7 @@ def _plot_growth_comparison(
 
 def run_same_window_comparison() -> pd.DataFrame:
     wave_history = pd.read_csv(config.RESULTS_DIR / "backtest_history.csv", index_col=0, parse_dates=True)
-    all_weather_results = _load_all_weather_rows(Path("All_weather_portfolio/results"))
+    all_weather_results = _load_all_weather_rows(Path(__file__).resolve().parents[1] / "all-weather" / "results")
     comparison_end = str(all_weather_results["window_end"].iloc[0])
     comparison_rows = [
         _compute_window_stats(wave_history, "Wave Rider Aggressive", WINDOW_START, comparison_end),

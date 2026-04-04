@@ -223,6 +223,51 @@
         "2022-2026": {"calmar": 0.313, "cagr": 5.15, "max_dd": -16.47}
       },
       "notes": "DEMOTED. Worst regime sensitivity: -29% Calmar drop in 2022 stress. IEF/SHY fell with TLT — bond duration overlap without inflation protection."
+    },
+
+    "8asset_CPER_DBA_GLD_IEF_IJR_QQQ_SPY_TLT": {
+      "description": "TOP 8-asset from RP with 100 EFTs",
+      "status": "in validation",
+      "validated_date": "2026-04-03",
+      "allocation": {
+        "CPER": 0.0506,
+        "DBA": 0.1358,
+        "GLD": 0.1109,
+        "IEF": 0.3171,
+        "IJR": 0.0861,
+        "QQQ": 0.0715,
+        "SPY": 0.0916,
+        "TLT": 0.1364
+      },
+      "asset_class_groups": {
+        "stocks":             ["SPY", "QQQ", "IJR"],
+        "long_bonds":         ["TLT"],
+        "intermediate_bonds": ["IEF"],
+        "gold":               ["GLD"],
+        "commodities":        ["CPER", "DBA"]
+      },
+      "asset_class_max_weight": {
+        "stocks":             0.40,
+        "long_bonds":         0.40,
+        "intermediate_bonds": 0.25,
+        "gold":               0.20,
+        "commodities":        0.20
+      },
+      "oos_results": {
+        "2018-2026": 
+        {"calmar": 0.432, 
+        "cagr": 7.80, 
+        "max_dd": -18.06},
+       "2020-2026": 
+        {"calmar": 0.432, 
+        "cagr": 7.80, 
+        "max_dd": -18.06},
+        "2022-2026": 
+        {"calmar": 0.432, 
+        "cagr": 7.80, 
+        "max_dd": -18.06}
+      },
+     "notes": ""
     }
   }
 }

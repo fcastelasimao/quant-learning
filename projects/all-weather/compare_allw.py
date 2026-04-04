@@ -43,7 +43,9 @@ from openpyxl.utils import get_column_letter
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*auto_adjust.*")
 
-os.makedirs("results", exist_ok=True)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_RESULTS_DIR = os.path.join(_SCRIPT_DIR, "results")
+os.makedirs(_RESULTS_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # CONSTANTS
@@ -176,6 +178,14 @@ STRATEGY_REGISTRY: list[StrategyDef] = [
         line_width=1.8, line_style="--",
         rebalance="buy_and_hold", show_in_chart=True, chart_order=32,
     ),
+    # ── 8-asset (archived — 6-asset wins on all metrics) ───────────────────
+    StrategyDef(
+        key="8asset_backtest", label="8asset_backtest",
+        strategy_id="8asset_CPER_DBA_GLD_IEF_IJR_QQQ_SPY_TLT", use_live_tickers=False,
+        fee=DIY_FEE, color="#fc58ff",
+        enabled=False,
+        line_width=2.2, line_style="--", show_in_chart=False, chart_order=34,
+    ),
     # ── 5-asset Dalio classic ─────────────────────────────────────────────
     StrategyDef(
         key="5asset_dalio_live", label="5asset_dalio_live",
@@ -190,6 +200,7 @@ STRATEGY_REGISTRY: list[StrategyDef] = [
         fee=DIY_FEE, color="#3ddc97",
         line_width=1.5, line_style="-.", show_in_chart=True, chart_order=41,
     ),
+
 ]
 
 BENCHMARK_REGISTRY: list[BenchmarkDef] = [
@@ -452,7 +463,7 @@ def _add_watermark(ax):
     )
 
 def _save_both(fig, base_name: str):
-    path = os.path.join("results", f"{base_name}.png")
+    path = os.path.join(_RESULTS_DIR, f"{base_name}.png")
     plt.savefig(path, dpi=100, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     print(f"  Saved → {path}")
@@ -667,7 +678,7 @@ def save_comparison_excel(rows: list, period_label: str) -> None:
     """
     today    = datetime.now()
     filename = f"{date.today().strftime('%Y-%m-%d')}_allw_comparison_from{DATE_START}_to{DATE_END}.xlsx"
-    out_path = os.path.join("results", filename)
+    out_path = os.path.join(_RESULTS_DIR, filename)
 
     n_cols       = len(_EXCEL_COLS)
     center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)

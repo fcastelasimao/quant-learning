@@ -75,7 +75,9 @@ except ImportError as exc:  # pragma: no cover - import guard for environments w
 
 NY_TZ = ZoneInfo("America/New_York")
 DEFAULT_TIMEOUT_SECONDS = 60
-CSV_PATH = os.path.join(os.path.dirname(__file__), "logs", "performance_tracking.csv")
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_PATH = os.path.join(_SCRIPT_DIR, "logs", "performance_tracking.csv")
+HOLDINGS_PATH = os.path.join(_SCRIPT_DIR, "portfolio_holdings.json")
 CSV_HEADERS = [
     "Date", "Portfolio_Equity", "SPY_Weight%", "QQQ_Weight%", "TLT_Weight%",
     "TIP_Weight%", "GLD_Weight%", "GSG_Weight%", "Portfolio_Return%",
@@ -214,6 +216,27 @@ def record_performance_snapshot(
                     f"Benchmarks SPY {benchmark_returns['SPY_Return%']:+.2f}% | ALLW {benchmark_returns['ALLW_Return%']:+.2f}% | 60/40 {benchmark_returns['60_40_Return%']:+.2f}%")
     except Exception as exc:
         logger.error(f"Failed to record performance: {exc}")
+
+
+def _save_portfolio_holdings(
+    positions: dict[str, PositionSnapshot],
+    logger: logging.Logger,
+) -> None:
+    """Write current Alpaca positions to portfolio_holdings.json.
+
+    Format matches portfolio.py's save_holdings():
+        {"SPY": {"shares": 2.30, "last_price": 653.18}, ...}
+    """
+    holdings = {
+        snap.symbol: {
+            "shares": round(snap.qty, 6),
+            "last_price": round(snap.current_price, 2),
+        }
+        for snap in sorted(positions.values(), key=lambda s: s.symbol)
+    }
+    with open(HOLDINGS_PATH, "w", encoding="utf-8") as fh:
+        json.dump(holdings, fh, indent=2)
+    logger.info(f"Portfolio holdings saved to {HOLDINGS_PATH}")
 
 
 @dataclass
@@ -805,6 +828,7 @@ def main() -> None:
             # Record snapshot even in preview mode for tracking
             logger.info("Recording performance snapshot (preview mode)...")
             record_performance_snapshot(account, positions, allocation, logger)
+            _save_portfolio_holdings(positions, logger)
             return
 
         if not is_last_trading_day and not args.force:
@@ -839,11 +863,13 @@ def main() -> None:
         logger.info("Execution complete. ✓")
         print("\nExecution complete.")
         
-        # Record performance snapshot after execution
+        # Record performance snapshot and holdings after execution
         logger.info("Recording performance snapshot...")
         final_account, final_positions = get_account_snapshot(client)
         record_performance_snapshot(final_account, final_positions, allocation, logger)
+        _save_portfolio_holdings(final_positions, logger)
         print("Performance snapshot recorded to logs/performance_tracking.csv")
+        print(f"Portfolio holdings saved to {HOLDINGS_PATH}")
         
     except SystemExit:
         raise
