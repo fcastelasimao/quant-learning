@@ -23,7 +23,7 @@ from backtest import StrategyStats
 import config
 
 
-def style_ax(ax):
+def style_ax(ax: plt.Axes) -> None:
     """Apply consistent dark theme to a matplotlib axes object."""
     ax.set_facecolor("#161b22")
     ax.tick_params(colors="#c9d1d9", labelsize=8)

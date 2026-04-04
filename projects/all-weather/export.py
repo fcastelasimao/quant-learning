@@ -44,20 +44,23 @@ class _Tee:
         self._stdout = sys.stdout
         self._stderr = sys.stderr
 
-    def write(self, data):
+    def write(self, data: str) -> None:
+        """Write data to both the original stdout and the log file."""
         self._stdout.write(data)
         self._file.write(data)
 
-    def flush(self):
+    def flush(self) -> None:
+        """Flush both the original stdout and the log file buffers."""
         self._stdout.flush()
         self._file.flush()
 
-    def close(self):
+    def close(self) -> None:
+        """Restore original stdout/stderr and close the log file."""
         sys.stdout = self._stdout
         sys.stderr = self._stderr
         self._file.close()
 
-def start_run_log(results_dir: str):
+def start_run_log(results_dir: str) -> _Tee:
     """Redirect stdout and stderr to both terminal and run_log.txt."""
     path = os.path.join(results_dir, "run_log.txt")
     tee  = _Tee(path)
@@ -65,7 +68,7 @@ def start_run_log(results_dir: str):
     sys.stderr = tee
     return tee
 
-def stop_run_log(tee):
+def stop_run_log(tee: _Tee) -> None:
     """Restore stdout/stderr and close the log file."""
     tee.close()
 
@@ -87,7 +90,7 @@ def make_results_dir(label: str) -> str:
 # RUN CONFIG
 # ===========================================================================
 
-def save_run_config(allocation: dict, results_dir: str, label: str):
+def save_run_config(allocation: dict, results_dir: str, label: str) -> None:
     """
     Save all user parameters and the final allocation to run_config.json.
 
@@ -149,7 +152,7 @@ def export_results(backtest: pd.DataFrame,
                    stats_list: list[StrategyStats],
                    allocation: dict,
                    results_dir: str,
-                   label: str):
+                   label: str) -> None:
     """
     Export all results to results_dir:
       backtest_history.csv         -- monthly portfolio values
@@ -464,7 +467,7 @@ def _write_excel_log(log_path: str, rows: list[dict]):
 def append_to_master_log(results_dir: str,
                          stats_list: list[StrategyStats],
                          weights: dict,
-                         label: str):
+                         label: str) -> None:
     """
     Append one row to results/master_log.xlsx.
     Rewrites the full file each time to maintain correct formatting.
@@ -501,14 +504,14 @@ def append_to_master_log(results_dir: str,
 # PRETTY PRINTING
 # ===========================================================================
 
-def print_header(title: str):
+def print_header(title: str) -> None:
     """Print a clearly visible section divider to the terminal."""
     print("\n" + "=" * 60)
     print(f"  {title}")
     print("=" * 60)
 
 
-def print_rebalancing(instructions: pd.DataFrame, total_value: float):
+def print_rebalancing(instructions: pd.DataFrame, total_value: float) -> None:
     """Print formatted rebalancing instructions to the terminal."""
     print_header("MONTHLY REBALANCING INSTRUCTIONS")
     print(f"  Total Portfolio Value: ${total_value:,.2f}\n")
@@ -534,7 +537,7 @@ def print_rebalancing(instructions: pd.DataFrame, total_value: float):
                             "Drift (%)", "Action", "$ Amount"]].to_string(index=False))
 
 
-def print_stats(stats_list: list[StrategyStats]):
+def print_stats(stats_list: list[StrategyStats]) -> None:
     """Print formatted performance statistics to the terminal."""
     print_header("PERFORMANCE STATISTICS")
     for s in stats_list:

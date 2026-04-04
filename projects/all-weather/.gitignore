@@ -1,8 +1,13 @@
 # Generated outputs — never commit these
 results/
 
-# Live portfolio state
+# Live portfolio state and trade logs
 portfolio_holdings.json
+logs/
+
+# Private strategy data and drafts
+strategies.json
+linkedin_post.md
 
 # Session-specific notes (not for public repo)
 session_handoff.md

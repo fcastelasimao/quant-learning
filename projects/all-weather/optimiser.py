@@ -27,6 +27,11 @@ from scipy.optimize import minimize
 from backtest import run_backtest, compute_cagr, compute_max_drawdown, \
                      compute_sharpe, compute_calmar, compute_ulcer_index
 
+# Penalty returned when a candidate allocation violates constraints
+# (CAGR floor or asset-class caps). Must be large enough that the
+# optimiser never prefers a violated solution over any feasible one.
+CONSTRAINT_VIOLATION_PENALTY: float = 1e6
+
 
 # ===========================================================================
 # WEIGHT PROJECTION
@@ -139,7 +144,7 @@ def _score_allocation(weights_array: np.ndarray,
             indices     = [tickers.index(t) for t in group_tickers if t in tickers]
             group_total = sum(weights_array[i] for i in indices)
             if group_total > cap + 1e-6:
-                return 1e6  # penalty: violated asset class cap
+                return CONSTRAINT_VIOLATION_PENALTY
 
     allocation = dict(zip(tickers, weights_array))
     bt         = run_backtest(prices, benchmark_prices, allocation)
@@ -150,7 +155,7 @@ def _score_allocation(weights_array: np.ndarray,
     mdd  = compute_max_drawdown(series)
 
     if cagr < min_cagr:
-        return 1e6      # penalty: violated minimum CAGR constraint
+        return CONSTRAINT_VIOLATION_PENALTY
 
     if method == "sharpe_slsqp":
         ret_col = "All Weather Value Monthly Ret (%)"
@@ -222,7 +227,7 @@ def optimise_random(prices: pd.DataFrame,
             best_score   = score
             best_weights = weights
 
-    display      = -best_score if best_score < 1e5 else float("nan")
+    display      = -best_score if best_score < CONSTRAINT_VIOLATION_PENALTY else float("nan")
     metric_label = "Martin ratio" if method == "martin" else "Calmar"
     print(f"  Optimiser complete | Best {metric_label}: {display:.3f}")
 
@@ -372,7 +377,7 @@ def optimise_allocation(prices: pd.DataFrame,
 def compute_risk_parity_weights(prices: pd.DataFrame,
                                 tickers: list[str],
                                 estimation_years: float = 5.0,
-                                min_weight: float = 0.02,
+                                min_weight: float = 0.02,  # matches config.RP_MIN_WEIGHT
                                 end_date: str | None = None) -> dict[str, float]:
     """
     Compute risk contribution equalisation (risk parity) weights.

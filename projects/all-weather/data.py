@@ -18,6 +18,8 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
 warnings.filterwarnings("ignore", category=FutureWarning, module="pandas")
 warnings.filterwarnings("ignore", message=".*auto_adjust.*")  # yfinance deprecation
 
+DATA_STALENESS_WARNING_DAYS = 45
+
 
 def fetch_prices(tickers: list[str],
                  start_date: str,
@@ -72,36 +74,37 @@ def fetch_prices(tickers: list[str],
     # ===========================================================================
 
     # Assert no column is entirely NaN (would indicate a bad ticker or date range)
-    for ticker in prices.columns:
-        if prices[ticker].isna().all():
-            raise ValueError(
-                f"DATA QUALITY: ticker '{ticker}' has no data at all. "
-                f"Check the symbol or the date range."
-            )
+    all_nan_cols = prices.columns[prices.isna().all()]
+    if len(all_nan_cols) > 0:
+        raise ValueError(
+            f"DATA QUALITY: tickers {list(all_nan_cols)} have no data at all. "
+            f"Check the symbols or the date range."
+        )
 
-    # Warn if any single daily return exceeds 30% (likely a data error)
+    # Warn if any single daily return exceeds threshold (likely a data error)
+    SUSPICIOUS_RETURN_THRESHOLD = 0.30
     daily_returns = prices.pct_change()
-    for ticker in daily_returns.columns:
-        max_return = daily_returns[ticker].abs().max()
-        if max_return > 0.30:
-            print(
-                f"DATA QUALITY WARNING: '{ticker}' has a single-day return of "
-                f"{max_return:.1%} -- possible data error or split not adjusted."
-            )
+    max_abs_returns = daily_returns.abs().max()
+    suspicious = max_abs_returns[max_abs_returns > SUSPICIOUS_RETURN_THRESHOLD]
+    for ticker, max_ret in suspicious.items():
+        print(
+            f"DATA QUALITY WARNING: '{ticker}' has a single-day return of "
+            f"{max_ret:.1%} -- possible data error or split not adjusted."
+        )
 
     # Assert no negative prices (would indicate corrupted or unadjusted data)
-    for ticker in prices.columns:
-        if (prices[ticker].dropna() < 0).any():
-            raise AssertionError(
-                f"DATA QUALITY: ticker '{ticker}' contains negative prices. "
-                f"Data is likely corrupted."
-            )
+    neg_cols = prices.columns[(prices.dropna() < 0).any()]
+    if len(neg_cols) > 0:
+        raise AssertionError(
+            f"DATA QUALITY: tickers {list(neg_cols)} contain negative prices. "
+            f"Data is likely corrupted."
+        )
 
     # Warn if the last date in the index is more than 45 calendar days before today.
     # Total return (adjusted) data from yfinance may lag by 30-45 days for some tickers.
     last_date = prices.index[-1].date() if hasattr(prices.index[-1], "date") else prices.index[-1]
     days_stale = (date.today() - last_date).days
-    if days_stale > 45:
+    if days_stale > DATA_STALENESS_WARNING_DAYS:
         print(
             f"DATA QUALITY WARNING: last price date is {last_date} "
             f"({days_stale} calendar days ago). Total return data from yfinance may lag "

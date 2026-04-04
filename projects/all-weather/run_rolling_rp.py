@@ -65,7 +65,7 @@ SPLITS = [
 # Helpers
 # ---------------------------------------------------------------------------
 
-def save_weight_history(weight_history: list[dict], results_dir: str, tag: str) -> str:
+def save_weight_history(weight_history: list[dict[str, object]], results_dir: str, tag: str) -> str:
     """Persist rolling RP weight history to a CSV. Returns the file path."""
     df   = pd.DataFrame(weight_history).set_index("date")
     path = os.path.join(results_dir, f"weight_history_{tag}.csv")
@@ -74,7 +74,7 @@ def save_weight_history(weight_history: list[dict], results_dir: str, tag: str) 
     return path
 
 
-def _latest_weights(weight_history: list[dict]) -> dict:
+def _latest_weights(weight_history: list[dict[str, object]]) -> dict[str, float]:
     """Return the weights dict from the last recomputation (strips the 'date' key)."""
     last = weight_history[-1]
     return {k: v for k, v in last.items() if k != "date"}
@@ -93,6 +93,11 @@ def run_rolling_is(prices: pd.DataFrame) -> tuple[float, float, str]:
 
     Returns (IS Calmar, IS daily MDD, results_dir).
     """
+    # Intentional global config mutation: this script reconfigures config
+    # module-level attributes per run so that downstream code (export,
+    # plotting, master_log) picks up the correct metadata without threading
+    # parameters through every call. Each run_* function sets its own values
+    # before calling any shared code.
     config.OOS_START = IS_END
     config.RUN_MODE  = "full_backtest"
     config.RUN_TAG   = "rolling_rp_is"
@@ -233,7 +238,7 @@ def run_static_oos(prices: pd.DataFrame, oos_start: str, tag: str) -> tuple[floa
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main():
+def main() -> None:
     print("=" * 70)
     print("ROLLING RP vs STATIC RP")
     print(f"IS sanity: {config.BACKTEST_START} → {IS_END}")

@@ -69,6 +69,8 @@ COL_6040 = "#3fb950"  # green
 
 WATERMARK = "github.com/fcastelasimao/quant-learning"
 
+TRADING_DAYS_PER_YEAR = 252
+
 # ---------------------------------------------------------------------------
 # DATA
 # ---------------------------------------------------------------------------
@@ -140,7 +142,7 @@ def build_monthly_rebalanced(prices: pd.DataFrame,
 
 def apply_fee(series: pd.Series, annual_fee: float) -> pd.Series:
     """Apply daily fee drag."""
-    daily_drag = (1 - annual_fee) ** (1 / 252)
+    daily_drag = (1 - annual_fee) ** (1 / TRADING_DAYS_PER_YEAR)
     n = len(series)
     drag = pd.Series([daily_drag ** i for i in range(n)], index=series.index)
     return series * drag
@@ -179,7 +181,7 @@ def compute_metrics(series: pd.Series) -> dict:
 # PLOTTING
 # ---------------------------------------------------------------------------
 
-def _style_ax(ax):
+def _style_ax(ax: plt.Axes) -> None:
     ax.set_facecolor(PANEL_BG)
     ax.tick_params(colors=TEXT_COL, labelsize=9)
     for sp in ax.spines.values():
@@ -193,7 +195,7 @@ def _style_ax(ax):
     ax.grid(axis="x", color=GRID_COL, alpha=0.25, linewidth=0.4)
 
 
-def _add_watermark(ax):
+def _add_watermark(ax: plt.Axes) -> None:
     ax.text(
         0.995, 0.012, WATERMARK,
         transform=ax.transAxes,
@@ -203,7 +205,7 @@ def _add_watermark(ax):
     )
 
 
-def find_drawdown_window(series: pd.Series, pad_days: int = 14):
+def find_drawdown_window(series: pd.Series, pad_days: int = 14) -> tuple:
     """Find the peak-to-trough window of the max drawdown, with padding."""
     running_max = series.cummax()
     drawdowns = (series - running_max) / running_max
@@ -409,7 +411,7 @@ def plot_linkedin(all_series: dict[str, pd.Series],
 # MAIN
 # ---------------------------------------------------------------------------
 
-def main():
+def main() -> None:
     prices = fetch_prices()
 
     # Align everything to ALLW start

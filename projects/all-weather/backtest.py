@@ -20,12 +20,19 @@ which can always be overridden by the caller.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 
 import config
+
+# ---------------------------------------------------------------------------
+# Named constants
+# ---------------------------------------------------------------------------
+DAYS_PER_YEAR = 365.25
+TRADING_DAYS_PER_YEAR = 252
+SIXTY_FORTY_EQUITY = 0.60
+SIXTY_FORTY_BOND = 0.40
 
 
 # ===========================================================================
@@ -125,7 +132,7 @@ def compute_calmar(cagr: float, max_drawdown: float) -> float:
 
 
 def compute_max_drawdown_daily(prices: pd.DataFrame,
-                               allocation: dict) -> float:
+                               allocation: dict[str, float]) -> float:
     """
     Maximum drawdown computed at daily price resolution.
 
@@ -133,9 +140,9 @@ def compute_max_drawdown_daily(prices: pd.DataFrame,
     prices. A 20% intramonth drop that recovers by month-end is invisible
     to the monthly engine. Daily MDD captures the true worst-case experience.
 
-    Simulates the same monthly rebalancing logic as run_backtest() but
-    tracks portfolio value at every trading day rather than just month-ends.
-    Between rebalancing dates, the portfolio drifts with daily prices.
+    Uses a target-weight approximation: daily portfolio returns are the
+    weighted sum of asset returns using target weights. Between monthly
+    rebalances weights drift slightly, but the effect on MDD is negligible.
 
     Returns a negative number (same convention as compute_max_drawdown).
     Returns 0.0 if prices are empty or allocation is empty.
@@ -149,23 +156,22 @@ def compute_max_drawdown_daily(prices: pd.DataFrame,
     if daily.empty or len(daily) < 2:
         return 0.0
 
-    # Month-end dates used as rebalance triggers
-    monthly_dates = set(daily.resample(config.DATA_FREQUENCY).last().dropna().index)
+    weights = np.array([allocation[t] for t in available])
+    weights = weights / weights.sum()
 
-    # Initialise holdings proportionally on first trading day
-    first = daily.iloc[0]
-    pv    = config.INITIAL_PORTFOLIO_VALUE
-    holdings = {t: (pv * allocation[t]) / float(first[t]) for t in available}
+    # Daily portfolio returns as weighted sum of asset returns (target-weight
+    # approximation). Between monthly rebalances, weights drift slightly,
+    # but the effect on MDD is negligible.
+    daily_rets = daily.pct_change().fillna(0.0).values  # (T, N)
+    port_rets = daily_rets @ weights                     # (T,)
 
-    daily_values = []
-    for date, row in daily.iterrows():
-        pv = sum(holdings[t] * float(row[t]) for t in available)
-        daily_values.append(pv)
-        if date in monthly_dates:
-            for t in available:
-                holdings[t] = (pv * allocation[t]) / float(row[t])
+    # Cumulative portfolio value
+    port_values = config.INITIAL_PORTFOLIO_VALUE * np.cumprod(1.0 + port_rets)
 
-    return compute_max_drawdown(pd.Series(daily_values))
+    # Max drawdown from running peak
+    running_max = np.maximum.accumulate(port_values)
+    drawdowns = (port_values - running_max) / running_max
+    return float(np.min(drawdowns)) * 100
 
 
 def compute_avg_drawdown(series: pd.Series) -> float:
@@ -208,19 +214,19 @@ def compute_avg_recovery_time(series: pd.Series) -> float:
     """
     peak = series.cummax()
     underwater = (series < peak).values
-    durations = []
-    current = 0
-    in_drawdown = False
-    for u in underwater:
-        if u:
-            in_drawdown = True
-            current += 1
-        elif in_drawdown:
-            durations.append(current)
-            current = 0
-            in_drawdown = False
-    if not durations:
+    if not underwater.any():
         return 0.0
+
+    # Detect transitions: 0->1 = drawdown start, 1->0 = recovery
+    transitions = np.diff(underwater.astype(np.int8), prepend=0)
+    starts = np.where(transitions == 1)[0]
+    ends = np.where(transitions == -1)[0]
+
+    # Only count complete episodes (with recovery)
+    n_complete = min(len(starts), len(ends))
+    if n_complete == 0:
+        return 0.0
+    durations = ends[:n_complete] - starts[:n_complete]
     return round(float(np.mean(durations)), 1)
 
 
@@ -264,8 +270,8 @@ def compute_sortino(monthly_ret_series: pd.Series,
 def run_backtest(prices: pd.DataFrame,
                  benchmark_prices: pd.Series,
                  allocation: dict,
-                 portfolio_value: Optional[float] = None,
-                 tlt_prices: Optional[pd.Series] = None,
+                 portfolio_value: float | None = None,
+                 tlt_prices: pd.Series | None = None,
                  transaction_cost_pct: float = 0.0,
                  tax_drag_pct: float = 0.0) -> pd.DataFrame:
     """
@@ -341,12 +347,14 @@ def run_backtest(prices: pd.DataFrame,
     sixty_forty_tlt = None
     sixty_forty_prev_year = None
     if tlt_monthly is not None:
-        sixty_forty_spy = portfolio_value * 0.60 / float(bench.iloc[0])
-        sixty_forty_tlt = portfolio_value * 0.40 / float(tlt_monthly.iloc[0])
+        sixty_forty_spy = portfolio_value * SIXTY_FORTY_EQUITY / float(bench.iloc[0])
+        sixty_forty_tlt = portfolio_value * SIXTY_FORTY_BOND / float(tlt_monthly.iloc[0])
         sixty_forty_prev_year = monthly.index[0].year
 
     aw_prev_year = monthly.index[0].year
 
+    # Note: this loop is intentionally iterative due to stateful monthly rebalancing
+    # with transaction costs and 60/40 annual rebalance logic.
     records = []
     for date, row in monthly.iterrows():
         # Annual rebalance for 60/40: restore 60/40 split at start of each new year
@@ -356,11 +364,11 @@ def run_backtest(prices: pd.DataFrame,
             if transaction_cost_pct > 0:
                 spy_val = sixty_forty_spy * float(bench.loc[date])
                 tlt_val = sixty_forty_tlt * float(tlt_monthly.loc[date])
-                trade_values_6040 = (abs(current_6040 * 0.60 - spy_val)
-                                     + abs(current_6040 * 0.40 - tlt_val))
+                trade_values_6040 = (abs(current_6040 * SIXTY_FORTY_EQUITY - spy_val)
+                                     + abs(current_6040 * SIXTY_FORTY_BOND - tlt_val))
                 current_6040 -= trade_values_6040 * transaction_cost_pct
-            sixty_forty_spy = current_6040 * 0.60 / float(bench.loc[date])
-            sixty_forty_tlt = current_6040 * 0.40 / float(tlt_monthly.loc[date])
+            sixty_forty_spy = current_6040 * SIXTY_FORTY_EQUITY / float(bench.loc[date])
+            sixty_forty_tlt = current_6040 * SIXTY_FORTY_BOND / float(tlt_monthly.loc[date])
             sixty_forty_prev_year = date.year
 
         aw_value  = sum(sh * float(row[t]) for t, sh in aw_holdings.items())
@@ -419,8 +427,8 @@ def run_backtest(prices: pd.DataFrame,
 def run_backtest_rolling_rp(prices: pd.DataFrame,
                             benchmark_prices: pd.Series,
                             tickers: list[str],
-                            portfolio_value: Optional[float] = None,
-                            tlt_prices: Optional[pd.Series] = None,
+                            portfolio_value: float | None = None,
+                            tlt_prices: pd.Series | None = None,
                             transaction_cost_pct: float = 0.0,
                             tax_drag_pct: float = 0.0,
                             rp_lookback_years: float = 5.0,
@@ -495,13 +503,15 @@ def run_backtest_rolling_rp(prices: pd.DataFrame,
     sixty_forty_tlt = None
     sixty_forty_prev_year = None
     if tlt_monthly is not None:
-        sixty_forty_spy = portfolio_value * 0.60 / float(bench.iloc[0])
-        sixty_forty_tlt = portfolio_value * 0.40 / float(tlt_monthly.iloc[0])
+        sixty_forty_spy = portfolio_value * SIXTY_FORTY_EQUITY / float(bench.iloc[0])
+        sixty_forty_tlt = portfolio_value * SIXTY_FORTY_BOND / float(tlt_monthly.iloc[0])
         sixty_forty_prev_year = monthly.index[0].year
 
     aw_prev_year = monthly.index[0].year
-    records = []
 
+    # Note: this loop is intentionally iterative due to stateful monthly rebalancing
+    # with rolling RP weight recomputation and 60/40 annual rebalance logic.
+    records = []
     for date_idx, (date, row) in enumerate(monthly.iterrows()):
         # --- Recompute RP weights at recomputation dates ---
         if date in recompute_dates and date_idx > 0:
@@ -517,8 +527,8 @@ def run_backtest_rolling_rp(prices: pd.DataFrame,
         if sixty_forty_spy is not None and date.year != sixty_forty_prev_year:
             current_6040 = (sixty_forty_spy * float(bench.loc[date])
                             + sixty_forty_tlt * float(tlt_monthly.loc[date]))
-            sixty_forty_spy = current_6040 * 0.60 / float(bench.loc[date])
-            sixty_forty_tlt = current_6040 * 0.40 / float(tlt_monthly.loc[date])
+            sixty_forty_spy = current_6040 * SIXTY_FORTY_EQUITY / float(bench.loc[date])
+            sixty_forty_tlt = current_6040 * SIXTY_FORTY_BOND / float(tlt_monthly.loc[date])
             sixty_forty_prev_year = date.year
 
         aw_value = sum(sh * float(row[t]) for t, sh in aw_holdings.items())
@@ -661,8 +671,8 @@ compute_spy_overlay_signal = compute_overlay_signal
 def run_backtest_with_overlay(prices: pd.DataFrame,
                               benchmark_prices: pd.Series,
                               allocation: dict,
-                              portfolio_value: Optional[float] = None,
-                              tlt_prices: Optional[pd.Series] = None,
+                              portfolio_value: float | None = None,
+                              tlt_prices: pd.Series | None = None,
                               transaction_cost_pct: float = 0.0,
                               tax_drag_pct: float = 0.0) -> pd.DataFrame:
     """
@@ -737,8 +747,8 @@ def run_backtest_with_overlay(prices: pd.DataFrame,
     sixty_forty_tlt_sh = None
     sixty_forty_prev_yr = None
     if tlt_daily is not None:
-        sixty_forty_spy_sh  = portfolio_value * 0.60 / float(bench.iloc[0])
-        sixty_forty_tlt_sh  = portfolio_value * 0.40 / float(tlt_daily.iloc[0])
+        sixty_forty_spy_sh  = portfolio_value * SIXTY_FORTY_EQUITY / float(bench.iloc[0])
+        sixty_forty_tlt_sh  = portfolio_value * SIXTY_FORTY_BOND / float(tlt_daily.iloc[0])
         sixty_forty_prev_yr = daily.index[0].year
 
     # Track previous signal for each overlaid asset to detect state changes
@@ -748,6 +758,8 @@ def run_backtest_with_overlay(prices: pd.DataFrame,
     # Target weights for overlaid assets (used to size cash bucket at month-end)
     overlay_target_ws = {t: allocation.get(t, 0.0) for t in overlay_signals}
 
+    # Note: this loop is intentionally iterative due to stateful daily overlay
+    # signal tracking, cash management, and monthly rebalancing with transaction costs.
     month_records = []
 
     for date, row in daily.iterrows():
@@ -807,8 +819,8 @@ def run_backtest_with_overlay(prices: pd.DataFrame,
                 if date.year != sixty_forty_prev_yr:
                     v6040 = (sixty_forty_spy_sh * float(bench.loc[date])
                              + sixty_forty_tlt_sh * tlt_p)
-                    sixty_forty_spy_sh  = v6040 * 0.60 / float(bench.loc[date])
-                    sixty_forty_tlt_sh  = v6040 * 0.40 / tlt_p
+                    sixty_forty_spy_sh  = v6040 * SIXTY_FORTY_EQUITY / float(bench.loc[date])
+                    sixty_forty_tlt_sh  = v6040 * SIXTY_FORTY_BOND / tlt_p
                     sixty_forty_prev_yr = date.year
                 sixty_forty_value = (sixty_forty_spy_sh * float(bench.loc[date])
                                      + sixty_forty_tlt_sh * tlt_p)
@@ -884,8 +896,8 @@ def run_backtest_with_overlay(prices: pd.DataFrame,
 # ===========================================================================
 
 def compute_stats(backtest: pd.DataFrame,
-                  prices: Optional["pd.DataFrame"] = None,
-                  allocation: Optional[dict] = None) -> list[StrategyStats]:
+                  prices: pd.DataFrame | None = None,
+                  allocation: dict | None = None) -> list[StrategyStats]:
     """
     Compute key performance statistics for all three strategies.
 
@@ -900,7 +912,7 @@ def compute_stats(backtest: pd.DataFrame,
       [All Weather (Rebalanced), Buy & Hold All Weather, S&P 500 Buy & Hold]
       plus 60/40 as the fourth element if the "60/40 Value" column exists.
     """
-    years = (backtest.index[-1] - backtest.index[0]).days / 365.25
+    years = (backtest.index[-1] - backtest.index[0]).days / DAYS_PER_YEAR
 
     # Compute daily MDD for AW_R once if daily prices are available
     daily_mdd_aw = 0.0

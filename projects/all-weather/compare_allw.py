@@ -60,6 +60,10 @@ DATE_END   = date.today().strftime("%Y-%m-%d")
 ALLW_FEE = 0.0085    # Bridgewater ALLW annual expense ratio
 DIY_FEE  = 0.0012    # Weighted avg ETF expense ratio for DIY strategies
 
+# 60/40 benchmark weights
+SIXTY_FORTY_EQUITY = 0.60
+SIXTY_FORTY_BOND   = 0.40
+
 IRAN_WAR_DATE = pd.Timestamp("2026-02-28")
 WATERMARK     = "github.com/fcastelasimao/quant-learning"
 
@@ -289,8 +293,8 @@ def fetch_daily_prices(start: str = DATE_START,
 # DAILY PORTFOLIO SERIES -----------------------------------------------------------
 
 def build_daily_series_buy_and_hold(prices: pd.DataFrame,
-                       allocation: dict,
-                       start_value: float = 100.0) -> pd.Series:
+                                    allocation: dict,
+                                    start_value: float = 100.0) -> pd.Series:
     """
     Compute daily portfolio value using a buy-and-hold strategy
     (initial weights, no rebalancing). Starting value = start_value.
@@ -309,6 +313,12 @@ def build_daily_series(prices: pd.DataFrame,
                        allocation: dict,
                        start_value: float = 100.0,
                        rebalance: bool = True) -> pd.Series:
+    """
+    Compute a daily portfolio value series from an allocation dict.
+
+    When *rebalance* is True, weights are restored to targets at each
+    month-end.  When False, the portfolio drifts (buy-and-hold).
+    """
     tickers = [t for t in allocation if t in prices.columns]
     alloc = {t: allocation[t] for t in tickers}
     total_w = sum(alloc.values())
@@ -439,7 +449,7 @@ def print_comparison_table(rows: list[dict],
 
 # DARK THEME HELPER ---------------------------------------------------------------
 
-def _style_ax(ax):
+def _style_ax(ax: plt.Axes) -> None:
     ax.set_facecolor(PANEL_BG)
     ax.tick_params(colors=TEXT_COL, labelsize=9)
     for sp in ax.spines.values():
@@ -453,7 +463,7 @@ def _style_ax(ax):
     ax.grid(axis="x", color=GRID_COL, alpha=0.25, linewidth=0.4)
 
 
-def _add_watermark(ax):
+def _add_watermark(ax: plt.Axes) -> None:
     ax.text(
         0.995, 0.012, WATERMARK,
         transform=ax.transAxes,
@@ -462,7 +472,7 @@ def _add_watermark(ax):
         style="italic",
     )
 
-def _save_both(fig, base_name: str):
+def _save_both(fig: plt.Figure, base_name: str) -> None:
     path = os.path.join(_RESULTS_DIR, f"{base_name}.png")
     plt.savefig(path, dpi=100, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
@@ -764,7 +774,7 @@ def save_comparison_excel(rows: list, period_label: str) -> None:
 
 # MAIN ----------------------------------------------------------------------
 
-def main():
+def main() -> None:
     # ── 1. Fetch data ────────────────────────────────────────────────────────
     prices = fetch_daily_prices(start=DATE_START, end=DATE_END)
 
@@ -798,8 +808,8 @@ def main():
     s_allw   = prices["ALLW"] / prices["ALLW"].iloc[0] * 100.0
     s_spy    = prices["SPY"]  / prices["SPY"].iloc[0]  * 100.0
     if "TLT" in prices.columns:
-        spy_sh   = 0.60 / float(prices["SPY"].iloc[0])
-        tlt_sh   = 0.40 / float(prices["TLT"].iloc[0])
+        spy_sh   = SIXTY_FORTY_EQUITY / float(prices["SPY"].iloc[0])
+        tlt_sh   = SIXTY_FORTY_BOND   / float(prices["TLT"].iloc[0])
         s_6040   = (spy_sh * prices["SPY"] + tlt_sh * prices["TLT"]) * 100.0
         s_6040   = s_6040 / s_6040.iloc[0] * 100.0
     else:

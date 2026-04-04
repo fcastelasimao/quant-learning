@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Optional
 
 import pandas as pd
 
@@ -39,7 +38,7 @@ import config
 # LOAD / SAVE
 # ===========================================================================
 
-def load_holdings() -> Optional[dict]:
+def load_holdings() -> dict | None:
     """
     Load current holdings from JSON file.
     Returns None if the file does not exist (first run).
@@ -50,7 +49,7 @@ def load_holdings() -> Optional[dict]:
     return None
 
 
-def save_holdings(holdings: dict):
+def save_holdings(holdings: dict) -> None:
     """Persist holdings to JSON file, overwriting previous state."""
     with open(config.HOLDINGS_FILE, "w") as f:
         json.dump(holdings, f, indent=2)

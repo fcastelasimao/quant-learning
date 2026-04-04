@@ -42,7 +42,7 @@ TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 # Load from strategies.json. Override by setting DEFAULT_STRATEGY.
 DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"
 
-def _load_default_allocation():
+def _load_default_allocation() -> dict[str, float]:
     base_path = os.path.dirname(__file__)
     strategies_path = os.path.join(base_path, "strategies.json")
     example_path = os.path.join(base_path, "strategies.example.json")
@@ -102,6 +102,8 @@ ASSET_BOUNDS = {
     "DJP": (0.05, 0.15),
     "IEF": (0.10, 0.25),
 }
+
+RP_MIN_WEIGHT = 0.02  # minimum per-asset weight in risk parity optimisation
 
 # ---- Pareto ----
 
@@ -174,7 +176,7 @@ def _build_run_label(price_start: str, price_end: str) -> str:
 
 # ---- Validation ----
 
-def validate_config():
+def validate_config() -> None:
     assert OPT_MIN_WEIGHT >= 0.0
     assert OPT_MAX_WEIGHT <= 1.0
     assert OPT_MIN_WEIGHT < OPT_MAX_WEIGHT

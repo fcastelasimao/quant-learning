@@ -24,6 +24,7 @@ import pandas as pd
 from backtest import (run_backtest, compute_cagr, compute_max_drawdown,
                       compute_calmar, compute_ulcer_index, compute_sortino)
 from optimiser import optimise_random, optimise_allocation
+from plotting import style_ax
 
 import config
 
@@ -407,16 +408,7 @@ def _plot_walk_forward(df: pd.DataFrame,
     ax1, ax2 = axes
 
     for ax in axes:
-        ax.set_facecolor("#161b22")
-        ax.tick_params(colors="#c9d1d9", labelsize=8)
-        for spine in ax.spines.values():
-            spine.set_color("#30363d")
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.yaxis.label.set_color("#c9d1d9")
-        ax.xaxis.label.set_color("#c9d1d9")
-        ax.title.set_color("white")
-        ax.grid(axis="y", color="#30363d", alpha=0.4)
+        style_ax(ax)
 
     windows_x = (df["Window"].astype(str) + "\n" +
                  df["Train Start"] + " - " + df["Test End"])
@@ -565,16 +557,7 @@ def _plot_pareto(cagrs: list,
     """Internal: plot the Pareto frontier and save to results_dir."""
     fig, ax = plt.subplots(figsize=(10, 6))
     fig.patch.set_facecolor("#0d1117")
-    ax.set_facecolor("#161b22")
-    ax.tick_params(colors="#c9d1d9")
-    for spine in ax.spines.values():
-        spine.set_color("#30363d")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.yaxis.label.set_color("#c9d1d9")
-    ax.xaxis.label.set_color("#c9d1d9")
-    ax.title.set_color("white")
-    ax.grid(alpha=0.3, color="#30363d")
+    style_ax(ax)
 
     ax.plot(drawdowns, cagrs, "o-", color="#58a6ff", lw=2, markersize=7,
             label="Efficient frontier (Calmar-optimised)")
