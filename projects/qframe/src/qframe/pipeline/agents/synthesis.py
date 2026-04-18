@@ -44,11 +44,11 @@ _LITERATURE_SEEDS: dict[str, list[str]] = {
         "GARCH proxy: difference between short and long-window volatility estimates",
     ],
     "quality": [
-        "Trend R-squared: R² of OLS fit of prices on time index (quality of trend)",
-        "Hurst exponent proxy: R/S statistic over 252-day rolling window",
+        "Rolling Sharpe ratio: 252-day rolling mean(log_returns) / std(log_returns) (cheap trend-quality proxy)",
+        "Drawdown duration: days elapsed since last 252-day rolling price high (persistence of uptrend)",
         "Low-beta anomaly: negative of rolling 252-day beta to equal-weight market (Frazzini & Pedersen 2014)",
-        "Return consistency: fraction of past 252 days with positive return",
-        "Calmar ratio proxy: rolling 252-day return divided by rolling max drawdown",
+        "Return skewness: 63-day rolling skewness of daily log returns (negative skew = fragile trend)",
+        "Recovery ratio: (current price − rolling 252-day min) / (rolling 252-day max − rolling 252-day min)",
     ],
     "value": [
         "Distance from 52-week high: 1 − (price / 52-week-high close) — anchoring/reversion",

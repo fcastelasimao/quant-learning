@@ -18,6 +18,7 @@ Usage (from notebook or CLI):
 from __future__ import annotations
 
 import datetime
+import io
 import re
 import subprocess
 import traceback
@@ -270,7 +271,7 @@ class PipelineLoop:
             cache_json = r.get("signal_cache_json")
             if cache_json:
                 try:
-                    cached = pd.read_json(cache_json, orient="split")
+                    cached = pd.read_json(io.StringIO(cache_json), orient="split")
                     cached.index = pd.to_datetime(cached.index)
                     oos_sig = cached.loc[self.oos_start:]
                     factor_signals[name] = oos_sig
@@ -329,10 +330,26 @@ class PipelineLoop:
                           0.0 = pure IC ranking (old behaviour); 0.3 = default.
         """
         all_results = self.kb.get_all_results()
-        candidates = sorted(
+
+        def _get_name(r: dict) -> str:
+            return r.get("factor_name") or f"impl_{r['implementation_id']}"
+
+        # Build candidates: positive-IC factors with executable code
+        raw_candidates = sorted(
             [r for r in all_results if r.get("ic") and r["ic"] > 0 and r.get("code")],
             key=lambda r: r["ic"], reverse=True
         )
+
+        # Deduplicate by factor_name — keep only the best-IC result per unique signal.
+        # Without this, duplicate implementations (e.g. impl_82 / impl_92 both named
+        # trend_quality_calmar_ratio) would both enter the ensemble and blend a signal
+        # with itself, which provides no diversification benefit.
+        seen_names: dict[str, dict] = {}
+        for r in raw_candidates:
+            name = _get_name(r)
+            if name not in seen_names:
+                seen_names[name] = r  # raw_candidates is IC-sorted; first = best
+        candidates = list(seen_names.values())
 
         if len(candidates) < 2:
             print(f"[Ensemble] Need at least 2 positive-IC factors — skipping")
@@ -341,8 +358,6 @@ class PipelineLoop:
         # Greedy correlation-aware selection
         # Start with highest-IC factor; at each step pick the candidate that maximises
         # IC - corr_penalty × mean(|correlation with already-selected factors|)
-        def _get_name(r: dict) -> str:
-            return r.get("factor_name") or f"impl_{r['implementation_id']}"
 
         selected: list[dict] = [candidates[0]]
         for candidate in candidates[1:]:
@@ -378,7 +393,7 @@ class PipelineLoop:
 
         # Compute weighted sum of factor signals
         combined: pd.DataFrame | None = None
-        for r, w in zip(valid, weights):
+        for r, w in zip(selected, weights):
             try:
                 fn = make_factor_fn(r["code"])
                 sig = run_factor_with_timeout(fn, self.prices, timeout=self.exec_timeout)
@@ -405,9 +420,9 @@ class PipelineLoop:
             )
             wf_result = validator.run(self.prices)
             metrics = wf_result.summary()
-            ensemble_name = f"ensemble_top{len(valid)}"
+            ensemble_name = f"ensemble_top{len(selected)}"
             hyp_id = self.kb.add_hypothesis(
-                description=f"IC-weighted ensemble of top {len(valid)} factors: {', '.join(names)}",
+                description=f"IC-weighted ensemble of top {len(selected)} factors: {', '.join(names)}",
                 rationale="Signal diversification — combining uncorrelated positive-IC factors reduces noise and improves ICIR",
                 mechanism_score=4,
                 status="active",
@@ -424,7 +439,7 @@ class PipelineLoop:
                 "universe": "sp500_survivorship_biased",
                 "gate_level": 1,
                 "passed_gate": 1 if metrics.get("icir", 0) > 0.15 else 0,
-                "notes": f"Auto-ensemble of top {len(valid)} factors by IC weight",
+                "notes": f"Auto-ensemble of top {len(selected)} factors by IC weight",
             })
             self.kb.update_hypothesis_status(hyp_id, "passed" if metrics.get("icir", 0) > 0.15 else "failed")
 

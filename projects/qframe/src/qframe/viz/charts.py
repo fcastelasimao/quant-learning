@@ -51,7 +51,12 @@ _FACTOR_TYPE_COLORS = {
 
 
 def _load_results(kb_path: str | Path) -> pd.DataFrame:
-    """Load full results table joined with hypothesis and implementation info."""
+    """Load full results table joined with hypothesis and implementation info.
+
+    Ensemble / combined-strategy entries (factor_name starting with
+    'phase25_', 'ensemble_', or 'combined_') are excluded — they are
+    meta-results, not individual factor signals, and pollute every chart.
+    """
     conn = sqlite3.connect(str(kb_path))
     df = pd.read_sql("""
         SELECT
@@ -66,6 +71,14 @@ def _load_results(kb_path: str | Path) -> pd.DataFrame:
         FROM backtest_results r
         JOIN implementations i ON i.id = r.implementation_id
         JOIN hypotheses h ON h.id = i.hypothesis_id
+        WHERE (
+            h.factor_name IS NULL
+            OR (
+                h.factor_name NOT LIKE 'phase25_%'
+                AND h.factor_name NOT LIKE 'ensemble_%'
+                AND h.factor_name NOT LIKE 'combined_%'
+            )
+        )
         ORDER BY r.ic DESC NULLS LAST
     """, conn)
     conn.close()

@@ -97,6 +97,17 @@ BUG 10 — np.where() on a DataFrame returns a plain ndarray, NOT a DataFrame:
           direction = pd.DataFrame(np.where(returns > 0, 1, np.where(returns < 0, -1, 0)),
                                    index=prices.index, columns=prices.columns)
 
+=== PERFORMANCE CONSTRAINT ===
+The universe is ~450 stocks × ~3800 dates. Any factor that runs in O(n_stocks × n_dates) with
+a pure-Python scalar function will timeout. FORBIDDEN patterns (will cause TimeoutError):
+- Rolling OLS regression per stock (stats.linregress, np.polyfit inside .rolling().apply())
+- R/S Hurst exponent (rolling().apply() with a multi-step Python function)
+- Any .rolling().apply() where the applied function has more than ~5 numpy operations
+
+FAST alternatives: use only native pandas/numpy vectorized operations (.rolling().mean(),
+.rolling().std(), .rank(), .pct_change(), .diff(), .ewm()). These run in compiled C code and
+will NOT timeout.
+
 === APPROVED PATTERNS ===
 
 # Rolling z-score:
@@ -129,12 +140,11 @@ result = returns.rolling(60).apply(lambda x: x.autocorr(lag=1) if len(x) > 1 els
 from scipy.stats import skew as _skew  # only inside approved pattern comment — stats is pre-imported
 result = returns.rolling(252, min_periods=60).apply(lambda x: stats.skew(x), raw=True)
 
-# Rolling Hurst (R/S analysis):
-def rs_hurst(x):
-    mean = x.mean(); dev = x - mean; r = dev.cumsum(); spread = r.max() - r.min()
-    s = x.std()
-    return spread / s if s > 0 else np.nan
-result = returns.rolling(252, min_periods=60).apply(rs_hurst, raw=True)
+# Rolling Sharpe ratio (trend quality proxy — FAST: only pandas rolling ops):
+returns = prices.pct_change()
+roll_mean = returns.rolling(252, min_periods=63).mean()
+roll_std  = returns.rolling(252, min_periods=63).std()
+result = roll_mean / roll_std.replace(0, np.nan)
 
 Return ONLY the function definition — no imports, no example usage, no explanation.\
 """

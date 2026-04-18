@@ -59,10 +59,19 @@ def make_factor_fn(code: str) -> Callable[[pd.DataFrame], pd.DataFrame]:
 
     fn = namespace.get("factor")
     if fn is None:
-        raise ValueError(
-            "Generated code must define a function named `factor`. "
-            f"Found names: {[k for k in namespace if not k.startswith('_')]}"
-        )
+        # Fallback: find the first user-defined callable (not a builtin/import)
+        _builtins = {"pd", "np", "stats"}
+        candidates = [
+            v for k, v in namespace.items()
+            if not k.startswith("_") and k not in _builtins and callable(v)
+        ]
+        if candidates:
+            fn = candidates[0]
+        else:
+            raise ValueError(
+                "Generated code must define a function named `factor`. "
+                f"Found names: {[k for k in namespace if not k.startswith('_')]}"
+            )
     if not callable(fn):
         raise ValueError("`factor` must be a callable function, not a value.")
     return fn

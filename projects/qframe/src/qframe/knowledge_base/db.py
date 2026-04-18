@@ -318,19 +318,37 @@ class KnowledgeBase:
     # Factor correlations
     # ------------------------------------------------------------------
 
-    def get_all_results(self) -> list[dict]:
+    def get_all_results(self, include_ensembles: bool = False) -> list[dict]:
         """
         Return all backtest results joined with hypothesis and implementation info.
         Useful for correlation analysis and notebook visualisation.
+
+        Args:
+            include_ensembles: if True, include ensemble/combined-strategy entries
+                (factor_name prefixes: 'phase25_', 'ensemble_', 'combined_').
+                Default False — these meta-results pollute IC charts and multiple-
+                testing correction tables.
+        """
+        ensemble_filter = "" if include_ensembles else """
+            AND (
+                h.factor_name IS NULL
+                OR (
+                    h.factor_name NOT LIKE 'phase25_%'
+                    AND h.factor_name NOT LIKE 'ensemble_%'
+                    AND h.factor_name NOT LIKE 'combined_%'
+                )
+            )
         """
         with self._connect() as conn:
-            rows = conn.execute("""
+            rows = conn.execute(f"""
                 SELECT r.*, h.factor_name, h.description, h.mechanism_score,
                        h.id as hypothesis_id,
                        i.code, i.notes as impl_notes
                 FROM backtest_results r
                 JOIN implementations i ON r.implementation_id = i.id
                 JOIN hypotheses h ON i.hypothesis_id = h.id
+                WHERE 1=1
+                {ensemble_filter}
                 ORDER BY r.ic DESC NULLS LAST
             """).fetchall()
         return [dict(r) for r in rows]

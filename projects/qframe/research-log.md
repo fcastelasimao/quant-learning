@@ -4,6 +4,61 @@
 
 ---
 
+## Session: 2026-04-18 (auto — domain=value)
+
+**Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 2 ERROR
+
+- `five_year_zscore_reversal_acceleration`: IC=-0.0169 ICIR=-0.0817 → **FAIL**
+- `five_year_range_position_relative_to_trend`: IC=0.0136 ICIR=0.1014 → **FAIL**
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_momentum_adjusted`: IC=0.0129 ICIR=0.1587 → **FAIL**
+- `distance_from_52w_high_acceleration` → **ERROR** (execution error)
+
+
+## Session: 2026-04-18 (auto — domain=quality)
+
+**Done:** ran 5 iteration(s): 0 PASS / 0 FAIL / 5 ERROR
+
+- `trend_quality_r_squared_63_adj` → **ERROR** (execution error)
+- `trend_quality_hurst_rolling_window` → **ERROR** (execution error)
+- `trend_quality_r_squared_residual` → **ERROR** (execution error)
+- `trend_quality_r_squared_rolling_stability` → **ERROR** (execution error)
+- `trend_quality_hurst_residual` → **ERROR** (execution error)
+
+
+## Session: 2026-04-18 (auto — domain=volatility)
+
+**Done:** ran 5 iteration(s): 0 PASS / 2 FAIL / 3 ERROR
+
+- `downside_volatility_skew_ratio_21`: IC=0.0020 ICIR=0.1079 → **FAIL**
+- `garch_proxy_skew_adjusted` → **ERROR** (execution error)
+- `downside_volatility_persistence` → **ERROR** (execution error)
+- `downside_volatility_skew_ratio_63`: IC=0.0023 ICIR=0.0474 → **FAIL**
+- `downside_volatility_regime_shift` → **ERROR** (execution error)
+
+
+## Session: 2026-04-18 (auto — domain=mean_reversion)
+
+**Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 2 ERROR
+
+- `bollinger_band_width_reversal`: IC=-0.0017 ICIR=-0.3036 → **FAIL**
+- `rsi_14_residual_vs_long_term`: IC=-0.0076 ICIR=-0.1547 → **FAIL**
+- `price_deviation_reversal_speed` → **ERROR** (execution error)
+- `long_term_residual_reversal` → **ERROR** (execution error)
+- `price_zscore_reversal_acceleration`: IC=-0.0154 ICIR=-0.0431 → **FAIL**
+
+
+## Session: 2026-04-18 (auto — domain=momentum)
+
+**Done:** ran 5 iteration(s): 0 PASS / 1 FAIL / 4 ERROR
+
+- `industry_momentum_acceleration_relative_to_market` → **ERROR** (execution error)
+- `residual_momentum_orthogonal_to_short_term_reversal` → **ERROR** (execution error)
+- `52_week_high_breakout_acceleration`: IC=-0.0167 ICIR=-0.0706 → **FAIL**
+- `residual_momentum_orthogonal_to_52w_high_growth` → **ERROR** (execution error)
+- `industry_relative_momentum_acceleration` → **ERROR** (execution error)
+
+
 ## Session: 2026-04-15 (auto — domain=quality)
 
 **Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 1 ERROR
@@ -57,19 +112,23 @@
 - Gate 1 (factor library): 🔄 IN PROGRESS
 - Gate 2+ (HSMM regime detection): ⬜ NOT STARTED
 
-**Knowledge base:** 84 hypotheses, 44 backtest results, 107 factor correlations.
+**Knowledge base:** 139 hypotheses, 131 backtest results, 578 factor correlations.
 
 **Passed-gate factors:**
+  - `trend_quality_calmar_ratio`: IC=0.0646, ICIR=0.3823, slow_icir_63=-0.0718
+  - `phase25_combined`: IC=0.0586, ICIR=0.2688
+  - `phase25_combined`: IC=0.0586, ICIR=0.2688
+  - `phase25_combined`: IC=0.0586, ICIR=0.2688
   - `unnamed`: IC=0.0490, ICIR=0.2513, slow_icir_63=0.2513
 
 **Top-5 by IC (OOS):**
   | Factor | IC | ICIR | slow_icir_63 |
   |--------|-----|------|----------|
   | trend_quality_calmar_ratio | 0.0646 | 0.3823 | -0.0718 |
-  | unnamed | 0.0490 | 0.2513 | 0.2513 |
-  | unnamed | 0.0169 | 0.1685 | — |
-  | unnamed | 0.0157 | 0.1663 | — |
-  | unnamed | 0.0124 | 0.0312 | — |
+  | trend_quality_calmar_ratio | 0.0646 | 0.3823 | -0.0718 |
+  | phase25_combined | 0.0586 | 0.2688 | — |
+  | phase25_combined | 0.0586 | 0.2688 | — |
+  | phase25_combined | 0.0586 | 0.2688 | — |
 ---
 
 ## Session: 2026-04-13 (part 2 — completion + live-trading review)
