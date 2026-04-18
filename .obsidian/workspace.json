@@ -1,0 +1,215 @@
+{
+  "main": {
+    "id": "fc15e7df860b640b",
+    "type": "split",
+    "children": [
+      {
+        "id": "6b83763ee0888487",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ee82d64cdc62de8e",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "projects/qframe/README.md",
+                "mode": "preview",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "README"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "29c13ef766860c47",
+    "type": "split",
+    "children": [
+      {
+        "id": "c029d17933f0cedb",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "98d51b353e07553a",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "fac749c0de59c3a8",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "b01a2dbe0132f060",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 258.5
+  },
+  "right": {
+    "id": "b1de83fac32a261d",
+    "type": "split",
+    "children": [
+      {
+        "id": "f17caa809e662ec8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4cc8372611ac1bb4",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "projects/qframe/quant_ai_plan.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for quant_ai_plan"
+            }
+          },
+          {
+            "id": "95ba530fc877eaa0",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "projects/qframe/quant_ai_plan.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from quant_ai_plan"
+            }
+          },
+          {
+            "id": "07f64de96bc8b1cb",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "00fdc2bdeb91e4c1",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "08c3f1b667412919",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "projects/qframe/quant_ai_plan.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of quant_ai_plan"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "ee82d64cdc62de8e",
+  "lastOpenFiles": [
+    "projects/qframe/src/qframe/data/__pycache__/loader.cpython-39.pyc",
+    "projects/qframe/src/qframe/data/__pycache__/__init__.cpython-39.pyc",
+    "projects/qframe/src/qframe/factor_harness/__pycache__/multiple_testing.cpython-39.pyc",
+    "projects/qframe/knowledge_base/qframe.db-journal",
+    "projects/qframe/scripts/__pycache__/batch_rerun.cpython-39.pyc",
+    "projects/qframe/scripts/__pycache__",
+    "projects/qframe/tests/__pycache__/test_regime.cpython-39-pytest-7.1.2.pyc",
+    "projects/qframe/src/qframe/pipeline/__pycache__/executor.cpython-39.pyc",
+    "projects/qframe/src/qframe/pipeline/__pycache__/__init__.cpython-39.pyc",
+    "projects/qframe/src/qframe/regime/__pycache__/analyzer.cpython-39.pyc",
+    "projects/qframe/src/qframe/regime/__pycache__/velocity.cpython-39.pyc",
+    "projects/all-weather/results/linkedin_comparison.png",
+    "projects/all-weather/results/linkedin_comparison_old.png",
+    "projects/all-weather/results/2026-04-15_allw_comparison_growth_from2025-03-06_to2026-04-15.png",
+    "projects/qframe/gate-thresholds.md",
+    "projects/qframe/CLAUDE.md",
+    "projects/qframe/research-log.md",
+    "projects/qframe/README.md",
+    "projects/qframe/docs/quant-primer.md",
+    "2026-04-13.md",
+    "Untitled.canvas",
+    "archive/HMM.md",
+    "projects/qframe/quant_ai_plan.md",
+    "projects/qframe/SKILL.md",
+    "projects/qframe/regime-model.md",
+    "projects/qframe/knowledge-base-schema.md"
+  ]
+}

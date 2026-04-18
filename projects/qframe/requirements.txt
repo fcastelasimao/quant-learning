@@ -1,0 +1,33 @@
+# Core data
+pandas>=2.0
+numpy>=1.26
+scipy>=1.11
+statsmodels>=0.14
+pyarrow>=14.0
+
+# Factor / ML
+hmmlearn>=0.3
+
+# Data access
+openbb>=4.0
+yfinance>=0.2
+
+# Storage & experiment tracking
+sqlalchemy>=2.0
+mlflow>=2.10
+
+# Environment / config
+python-dotenv>=1.0
+
+# LLM clients
+google-genai>=1.0
+ollama>=0.3
+groq>=0.9
+openai>=1.30
+
+# Development
+pytest>=7.4
+jupyterlab>=4.0
+ipykernel>=6.0
+matplotlib>=3.7
+seaborn>=0.13

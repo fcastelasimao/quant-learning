@@ -1,0 +1,209 @@
+# Research Log
+
+*Update this file at the end of every working session. Claude Code reads this at the start of the next session. Also update `agent_docs/research-log.md` with the technical detail.*
+
+---
+
+## Session: 2026-04-15 (auto — domain=quality)
+
+**Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 1 ERROR
+
+- `trend_quality_hurst`: IC=0.0002 ICIR=0.0416 → **FAIL**
+- `trend_quality_r_squared` → **ERROR** (execution error)
+- `trend_quality_hurst_exponent_proxy`: IC=0.0002 ICIR=0.0416 → **FAIL**
+- `trend_persistence_ratio`: IC=-0.0013 ICIR=-0.1929 → **FAIL**
+- `trend_quality_calmar_ratio`: IC=0.0646 ICIR=0.3823 → **WEAK**
+
+
+## Session: 2026-04-15 (auto — domain=volatility)
+
+**Done:** ran 5 iteration(s): 0 PASS / 5 FAIL / 0 ERROR
+
+- `downside_volatility_ratio`: IC=-0.0055 ICIR=-0.0099 → **FAIL**
+- `volatility_of_volatility_ratio`: IC=-0.0008 ICIR=-0.1350 → **FAIL**
+- `volatility_regime_stability`: IC=-0.0011 ICIR=-0.0480 → **FAIL**
+- `volatility_asymmetry`: IC=0.0103 ICIR=0.1891 → **FAIL**
+- `garch_proxy_ratio`: IC=-0.0041 ICIR=-0.2012 → **FAIL**
+
+
+## Session: 2026-04-14 (auto — domain=mean-reversion)
+
+**Done:** ran 5 iteration(s): 0 PASS / 1 FAIL / 4 ERROR
+
+- `mean_reversion_to_historical_mode` → **ERROR** (execution error)
+- `mean_reversion_to_historical_median`: IC=0.0041 ICIR=0.0477 → **FAIL**
+- `price_acceleration_autocorrelation` → **ERROR** (execution error)
+- `price_acceleration_skewness` → **ERROR** (execution error)
+- `price_reversal_ratio` → **ERROR** (execution error)
+
+
+## Session: 2026-04-14 (auto — domain=momentum)
+
+**Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 2 ERROR
+
+- `short_term_residual_momentum`: IC=0.0106 ICIR=0.1419 → **FAIL**
+- `price_momentum_52_week_high_ratio`: IC=0.0032 ICIR=0.0436 → **FAIL**
+- `trend_persistence` → **ERROR** (execution error)
+- `residual_momentum_52_week` → **ERROR** (execution error)
+- `industry_momentum_acceleration`: IC=0.0025 ICIR=0.1297 → **FAIL**
+
+
+## Current Status
+
+**Phase:** 1 — Agentic Pipeline (running)
+
+**Gate status:**
+- Gate 0 (infrastructure smoke test): ✅ PASSED
+- Gate 1 (factor library): 🔄 IN PROGRESS
+- Gate 2+ (HSMM regime detection): ⬜ NOT STARTED
+
+**Knowledge base:** 84 hypotheses, 44 backtest results, 107 factor correlations.
+
+**Passed-gate factors:**
+  - `unnamed`: IC=0.0490, ICIR=0.2513, slow_icir_63=0.2513
+
+**Top-5 by IC (OOS):**
+  | Factor | IC | ICIR | slow_icir_63 |
+  |--------|-----|------|----------|
+  | trend_quality_calmar_ratio | 0.0646 | 0.3823 | -0.0718 |
+  | unnamed | 0.0490 | 0.2513 | 0.2513 |
+  | unnamed | 0.0169 | 0.1685 | — |
+  | unnamed | 0.0157 | 0.1663 | — |
+  | unnamed | 0.0124 | 0.0312 | — |
+---
+
+## Session: 2026-04-13 (part 2 — completion + live-trading review)
+
+**Done:**
+
+### Visualisations
+- Created `src/qframe/viz/charts.py` with **13 chart functions**:
+  1. `plot_leaderboard` — IC and Sharpe horizontal bars for all factors
+  2. `plot_ic_decay_curves` — per-factor lines (solid = slow mean-reversion, dashed = normal decay)
+  3. `plot_ic_decay_heatmap` — orange outline where IC@63d > IC@1d (slow signal anomaly)
+  4. `plot_ic_vs_icir` — efficiency frontier scatter (dot size = turnover, colour = domain)
+  5. `plot_ic1_vs_ic63` — scatter with diagonal; above = mean-reversion, below = momentum
+  6. `plot_cumulative_ic` — IC building across horizons for top factors
+  7. `plot_slow_icir_comparison` — standard vs slow-ICIR (21d, 63d) grouped bars
+  8. `plot_turnover_scatter` — with break-even cost line
+  9. `plot_correlation_heatmap` — pairwise factor rank correlations (empty until `run_correlation_analysis()` called)
+  10. `plot_sharpe_histogram` — distribution of IC Sharpe
+  11. `plot_domain_breakdown` — pass/fail counts + mean IC per domain
+  12. `plot_error_rate` — hypothesis outcomes over time (shows prompt engineering improvement)
+  13. `plot_net_vs_gross_ic` — cost drag gap per factor
+- Added **28 new cells** to `notebooks/phase1_pipeline_demo.ipynb` Section A2; all charts verified working
+
+### Live trading cost model (costs.py)
+- Added `short_borrow_bps_annual` to `CostParams` (default 50 bps/yr — typical S&P 500 easy-to-borrow)
+- Added `funding_cost_bps_annual` to `CostParams` (default 0; set to ~550 bps for leveraged books)
+- Added `AGGRESSIVE_COST_PARAMS` (20 bps spread, 50 bps impact, 150 bps borrow, 550 bps funding)
+- `net_ic()` now models **3 components**: trading + borrow + funding
+- Added `compute_short_fraction()` — uses actual portfolio weights for borrow calculation
+- Added `cost_summary()` — human-readable cost breakdown in bps/day and bps/year
+- Added full "NOT MODELLED" table and live deployment checklist to module docstring
+- Walk-forward harness updated to pass `weights` to `net_ic()` (so borrow cost uses actual short fraction)
+
+### Key cost numbers (DEFAULT params, 5% daily turnover):
+| Horizon | Trading drag | Borrow drag | Total drag/year |
+|---------|-------------|-------------|-----------------|
+| 1 day   | 316 bps/yr  | 25 bps/yr   | **341 bps/yr**  |
+| 21 days | 15 bps/yr   | 25 bps/yr   | **40 bps/yr**   |
+
+Daily-rebalancing factors lose ~341 bps/year to costs. Slow factors (horizon=21+) are far cheaper to operate.
+
+### Documentation
+- Created `agent_docs/research-log.md` (technical detail for Claude Code)
+- Created `README.md` (public-facing GitHub README)
+- Updated `research-log.md` (this file), `CLAUDE.md`, `knowledge-base-schema.md`
+
+---
+
+## Session: 2026-04-13 (part 1 — pipeline improvements)
+
+**Done:**
+- Ran volatility (6×), quality (5×), momentum (5×), mean_reversion (3×) — **28 total backtested results, 60 hypotheses** in KB
+- Fixed major implementation agent bugs (error rate dropped from ~60% → ~20%):
+  - `scipy.stats` (as `stats`) added to executor namespace
+  - 10-bug anti-pattern list in implementation prompt with correct alternatives
+  - Self-healing one-shot retry on fixable errors
+  - `num_predict` bumped 512 → 768
+- LLM router: Groq TPD → Gemini fallback; `_parse_retry_delay` handles `Xm Ys` format
+- Multi-horizon ICIR: `compute_slow_icir()` with non-overlapping windows; `slow_icir_21` + `slow_icir_63` stored in every result
+- IC decay curve: changed from 5 sparse points to **all 63 days** stored as `ic_decay_json`
+- Survivorship bias: `load_sp500_historical_tickers()` and `load_survivorship_free_prices()` added
+- Factor correlation: `run_correlation_analysis()` + `run_ensemble_check()` added to `PipelineLoop`; run automatically every 5 iterations
+- Literature seeds: `_LITERATURE_SEEDS` dict added to synthesis agent (5 canonical factors per domain from Harvey/Liu/Zhu 2016, Jegadeesh-Titman 1993, etc.)
+- `factor_name` stored in KB and shown in synthesis context for better deduplication
+
+**Leaderboard (top 5, OOS 2018–2024):**
+
+| # | Factor | IC | ICIR | Net IC | TO/day | IC@63d |
+|---|--------|----|------|--------|--------|--------|
+| 1 | Risk-adjusted momentum (vol-normalized) | +0.0169 | +0.169 | +0.0167 | 4.5% | -0.019 |
+| 2 | 12-1 Jegadeesh-Titman momentum          | +0.0157 | +0.166 | +0.0156 | 4.1% | -0.014 |
+| 3 | Mean-reversion z-score                  | +0.0124 | +0.031 | +0.0122 | 6.6% | +0.002 |
+| 4 | EWMA returns                            | +0.0101 | +0.090 | +0.0100 | 5.9% | +0.001 |
+| 5 | Return skewness                         | +0.0092 | +0.113 | +0.0092 | 2.0% | +0.026 |
+
+Notable: `price_level_autocorrelation` has IC = +0.060 at 63-day horizon (genuine slow mean-reversion signal). `slow_icir_63` will be computed on next run to confirm.
+
+**LLM provider status (end of 2026-04-13):**
+- Groq: daily TPD limit (100k tokens) reached. Resets on rolling 24h window.
+- Gemini: free tier exhausted. Consider enabling billing on Google AI Studio.
+
+---
+
+## Session: 2026-04-12
+
+**Done:**
+- Phase 0 complete: factor harness, data loader, SQLite KB, 48 unit tests. Gate 0 PASSED (12-1 momentum IC=0.0157).
+- Phase 1 pipeline live: Synthesis → Implementation → Validation → Analysis → SQLite. All agents working.
+- 10 factors logged across momentum and mean_reversion domains.
+- Prices cached to `data/processed/sp500_close.parquet`.
+
+---
+
+## What to run next (when Groq/Gemini reset)
+
+```bash
+# Priority 1: more slow mean-reversion signals (most promising direction)
+./run_pipeline.sh --domain mean_reversion --n 5
+
+# Priority 2: push momentum over the weak gate (still worth exploring)
+./run_pipeline.sh --domain momentum --n 5
+
+# Priority 3: under-explored domains
+./run_pipeline.sh --domain quality --n 5
+./run_pipeline.sh --domain value --n 5
+```
+
+After every 5 new results `run_n()` automatically:
+- Runs `run_correlation_analysis()` and `run_ensemble_check(top_n=3)`
+- Updates `research-log.md` with the latest KB stats (the "Current Status" block + new session entry)
+
+---
+
+## Known Issues / Uncertainties
+
+- **Survivorship bias:** Universe is current S&P 500 constituents only. `load_survivorship_free_prices()` partially mitigates. True fix requires Norgate Data or CRSP (Phase 2 Gate 1 requirement). All current results should be treated as optimistic by ~10–30% IC.
+- **slow_icir_63 NULL for results 1–24, 26–28:** These predate the harness upgrade. Result id=25 was backfilled. Run the slow-ICIR investigation script on any other promising factors manually.
+- **impl_1 naming bug:** Code defines `momentum_factor` instead of `factor` — excluded from correlation analysis. Low priority.
+- **Momentum cluster redundancy:** impl_7, impl_50, impl_10 are ρ=0.79–0.88 correlated (effectively the same signal). Synthesis agent should be prompted to avoid 12-1 momentum variants.
+- **Universe expanded to 449 stocks (2026-04-13):** New parquet cached at `data/processed/sp500_close.parquet` (overwriting the 48-stock cache) and `data/processed/sp500_close_expanded.parquet`. 503 tickers attempted; 2 failed yfinance download (Q, SNDK — delisted); 52 dropped by quality filter (min 252 days history). All prior backtest results in SQLite were computed on the 48-stock cache — they remain in the DB for tracking but numbers are now known to be inflated.
+- **Multiple testing correction implemented:** `src/qframe/factor_harness/multiple_testing.py` — BHY, Bonferroni, Harvey-Liu-Zhu. On 449-stock universe: 0/14 BHY-significant, 1/14 HLZ-significant (impl_1). `price_level_autocorrelation` slow_icir_63 dropped from 0.251 → 0.190 on honest universe — not significant.
+- **Survivorship bias still present:** Historical ticker membership could not be fetched for any year (data source unavailable). `load_survivorship_free_prices()` fell back to current S&P 500 constituents for all years. The 449-stock universe is still 100% survivorship-biased — better than 48 stocks, but not a true fix.
+- **Portugal PC offline:** Everything on M1. Revisit for scheduled data jobs and PostgreSQL.
+
+---
+
+## Backlog (parked, not active)
+
+- MLflow full integration (Part B of Phase 1)
+- Transfer entropy from news sentiment to returns (Phase 4)
+- RP-PCA latent factor recovery (after HSMM Gate 1 passes)
+- Options signals: RVol-IVol spread, put-call skew (Phase 2 Gate 2+)
+- Critical slowing down early warning signals
+- Earnings revision factor via OpenBB + FMP
+- PEAD (post-earnings announcement drift)
+- Advisor Strategy (Sonnet executor + Opus advisor) — needs Anthropic API beta access
+- Cerebras as third LLM provider (1M TPD free — highest of all free providers)
