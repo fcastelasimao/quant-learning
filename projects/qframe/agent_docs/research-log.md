@@ -4,6 +4,31 @@ Read this first at the start of every session.
 
 ---
 
+## Current State (updated 2026-04-19)
+
+### impl_82 look-ahead discovered — Phase 1 INVALIDATED — Gate 3 REVOKED
+
+impl_82 (`trend_quality_calmar_ratio`, IC 0.0646, t 10.74, the only BHY-significant factor) was found to use forward-looking data via `pct_change(251).shift(-1)`. Evidence: (a) the new look-ahead boundary guard triggers its check for 100% of stocks; (b) on S&P 500 the fixed factor drops to IC 0.0138, t 2.34 (fails BHY at m=140); (c) on 25 Binance USDT pairs (2020–2024) the fixed factor gives IC −0.005, t −0.75 — zero alpha on an independent market.
+
+Phase 2.5 Gate 3 (Sharpe 4.27) is therefore **REVOKED**: the ensemble inherited the bias from impl_82. Notebook `phase3_crypto_replication.ipynb` documents the audit in full.
+
+Six new guards now active in the pipeline: look-ahead boundary check (`executor.py`), signal novelty filter ρ>0.70 (`loop.py`), pre-gate 2012–2016 (`walkforward.py`), BHY runtime gate with rolling m (`loop.py`), Deflated Sharpe Ratio (Bailey & López de Prado 2014, `multiple_testing.py`), per-stock ADV impact cost (`costs.py`). Synthesis agent now receives a "high-IC avoid list" + domain-rotation hint to stop re-discovering momentum. Implementation agent default swapped to Groq llama-3.3-70b.
+
+Test suite: 137 → 177 passing (pre-existing `test_llm.py::test_primary_success_no_fallback` still flaky — pre-existing, unrelated).
+
+### Gate summary
+
+| Gate | Status |
+|------|--------|
+| Gate 0 (factor harness) | ✅ PASSED |
+| Gate 1 (BHY-significant factor) | ❌ INVALIDATED 2026-04-19 — impl_82 retired, 0 validated factors |
+| Gate 2 (HSMM regime) | ✅ PASSED (infrastructure valid; impl_82 analysis moot) |
+| Gate 3 (net-of-cost Sharpe) | ❌ REVOKED 2026-04-19 — driven by impl_82 look-ahead |
+
+**Next:** run the pipeline with new guards to find a genuinely novel factor.
+
+---
+
 ## Current State (updated 2026-04-18, session 2)
 
 ### Phase 2.5 + 2.5b — complete and verified end-to-end

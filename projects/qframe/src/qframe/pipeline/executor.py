@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import threading
+import warnings
 from typing import Callable
 
 import numpy as np
@@ -222,6 +223,14 @@ def check_lookahead_bias(
         return
 
     if trunc_factor.shape != truncated_prices.shape:
+        warnings.warn(
+            f"[lookahead check skipped] {name}: truncated-panel factor shape "
+            f"{trunc_factor.shape} ≠ price panel shape {truncated_prices.shape}. "
+            "Shape mismatch will be caught by validate_factor_output; "
+            "look-ahead bias check cannot proceed on mismatched output.",
+            UserWarning,
+            stacklevel=2,
+        )
         return  # Shape mismatch handled by validate_factor_output separately.
 
     # Compare values on the overlapping date range
@@ -230,6 +239,14 @@ def check_lookahead_bias(
 
     both_finite = np.isfinite(full_slice) & np.isfinite(trunc_slice)
     if both_finite.sum() < 10:
+        warnings.warn(
+            f"[lookahead check skipped] {name}: fewer than 10 comparable (finite) "
+            f"cells in the truncated panel at {cutoff_date.date()}. "
+            "Check for excessive NaN in factor output — look-ahead bias cannot be confirmed "
+            "or ruled out.  Verify manually that no negative shifts are used.",
+            UserWarning,
+            stacklevel=2,
+        )
         return  # Too few comparable cells; skip.
 
     # PRIMARY CHECK — values differ where both are finite

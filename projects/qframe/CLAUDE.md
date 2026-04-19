@@ -118,8 +118,14 @@ Always read `agent_docs/research-log.md` first to understand where we left off.
 - Chart 22: `plot_blend_weights(blend_weights, hard_labels, title)` — stacked area chart of time-varying per-factor blend weights (Phase 2.5b); right-edge mean annotations; optional regime strip
 - `notebooks/phase1_pipeline_demo.ipynb` Section A2 now has 15 charts + correction summary table; all key cells have explanatory markdown
 - `notebooks/phase2_regime_analysis.ipynb` — Sections A–D with Charts 16–19 + equity curve (Section D); batch regime loop for ALL BHY-significant factors; regime results logged to KB
-- `notebooks/phase25_portfolio.ipynb` — Phase 2.5 combined strategy: IC-blend + regime gating + **Gate 3 ✅ PASSED** (Sharpe 4.27, MaxDD −10.3%, worst year +17.8%, cost efficiency 99.8%); Gate 3 uses cost-efficiency criterion (net IC/gross IC ≥ 90%) instead of raw turnover cap; Section D2 = Phase 2.5b dynamic posterior blend with Chart 22
+- `notebooks/phase25_portfolio.ipynb` — Phase 2.5 combined strategy (historical reference only — **Gate 3 REVOKED 2026-04-19**: driven by impl_82 look-ahead bias); Section D2 = Phase 2.5b dynamic posterior blend with Chart 22
 - `notebooks/gate0_momentum_smoke_test.ipynb` — enriched with explanatory markdown on pipeline phases, metric definitions, and Gate 0 criteria
+
+### Bug fixes and changes applied 2026-04-19
+- **impl_82 look-ahead bias discovered and retired.** `pct_change(251).shift(-1)` uses tomorrow's price. Crypto replication (25 Binance USDT pairs, 2020–2024) confirmed IC = −0.005, t = −0.75. Phase 2.5 Gate 3 REVOKED. Phase 1 gate INVALIDATED.
+- **Six new pipeline guards added:** look-ahead boundary check (`executor.py`), signal novelty filter ρ>0.70 (`loop.py`), pre-gate 2012–2016 (`walkforward.py`), BHY runtime gate with rolling m (`loop.py`), Deflated Sharpe Ratio (Bailey & López de Prado 2014, `multiple_testing.py`), per-stock ADV impact cost (`costs.py`).
+- **New crypto data loader:** `src/qframe/data/crypto.py` — loads OHLCV from Binance via `ccxt`; caches to parquet; filters by `min_history_days`.
+- **Test suite:** 137 → 177 passing.
 
 ### Bug fixes and changes applied 2026-04-18
 - `knowledge_base/db.py`: `get_bhy_significant()` filters ensemble prefixes (`phase25_`, `ensemble_`, `combined_`) and deduplicates by `factor_name`; `log_regime_result()` upserts (DELETE+INSERT) instead of plain INSERT; `get_regime_results()` uses MAX(id) subquery to deduplicate

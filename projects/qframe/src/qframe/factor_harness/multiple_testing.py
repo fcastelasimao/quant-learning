@@ -39,15 +39,20 @@ def compute_t_stat(ic: float, sharpe: float, n_oos_days: int = _DEFAULT_OOS_DAYS
     """
     Compute the t-statistic for a mean IC estimate.
 
-    The IC Sharpe ratio is: sharpe = (mean_IC / std_IC_daily) × √252
-    So:  mean_IC / std_IC_daily = sharpe / √252
+    SHARPE CONVENTION:
+        sharpe_annual  = ICIR × √252   ← what the DB stores as `sharpe`; used HERE
+        sharpe_per_period = ICIR        ← used by deflated_sharpe_ratio(); NOT here
+
+    The IC Sharpe ratio is: sharpe_annual = (mean_IC / std_IC_daily) × √252
+    So:  mean_IC / std_IC_daily = sharpe_annual / √252
 
     The t-stat for mean IC over N days:
-        t = (mean_IC / std_IC_daily) × √N = (sharpe / √252) × √N
+        t = (mean_IC / std_IC_daily) × √N = (sharpe_annual / √252) × √N
 
     Args:
         ic:          Mean IC over OOS period.
-        sharpe:      Annualised IC Sharpe ratio (= ICIR × √252).
+        sharpe:      Annualised IC Sharpe ratio (= ICIR × √252).  This is the value
+                     stored as `sharpe` in the knowledge-base `backtest_results` table.
         n_oos_days:  Number of OOS trading days.
 
     Returns:
@@ -276,8 +281,16 @@ def deflated_sharpe_ratio(
         DSR = Φ( (SR_obs − SR_0*) × √T
                   × √(1 − ŝkew×SR_obs + (kurt−1)/4 × SR_obs²) )
 
+    ⚠️  SHARPE CONVENTION — CRITICAL:
+        `sharpe_obs` MUST be the **per-period (daily) SR = ICIR** (= mean_IC / std_IC).
+        Do NOT pass in the annualised SR (= ICIR × √252).  The formula already
+        multiplies by √T internally; passing the annualised figure inflates DSR by √252.
+        Quick check: if your IC Sharpe is displayed as ~4.0 on the leaderboard
+        (annualised), divide by √252 ≈ 15.87 before calling this function → ~0.25.
+
     Args:
-        sharpe_obs:  Observed annualised Sharpe Ratio from the best backtest.
+        sharpe_obs:  Per-period (daily) Sharpe Ratio = ICIR = mean_IC / std_IC_daily.
+                     **NOT the annualised SR** (do not multiply by √252 before calling).
         n_trials:    Number of strategies tried (= number of backtest results).
         t:           Number of independent observations (= OOS trading days).
         skewness:    Skewness of the strategy return series (default 0).

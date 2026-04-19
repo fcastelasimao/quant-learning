@@ -31,11 +31,16 @@ Phase 0: Foundations (now)
     └── Set up infrastructure (Qlib, RD-Agent, SQLite knowledge base)
     └── Set up hardware (M1 + Portugal PC + Tailscale)
 
-Phase 1: Agentic Pipeline (4)  ← ✅ COMPLETE
+Phase 1: Agentic Pipeline (4)  ← ⚠️ INVALIDATED 2026-04-19
     └── Core loop: Hypothesis → Code → Backtest → Evaluate → Store  ✅ LIVE
-    └── 96 factors tested; 1 BHY-significant (impl_82 t=10.74); impl_82/impl_92 are duplicates; impl_53 t=1.31 (slow-signal formula — not significant)
+    └── 96 factors tested; 0 validated. impl_82 retired 2026-04-19 (look-ahead bias: pct_change(251).shift(-1));
+    └──   crypto cross-check: fixed IC = −0.005, t = −0.75. impl_53 t=1.31 — not significant.
+    └── CAUTIONARY TALE: a shift(-1) in a 252-day return formula produced t=10.74 in-sample, fooling BHY.
+    └──   The pipeline's own look-ahead guard caught it on Phase 3 crypto audit. The infrastructure works.
+    └──   The lesson: always cross-validate on an independent market before claiming Phase 1 complete.
     └── Universe: 449-stock S&P 500 (survivorship-free best-effort)
     └── Multiple testing: BHY correction implemented (factor_harness/multiple_testing.py)
+    └── Six new guards added: look-ahead boundary, signal novelty, pre-gate, BHY runtime, DSR, ADV impact cost
     └── Auto-update: research-log.md written after every run_n() call
     └── Crowding monitor as risk overlay (reflexivity-aware)  ← BACKLOG
 
@@ -45,11 +50,11 @@ Phase 2: Regime-Aware Factor Timing (1)  ← ✅ COMPLETE
     └── Gate 2 ✅: impl_82 lift = 1.27× (used unconditionally; regime-gating threshold 1.5×)
     └── Phase 2 notebook: sections A–D with equity curve analysis
 
-Phase 2.5: Regime-Conditional Portfolio Construction  ← ✅ COMPLETE
-    └── Gate 3 ✅ PASSED: Sharpe 4.27, MaxDD −10.3%, worst year +17.8%, cost efficiency 99.8%
-    └── IC-proportional blend + regime posterior blend (Chart 22)
-    └── Turnover 883%/yr is operational note (not a gate criterion); cost efficiency gate (≥90%) replaces raw turnover cap
-    └── See notebooks/phase25_portfolio.ipynb for full Gate 3 analysis
+Phase 2.5: Regime-Conditional Portfolio Construction  ← ❌ INVALIDATED 2026-04-19
+    └── Gate 3 ❌ REVOKED: Sharpe 4.27 was driven by impl_82 which contains look-ahead bias.
+    └── Portfolio infrastructure (IC blend, regime posterior blend, Chart 22) is correct.
+    └── Re-run Gate 3 once a genuinely validated factor is found.
+    └── See notebooks/phase25_portfolio.ipynb (kept for historical reference, marked as REVOKED)
 
 Phase 3: Crypto Microstructure & On-Chain (3)
     └── On-chain factor library via Glassnode / CoinMetrics

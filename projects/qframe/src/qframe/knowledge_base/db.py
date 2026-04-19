@@ -169,6 +169,20 @@ class KnowledgeBase:
                     "  logged_at        TEXT DEFAULT (datetime('now'))"
                     ")"
                 )
+            # Dedup ensemble entries: each ensemble type should have only one row
+            # (the latest run).  Duplicate rows accumulate when notebooks are re-run.
+            _ENSEMBLE_PREFIXES = ("phase25_%", "ensemble_%", "combined_%")
+            for pat in _ENSEMBLE_PREFIXES:
+                conn.execute(
+                    """
+                    DELETE FROM hypotheses
+                    WHERE factor_name LIKE ?
+                      AND id NOT IN (
+                          SELECT MAX(id) FROM hypotheses WHERE factor_name LIKE ?
+                      )
+                    """,
+                    (pat, pat),
+                )
         print(f"Knowledge base initialised at {self.db_path}")
 
     # ------------------------------------------------------------------

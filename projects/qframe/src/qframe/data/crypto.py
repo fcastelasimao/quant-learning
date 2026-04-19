@@ -123,6 +123,41 @@ def _fetch_symbol(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _drop_short_history(
+    prices: "pd.DataFrame",
+    min_history_days: int,
+    stacklevel: int = 2,
+) -> "pd.DataFrame":
+    """Drop columns with fewer than *min_history_days* non-NaN rows.
+
+    Used by both the cached and non-cached paths of ``load_binance_close`` so
+    that the min-history filter is always applied consistently.
+
+    Args:
+        prices:           DataFrame (dates × symbols).
+        min_history_days: Minimum non-NaN row count to keep a symbol.
+        stacklevel:       warnings.warn stack-level (caller-adjusted).
+
+    Returns:
+        Filtered DataFrame with short-history columns removed.
+    """
+    valid = prices.count() >= min_history_days
+    n_dropped = int((~valid).sum())
+    if n_dropped:
+        dropped = prices.columns[~valid].tolist()
+        warnings.warn(
+            f"[crypto] Dropped {n_dropped} symbol(s) with < {min_history_days} days of data: "
+            f"{dropped}",
+            UserWarning,
+            stacklevel=stacklevel,
+        )
+    return prices.loc[:, valid]
+
+
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -170,7 +205,12 @@ def load_binance_close(
         if cached is not None:
             print(f"[crypto] Loading from cache: {cp}")
             cols = [s for s in symbols if s in cached.columns]
-            return cached.loc[start:end, cols] if cols else cached.loc[start:end]
+            sliced = cached.loc[start:end, cols] if cols else cached.loc[start:end]
+            # Re-apply min_history_days filter (same as non-cached path).
+            # A narrow window request could contain symbols with < min_history_days
+            # non-NaN rows in the requested slice.
+            sliced = _drop_short_history(sliced, min_history_days, stacklevel=3)
+            return sliced
 
     symbols = list(symbols)
     print(f"[crypto] Fetching {len(symbols)} symbols from Binance ({start} → {end})")
@@ -197,17 +237,7 @@ def load_binance_close(
     prices = prices.loc[start:end]
 
     # Drop symbols with insufficient history
-    valid = prices.count() >= min_history_days
-    n_dropped = (~valid).sum()
-    if n_dropped:
-        dropped = prices.columns[~valid].tolist()
-        warnings.warn(
-            f"[crypto] Dropped {n_dropped} symbols with < {min_history_days} days of data: "
-            f"{dropped}",
-            UserWarning,
-            stacklevel=2,
-        )
-    prices = prices.loc[:, valid]
+    prices = _drop_short_history(prices, min_history_days, stacklevel=2)
 
     print(f"[crypto] Final universe: {prices.shape[1]} symbols × {prices.shape[0]} days")
 

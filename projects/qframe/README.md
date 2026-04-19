@@ -24,7 +24,7 @@ Human sets research goal
 Human reviews results → next iteration
 ```
 
-96 factors tested across 4 domains (momentum, mean-reversion, volatility, quality) in Phase 1. **1 BHY-significant factor: impl_82** (`trend_quality_calmar_ratio`, IC=0.065, t=10.74). impl_53 was incorrectly flagged as significant (fast-signal t-stat formula was used; correct slow-signal t=1.31, not significant). Phase 2 HSMM regime analysis complete. Phase 2.5 portfolio complete — **Gate 3 ✅ PASSED** (Sharpe 4.27, MaxDD −10.3%, cost efficiency 99.8%).
+96 factors tested across 4 domains (momentum, mean-reversion, volatility, quality) in Phase 1. **0 validated factors.** impl_82 (`trend_quality_calmar_ratio`) retired 2026-04-19 (look-ahead bias: `pct_change(251).shift(-1)` uses tomorrow's price; crypto replication IC=−0.005, t=−0.75). impl_53 not significant (slow-signal t=1.31). Phase 2 HSMM regime analysis complete. Phase 2.5 portfolio — **Gate 3 REVOKED 2026-04-19** (was Sharpe 4.27, driven by impl_82 look-ahead bias; see `notebooks/phase3_crypto_replication.ipynb`).
 
 ---
 
@@ -321,7 +321,7 @@ Additional costs modelled: short-borrow (50 bps/year default) and leverage/fundi
 | impl_53 `mean_reversion_factor` (h=63) | 0.0490 | 0.251 | 1.31 (slow) | ❌ (fast-formula error; slow t=1.31) |
 | Momentum cluster (impl_1/7/85/94/95) | 0.016–0.017 | 0.166–0.169 | ~2.8 | ❌ (HLZ only) |
 
-**1 BHY-significant factor (impl_82).** impl_82/impl_92 are the same Calmar signal written twice — 1 unique signal advances. impl_53 was incorrectly flagged (fast-formula t=8.15; correct slow-signal t=1.31). Phase 1 gate cleared.
+**0 validated factors. Phase 1 gate INVALIDATED 2026-04-19.** impl_82 and impl_92 (both `trend_quality_calmar_ratio`) were the only BHY-significant factors. Both retired 2026-04-19: look-ahead bias via `pct_change(251).shift(-1)` — uses tomorrow's price. Cross-market check on Binance crypto confirmed: fixed IC = −0.005, t = −0.75. impl_53 was incorrectly flagged (fast-formula t=8.15; correct slow-signal t=1.31).
 
 ### Phase 2 — Regime Analysis
 
@@ -331,7 +331,7 @@ Additional costs modelled: short-borrow (50 bps/year default) and leverage/fundi
 |--------|-----------------|----------------|------|----------|
 | impl_82 Calmar (h=1) | 0.0646 | 0.082 (state 2) | 1.27× | Use unconditionally (lift < 1.5×) |
 
-**Gate 2 passed.** impl_82 is used unconditionally (lift 1.27×, below regime-gating threshold). With a single graduating factor, Phase 2.5 demonstrates regime-posterior blend infrastructure — lift > 1.5× gating becomes meaningful once additional BHY-significant factors are discovered. See `notebooks/phase2_regime_analysis.ipynb` for the full IC decomposition and equity curve analysis.
+**Gate 2 status moot.** impl_82 was retired for look-ahead bias (2026-04-19). The HSMM infrastructure itself is sound — see `notebooks/phase2_regime_analysis.ipynb`.
 
 ---
 
@@ -352,9 +352,9 @@ The router in `_llm.py` handles fallback automatically on quota exhaustion. By d
 
 ```
 Phase 0  ✅  Factor harness (IC, ICIR, decay, costs), SQLite KB, unit tests
-Phase 1  ✅  Agentic pipeline — 96 factors tested; 1 BHY-significant (impl_82 t=10.7)
-Phase 2  ✅  Regime-aware factor timing — 5-state HSMM; impl_82 lift = 1.27× (use unconditionally)
-Phase 2.5  ✅  Regime-conditional portfolio — Gate 3 PASSED (Sharpe 4.27, MaxDD −10.3%, cost efficiency 99.8%)
+Phase 1  ⚠️  Agentic pipeline — 96 factors tested; 0 validated (impl_82 INVALIDATED 2026-04-19: look-ahead bias)
+Phase 2  ✅  Regime-aware factor timing — 5-state HSMM operational; impl_82 analysis moot
+Phase 2.5  ❌  Regime-conditional portfolio — Gate 3 REVOKED 2026-04-19 (driven by impl_82 look-ahead bias)
 Phase 3    ⬜  Crypto microstructure + on-chain factors (top 50 assets, Glassnode/CoinMetrics)
 Phase 4    ⬜  Cross-lingual signal extraction (Chinese NLP → Western equities)
 ```

@@ -327,3 +327,144 @@ class TestImplementationAgentCompatibility:
         agent = ImplementationAgent(timeout=120)
         with pytest.raises(TypeError, match="some other type error"):
             agent._call_ollama("prompt", temperature=0.2)
+
+
+# ---------------------------------------------------------------------------
+# Look-ahead bias guard regression tests (§1.4 of 2026-04-19 plan)
+# ---------------------------------------------------------------------------
+
+class TestCheckLookaheadBias:
+    """Regression tests for check_lookahead_bias in executor.py."""
+
+    @pytest.fixture
+    def long_prices(self):
+        """400 business-day price panel — long enough for warm-up + boundary check."""
+        rng = np.random.default_rng(0)
+        dates = pd.bdate_range("2019-01-01", periods=400)
+        tickers = [f"S{i}" for i in range(20)]
+        ret = pd.DataFrame(rng.normal(0.0005, 0.02, (400, 20)), index=dates, columns=tickers)
+        return (1 + ret).cumprod()
+
+    def test_catches_shift_minus_1(self, long_prices):
+        """A factor using shift(-1) (look-ahead) should raise ValueError."""
+        from qframe.pipeline.executor import check_lookahead_bias, make_factor_fn
+
+        code = "def factor(prices):\n    return prices.pct_change(5).shift(-1)"
+        fn = make_factor_fn(code)
+        full = fn(long_prices)
+        with pytest.raises(ValueError, match="look-ahead bias"):
+            check_lookahead_bias(fn, long_prices, full, name="shift_minus_1")
+
+    def test_passes_clean_rolling_factor(self, long_prices):
+        """A clean rolling-mean factor should not raise."""
+        from qframe.pipeline.executor import check_lookahead_bias, make_factor_fn
+
+        code = "def factor(prices):\n    return prices.rolling(20).mean()"
+        fn = make_factor_fn(code)
+        full = fn(long_prices)
+        # Should complete without raising
+        check_lookahead_bias(fn, long_prices, full, name="clean_rolling")
+
+
+# ---------------------------------------------------------------------------
+# Signal novelty filter regression tests (§1.4 of 2026-04-19 plan)
+# ---------------------------------------------------------------------------
+
+class TestSignalNovelty:
+    """Regression tests for _check_signal_novelty in loop.py."""
+
+    @pytest.fixture
+    def kb_path(self, tmp_path):
+        """Temporary KB with schema initialised, ready for use."""
+        from qframe.knowledge_base.db import KnowledgeBase
+        path = str(tmp_path / "test_novelty.db")
+        KnowledgeBase(path).init_schema()   # create all tables before the test runs
+        return path
+
+    def _make_signal(self, seed: int = 42, periods: int = 300, tickers: int = 20) -> pd.DataFrame:
+        rng = np.random.default_rng(seed)
+        dates = pd.bdate_range("2018-01-02", periods=periods)
+        cols = [f"S{i}" for i in range(tickers)]
+        data = rng.standard_normal((periods, tickers))
+        return pd.DataFrame(data, index=dates, columns=cols)
+
+    def test_rejects_highly_correlated_signal(self, kb_path):
+        """A signal almost identical to a cached factor should be flagged as duplicate."""
+        from qframe.knowledge_base.db import KnowledgeBase
+        from qframe.pipeline.loop import PipelineLoop
+
+        kb = KnowledgeBase(kb_path)
+        signal = self._make_signal(seed=1)
+
+        # Cache the signal in KB as a positive-IC factor
+        hyp_id = kb.add_hypothesis(
+            factor_name="cached_factor",
+            description="test",
+            rationale="test",
+            mechanism_score=3,
+        )
+        impl_id = kb.add_implementation(hyp_id, code="def factor(p): pass", notes="")
+        kb.log_result(impl_id, {
+            "ic": 0.05, "icir": 0.3, "sharpe": 1.5, "max_drawdown": -0.1,
+            "turnover": 0.02, "oos_start": "2018-01-02", "oos_end": "2023-12-31",
+            "gate_level": 1, "passed_gate": 1,
+            "signal_cache_json": signal.to_json(orient="split", date_format="iso"),
+        })
+
+        # Build a nearly-identical signal (same + tiny noise)
+        rng = np.random.default_rng(99)
+        new_signal = signal + rng.normal(0, 1e-6, signal.shape)
+
+        # Build a minimal PipelineLoop just to access _check_signal_novelty
+        loop = PipelineLoop.__new__(PipelineLoop)
+        loop.kb = kb
+        loop.oos_start = "2018-01-02"
+
+        is_dup, max_corr, similar_name = loop._check_signal_novelty(new_signal)
+        assert is_dup is True, f"Expected duplicate, got max_corr={max_corr:.4f}"
+        assert max_corr > 0.99
+        assert similar_name == "cached_factor"
+
+    def test_aligns_different_date_ranges(self, kb_path):
+        """Novelty check must align signals on date intersection, not raw array position."""
+        from qframe.knowledge_base.db import KnowledgeBase
+        from qframe.pipeline.loop import PipelineLoop
+
+        kb = KnowledgeBase(kb_path)
+        # Cached signal: 2018–2022 (shorter range)
+        old_signal = self._make_signal(seed=5, periods=250)
+
+        hyp_id = kb.add_hypothesis(
+            factor_name="short_range_factor",
+            description="test",
+            rationale="test",
+            mechanism_score=3,
+        )
+        impl_id = kb.add_implementation(hyp_id, code="def factor(p): pass", notes="")
+        kb.log_result(impl_id, {
+            "ic": 0.04, "icir": 0.25, "sharpe": 1.2, "max_drawdown": -0.12,
+            "turnover": 0.02, "oos_start": "2018-01-02", "oos_end": "2022-12-31",
+            "gate_level": 1, "passed_gate": 1,
+            "signal_cache_json": old_signal.to_json(orient="split", date_format="iso"),
+        })
+
+        # New signal: 2018–2024 (longer range), completely uncorrelated
+        rng = np.random.default_rng(999)
+        new_dates = pd.bdate_range("2018-01-02", periods=500)
+        new_signal = pd.DataFrame(
+            rng.standard_normal((500, 20)),
+            index=new_dates,
+            columns=[f"S{i}" for i in range(20)],
+        )
+
+        loop = PipelineLoop.__new__(PipelineLoop)
+        loop.kb = kb
+        loop.oos_start = "2018-01-02"
+
+        # With the fixed alignment logic, correlation is computed on date intersection.
+        # An uncorrelated signal should NOT be flagged as duplicate.
+        is_dup, max_corr, _ = loop._check_signal_novelty(new_signal)
+        assert is_dup is False, (
+            f"Uncorrelated signal over different date range should not be a duplicate. "
+            f"max_corr={max_corr:.4f}"
+        )

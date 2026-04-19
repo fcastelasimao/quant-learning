@@ -64,15 +64,14 @@ Using daily IC for a slow signal inflates N by ~63× — always use the slow for
 
 BHY threshold with m=84 positive-IC factors: **t ≥ ~4.0**
 
-| Factor | IC | t-stat | BHY sig? | HLZ sig? |
-|--------|----|--------|----------|----------|
-| impl_82 `trend_quality_calmar_ratio` (h=1) | 0.0646 | **10.74** | ✅ | ✅ |
-| impl_92 `calmar_proxy_252` (h=1) | 0.0646 | **10.74** | ✅ | ✅ (duplicate of impl_82) |
-| impl_53 `mean_reversion_factor` (h=63) | 0.0490 | **8.15** | ✅ | ✅ |
-| Momentum cluster (impl_1/7/85/94/95) | 0.016–0.017 | ~2.8 | ❌ | ✅ |
+| Factor | IC | t-stat | BHY sig? | Status |
+|--------|----|--------|----------|--------|
+| impl_82 `trend_quality_calmar_ratio` (h=1) | 0.0646 | 10.74 | — | ❌ RETIRED 2026-04-19: look-ahead bias (`pct_change(251).shift(-1)`). Crypto IC = −0.005, t = −0.75. |
+| impl_92 `calmar_proxy_252` (h=1) | 0.0646 | 10.74 | — | ❌ RETIRED 2026-04-19: duplicate of impl_82 (same look-ahead bug) |
+| impl_53 `mean_reversion_factor` (h=63) | 0.0490 | 1.31 (slow) | ❌ | Not significant (fast-formula t=8.15 was wrong; correct slow-signal t=1.31) |
+| Momentum cluster (impl_1/7/85/94/95) | 0.016–0.017 | ~2.8 | ❌ | ❌ |
 
-**3 BHY-significant factors (2 unique signals). Phase 1 gate cleared.**  
-Note: impl_82 and impl_92 are the same Calmar formula. Count as 1 unique signal for ensemble purposes.
+**0 validated factors. Phase 1 gate INVALIDATED 2026-04-19.**
 
 ---
 
@@ -144,12 +143,19 @@ Note: impl_82 and impl_92 are the same Calmar formula. Count as 1 unique signal 
 - No single calendar year with return below -15%
 - Turnover implies realistic execution (< 200% annual for a daily-rebalanced strategy)
 
+**Sharpe convention for Gate 3:**
+- The threshold (> 0.5) is the **annualised** Sharpe = ICIR × √252 = `backtest_results.sharpe` in the DB.
+- **Do not confuse with the per-period SR = ICIR**, which is used for DSR computation.
+  - Annualised: if ICIR = 0.35, then annualised SR = 0.35 × √252 ≈ **5.56** (leaderboard figure)
+  - Per-period: ICIR = **0.35** (input to `deflated_sharpe_ratio()`)
+- See `agent_docs/coding-conventions.md` → "Sharpe Ratio Conventions" for full rules.
+
 **Notes:**
 - 10bps round-trip is conservative for large-cap liquid equities — appropriate for Phase 0/2
 - Crypto strategies will use 20-30bps due to higher spread
 - If gross Sharpe > 0.8 but net Sharpe < 0.5, the problem is turnover, not alpha — fix the rebalancing rule
 
-**Status: ⬜ NOT STARTED**
+**Status: ❌ REVOKED 2026-04-19** — Previously showed Sharpe 4.27 driven by impl_82, which was retired for look-ahead bias. Gate 3 result is invalid. Re-run once a genuinely validated factor is found.
 
 ---
 
@@ -166,6 +172,21 @@ Note: impl_82 and impl_92 are the same Calmar formula. Count as 1 unique signal 
 **What failure here means:** The strategy is curve-fitted to US equities. Go back to Gate 2 and look for more robust factors.
 
 **Status: ⬜ NOT STARTED**
+
+---
+
+## Section 4 — New Validation Guards (added 2026-04-19)
+
+Six guards added after impl_82 look-ahead discovery. All are active in the pipeline.
+
+| Guard | Module | What it rejects | How to disable |
+|-------|--------|-----------------|----------------|
+| Look-ahead boundary check | `pipeline/executor.py:check_lookahead_bias()` | Factors where full-panel values are finite but truncated-panel is NaN at the boundary (>10% of stocks). Catches `shift(-1)` patterns. | Pass `skip_lookahead=True` to `run_iteration()` — not recommended. |
+| Signal novelty filter | `pipeline/loop.py:_check_signal_novelty()` | Factors with Spearman ρ > 0.70 vs any positive-IC cached factor. Prevents re-discovering the same signal in different clothes. | Set `_DUPLICATE_CORR_THRESHOLD = 1.0` in `loop.py`. |
+| Pre-gate | `factor_harness/walkforward.py` | Factors where IS (2012–2016) \|IC\| < 0.005 or \|t\| < 1. Eliminates noise before OOS evaluation. | Remove pre-gate call in `loop.py:run_iteration()`. |
+| BHY runtime gate | `pipeline/loop.py` | Factors where t-stat < current BHY threshold (rolling m). Logged as FAIL immediately. | Lower `BHY_ALPHA` in `config.py`. |
+| Deflated Sharpe Ratio (DSR) | `factor_harness/multiple_testing.py:deflated_sharpe_ratio()` | Factors where DSR-adjusted p-value > 0.05 after accounting for the number of trials. Uses per-period SR (= ICIR, not ICIR × √252). | Ignore `dsr_pass` field in result. |
+| Per-stock ADV impact cost | `factor_harness/costs.py` | Factors where per-stock Almgren-Chriss market impact exceeds threshold given the fund's ADV fraction. Returns a **rate**, not per-period drag (caller multiplies by turnover). | Set `adv_fraction=0` in `CostParams`. |
 
 ---
 

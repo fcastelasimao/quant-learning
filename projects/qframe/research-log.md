@@ -4,6 +4,29 @@
 
 ---
 
+## Session: 2026-04-19 — impl_82 look-ahead discovered; Phase 1 invalidated; six new guards active; crypto replication added
+
+**Done:**
+
+- impl_82 (`trend_quality_calmar_ratio`, IC 0.0646, t 10.74, the only BHY-significant factor) found to use forward-looking data via `pct_change(251).shift(-1)`. Evidence: (a) the new look-ahead boundary guard triggers for 100% of stocks; (b) on S&P 500 the fixed factor IC = 0.0138, t = 2.34 (fails BHY at m=140); (c) on 25 Binance USDT pairs (2020–2024) the fixed factor IC = −0.005, t = −0.75 — zero alpha on an independent market.
+- Phase 2.5 Gate 3 (Sharpe 4.27) **REVOKED**: ensemble inherited bias from impl_82. See `notebooks/phase3_crypto_replication.ipynb`.
+- Six new guards now active in the pipeline: look-ahead boundary check (`executor.py`), signal novelty filter ρ>0.70 (`loop.py`), pre-gate 2012–2016 (`walkforward.py`), BHY runtime gate with rolling m (`loop.py`), Deflated Sharpe Ratio (`multiple_testing.py`), per-stock ADV impact cost (`costs.py`).
+- Synthesis agent now receives a "high-IC avoid list" + domain-rotation hint.
+- Test suite: 137 → 177 passing.
+
+**Gate summary:**
+
+| Gate | Status |
+|------|--------|
+| Gate 0 (factor harness) | ✅ PASSED |
+| Gate 1 (HSMM) | ✅ PASSED |
+| Gate 2 (regime-conditional IC) | ✅ PASSED (impl_82 moot, but infrastructure valid) |
+| Gate 3 (net-of-cost Sharpe) | ❌ REVOKED 2026-04-19 |
+
+**Next:** run the pipeline with new guards to find a genuinely novel factor.
+
+---
+
 ## Session: 2026-04-18 (auto — domain=value)
 
 **Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 2 ERROR
@@ -239,6 +262,31 @@ Notable: `price_level_autocorrelation` has IC = +0.060 at 63-day horizon (genuin
 After every 5 new results `run_n()` automatically:
 - Runs `run_correlation_analysis()` and `run_ensemble_check(top_n=3)`
 - Updates `research-log.md` with the latest KB stats (the "Current Status" block + new session entry)
+
+---
+
+## Session: 2026-04-19 — Phase 0 cost stress test & pipeline improvement (senior review)
+
+**Done:**
+- **Cost stress test added** (`phase25_portfolio.ipynb` Section I): return-space net equity
+  reveals that IC-space IR (4.27) overstates portfolio Sharpe (~1.4×). True return-space Sharpe:
+  - Gross: 3.05   Default costs: 2.73   Aggressive (unlevered): 2.43   Aggressive (levered): 1.79
+  - All four scenarios PASS Gate 3. Real cost drag under Default = 273 bps/yr (2.7%/yr); under
+    Aggressive no-funding = 522 bps/yr (5.2%/yr). Use return-space Sharpe for live decisions.
+  - IC-space cost efficiency (99.8%) overstates true return-space efficiency (88% under Default).
+- **Committed** all Phase 1–2.5 source + notebook changes to git (`53fb740`).
+- **KB triage**: No `status='error'` entries in DB — pipeline uses `status='failed'` for all
+  non-passing runs including execution errors. 112 failed, 5 passed, 23 active (2 incomplete:
+  IDs 128, 138 with NULL factor_name from interrupted runs). Recent high error rates were due to
+  Groq/Gemini quota exhaustion falling through to weaker fallback models — fix: A5 (Groq primary).
+
+**In progress / next:** Phase A–B pipeline improvements:
+- A1: Dedup 7× phase25_combined KB rows + UNIQUE constraint
+- A2: Fix `except Exception: pass` signal-cache swallowing
+- A3: slow-ICIR regression test
+- A4: HOLDOUT_START = "2024-06-01" sealed hold-out
+- A5: Switch implementation agent to Groq llama-3.3-70b-versatile
+- B1–B7: novelty filter, pre-gate, parallelism, BHY-in-gate, per-stock ADV
 
 ---
 

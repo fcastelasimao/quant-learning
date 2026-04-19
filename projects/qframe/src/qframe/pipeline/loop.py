@@ -730,10 +730,8 @@ class PipelineLoop:
         if not cached_factors:
             return False, 0.0, ""
 
-        # Flatten new OOS signal to a 1-D array for correlation
+        # Rank new OOS signal cross-sectionally (keep as DataFrame for alignment)
         new_oos = new_signal.loc[self.oos_start:].rank(axis=1, pct=True)
-        new_flat = new_oos.values.flatten()
-        new_mask = np.isfinite(new_flat)
 
         max_corr = 0.0
         most_similar = ""
@@ -743,17 +741,23 @@ class PipelineLoop:
             try:
                 cached = pd.read_json(_io.StringIO(r["signal_cache_json"]), orient="split")
                 cached.index = pd.to_datetime(cached.index)
-                old_flat = cached.loc[self.oos_start:].values.flatten()
+                old_oos = cached.loc[self.oos_start:]
             except Exception:
                 continue
 
-            # Align shapes (different universes / date ranges)
-            min_len = min(len(new_flat), len(old_flat))
-            if min_len < 100:
+            # Align on intersecting dates × intersecting tickers before flattening.
+            # min(len) truncation was silently wrong when universes or date ranges differ.
+            shared_dates = new_oos.index.intersection(old_oos.index)
+            shared_cols = new_oos.columns.intersection(old_oos.columns)
+            if len(shared_dates) < 20 or len(shared_cols) < 5:
                 continue
-            nf = new_flat[:min_len]
-            of = old_flat[:min_len]
-            mask = new_mask[:min_len] & np.isfinite(of)
+
+            nf_aligned = new_oos.loc[shared_dates, shared_cols].rank(axis=1, pct=True)
+            of_aligned = old_oos.loc[shared_dates, shared_cols].rank(axis=1, pct=True)
+
+            nf = nf_aligned.values.flatten()
+            of = of_aligned.values.flatten()
+            mask = np.isfinite(nf) & np.isfinite(of)
             if mask.sum() < 100:
                 continue
 
