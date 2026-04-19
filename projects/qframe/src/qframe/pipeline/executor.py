@@ -232,6 +232,7 @@ def check_lookahead_bias(
     if both_finite.sum() < 10:
         return  # Too few comparable cells; skip.
 
+    # PRIMARY CHECK — values differ where both are finite
     if not np.allclose(full_slice[both_finite], trunc_slice[both_finite],
                        atol=atol, rtol=1e-5, equal_nan=False):
         raise ValueError(
@@ -239,4 +240,28 @@ def check_lookahead_bias(
             f"the full price panel and a panel truncated at {cutoff_date.date()}. "
             "Ensure the factor uses only past data (.shift(), .rolling(), .ewm()). "
             "Do NOT use prices.index[-1], future slices, or global aggregations."
+        )
+
+    # BOUNDARY CHECK — catches shift(-1) / shift(-N) look-ahead patterns.
+    # If the full-panel factor has finite values in the LAST row of the
+    # truncated window but the truncated-panel factor is NaN there, the
+    # factor is using data from the next row (i.e. the future).
+    # Genuine warm-up NaNs appear at the START of both panels, not just the end.
+    last_full  = full_slice[-1]            # shape (n_tickers,)
+    last_trunc = trunc_slice[-1]
+    full_finite_last  = np.isfinite(last_full)
+    trunc_nan_last    = ~np.isfinite(last_trunc)
+    # Suspect: full has a value but truncated is NaN, and
+    #          the row BEFORE the last is finite in the truncated panel
+    #          (proving warmup is not the cause).
+    prev_trunc_finite = np.isfinite(trunc_slice[-2]) if len(trunc_slice) > 1 else np.zeros_like(full_finite_last, dtype=bool)
+    boundary_la = full_finite_last & trunc_nan_last & prev_trunc_finite
+    la_frac = boundary_la.sum() / max(full_finite_last.sum(), 1)
+    if la_frac > 0.10:   # >10% of active stocks show the boundary pattern
+        raise ValueError(
+            f"{name}: look-ahead bias detected (boundary pattern) — "
+            f"{la_frac:.0%} of stocks have finite factor values in the full panel "
+            f"at {cutoff_date.date()} but NaN in the truncated panel. "
+            "This indicates the factor uses data from the NEXT row (e.g. .shift(-1)). "
+            "Remove any negative shifts from your implementation."
         )
