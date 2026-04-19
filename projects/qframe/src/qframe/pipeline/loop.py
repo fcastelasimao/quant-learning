@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 import io
+import logging
 import re
 import subprocess
 import traceback
@@ -31,12 +32,14 @@ from scipy.stats import spearmanr
 
 from qframe.factor_harness import DEFAULT_OOS_START
 from qframe.factor_harness.costs import CostParams, DEFAULT_COST_PARAMS
-from qframe.factor_harness.walkforward import WalkForwardValidator
+from qframe.factor_harness.multiple_testing import bhy_t_threshold, compute_t_stat
+from qframe.factor_harness.walkforward import WalkForwardValidator, passes_pre_gate
 from qframe.knowledge_base.db import KnowledgeBase
 from qframe.pipeline.agents.analysis import AnalysisAgent
 from qframe.pipeline.agents.implementation import ImplementationAgent
 from qframe.pipeline.agents.synthesis import SynthesisAgent
 from qframe.pipeline.executor import (
+    check_lookahead_bias,
     make_factor_fn,
     run_factor_with_timeout,
     validate_factor_output,
@@ -47,6 +50,8 @@ from qframe.pipeline.models import (
     ResearchSpec,
     VERDICT_ERROR,
 )
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_KB = Path("knowledge_base/qframe.db")
 
@@ -147,8 +152,98 @@ class PipelineLoop:
             notes=f"factor_type={hypothesis.factor_type}",
         )
 
+        # ------------------------------------------------------------------
+        # Steps 2b + 2c: fast filters — execute factor once, then check
+        #   (a) novelty (signal correlation vs KB cache)
+        #   (b) pre-gate IC on 2012-2016 IS window
+        # If either fails, skip the expensive full walk-forward.
+        # ------------------------------------------------------------------
+        print(f"[2b] Novelty + pre-gate check")
+        _pregate_factor_df: pd.DataFrame | None = None
+        try:
+            _fn = make_factor_fn(code)
+            _pregate_factor_df = run_factor_with_timeout(_fn, self.prices, timeout=self.exec_timeout)
+            validate_factor_output(_pregate_factor_df, self.prices, name=hypothesis.name)
+            is_dup, max_corr, similar_name = self._check_signal_novelty(_pregate_factor_df)
+        except Exception as _nov_err:
+            logger.warning("[Novelty] pre-execution failed (%s) — deferring to walk-forward", _nov_err)
+            is_dup, max_corr, similar_name = False, 0.0, ""
+
+        if is_dup:
+            dup_msg = (
+                f"DUPLICATE: signal correlation {max_corr:.3f} with '{similar_name}' "
+                f"exceeds threshold {self._DUPLICATE_CORR_THRESHOLD}. Skipping walk-forward."
+            )
+            print(f"      ⚠  {dup_msg}")
+            self.kb.update_hypothesis_status(hyp_id, "retired")
+            return IterationResult(
+                hypothesis=hypothesis,
+                code=code,
+                wf_result=None,
+                analysis=dup_msg,
+                verdict=VERDICT_ERROR,
+                kb_hypothesis_id=hyp_id,
+                kb_implementation_id=impl_id,
+                kb_result_id=None,
+                error=dup_msg,
+            )
+
+        # Look-ahead bias guard (runs factor on truncated panel, compares to full)
+        if _pregate_factor_df is not None:
+            try:
+                _fn_for_lag = make_factor_fn(code)
+                check_lookahead_bias(
+                    _fn_for_lag, self.prices, _pregate_factor_df,
+                    timeout=self.exec_timeout, name=hypothesis.name,
+                )
+            except ValueError as _la_err:
+                la_msg = str(_la_err)
+                print(f"      ✗ Look-ahead bias detected: {la_msg}")
+                self.kb.update_hypothesis_status(hyp_id, "failed")
+                return IterationResult(
+                    hypothesis=hypothesis,
+                    code=code,
+                    wf_result=None,
+                    analysis=la_msg,
+                    verdict=VERDICT_ERROR,
+                    kb_hypothesis_id=hyp_id,
+                    kb_implementation_id=impl_id,
+                    kb_result_id=None,
+                    error=la_msg,
+                )
+            except Exception as _la_err:
+                logger.warning("[Lookahead] check failed (%s) — proceeding", _la_err)
+
+        # Pre-gate: quick IC on fixed 2012-2016 IS window
+        if _pregate_factor_df is not None:
+            try:
+                _cached_pg = _pregate_factor_df
+                _pg_fn = lambda p: _cached_pg  # noqa: E731
+                pg_pass, pg_ic, pg_t = passes_pre_gate(_pg_fn, self.prices)
+                if not pg_pass:
+                    pg_msg = (
+                        f"PRE-GATE FAILED: IC={pg_ic:.4f}, t={pg_t:.2f} on 2012-2016 window "
+                        f"(need |IC|≥0.005 and |t|≥1.0). Skipping full walk-forward."
+                    )
+                    print(f"      ✗ {pg_msg}")
+                    self.kb.update_hypothesis_status(hyp_id, "failed")
+                    return IterationResult(
+                        hypothesis=hypothesis,
+                        code=code,
+                        wf_result=None,
+                        analysis=pg_msg,
+                        verdict=VERDICT_ERROR,
+                        kb_hypothesis_id=hyp_id,
+                        kb_implementation_id=impl_id,
+                        kb_result_id=None,
+                        error=pg_msg,
+                    )
+                print(f"      ✓ Pre-gate passed: IC={pg_ic:.4f}, t={pg_t:.2f}")
+            except Exception as _pg_err:
+                logger.warning("[Pre-gate] check failed (%s) — proceeding with walk-forward", _pg_err)
+
         print(f"[3/5] Validation — running walk-forward backtest")
-        wf_result, exec_error = self._run_validation(hypothesis, code)
+        wf_result, exec_error = self._run_validation(hypothesis, code, factor_df=_pregate_factor_df)
 
         if exec_error:
             # Show only the last line of the traceback for clean output
@@ -181,6 +276,33 @@ class PipelineLoop:
             signal_cache = oos_ranked.to_json(orient="split", date_format="iso")
         except Exception:
             pass  # caching is best-effort; never block logging
+
+        # BHY-in-gate: require t_stat > bhy_threshold(m) for passed_gate=1.
+        # m = number of positive-IC factors tested so far (including this one).
+        # This prevents 95/96 factors "passing" the raw ICIR > 0.15 gate
+        # when many are attributable to multiple-testing.
+        _passed_analysis = verdict == "PASS"
+        _bhy_passed = False
+        if _passed_analysis and metrics.get("ic", 0) > 0 and metrics.get("sharpe") is not None:
+            try:
+                with self.kb._connect() as _conn:
+                    _m_positive = _conn.execute(
+                        "SELECT COUNT(*) FROM backtest_results WHERE ic > 0"
+                    ).fetchone()[0] + 1  # +1 for the current factor (not yet logged)
+                _t_bhy = bhy_t_threshold(_m_positive)
+                _t_stat = compute_t_stat(metrics["ic"], metrics["sharpe"])
+                _bhy_passed = _t_stat >= _t_bhy
+                if not _bhy_passed:
+                    print(f"      ⚠  BHY gate: t={_t_stat:.2f} < threshold={_t_bhy:.2f} "
+                          f"(m={_m_positive} positive-IC tests) — logging as gate_failed")
+                else:
+                    print(f"      ✓ BHY gate: t={_t_stat:.2f} ≥ threshold={_t_bhy:.2f}")
+            except Exception as _bhy_err:
+                logger.warning("[BHY gate] failed (%s) — falling back to raw verdict", _bhy_err)
+                _bhy_passed = _passed_analysis
+
+        passed_gate_flag = 1 if (_passed_analysis and _bhy_passed) else 0
+
         result_id = self.kb.log_result(
             impl_id,
             {
@@ -188,12 +310,12 @@ class PipelineLoop:
                 "regime": "all",
                 "universe": "sp500_survivorship_biased",
                 "gate_level": 1,
-                "passed_gate": 1 if verdict == "PASS" else 0,
+                "passed_gate": passed_gate_flag,
                 "notes": analysis,
                 "signal_cache_json": signal_cache,
             },
         )
-        status = "passed" if verdict == "PASS" else "failed"
+        status = "passed" if passed_gate_flag else "failed"
         self.kb.update_hypothesis_status(hyp_id, status)
 
         print(f"      → KB ids: hypothesis={hyp_id}, impl={impl_id}, result={result_id}")
@@ -276,8 +398,11 @@ class PipelineLoop:
                     oos_sig = cached.loc[self.oos_start:]
                     factor_signals[name] = oos_sig
                     continue
-                except Exception:
-                    pass  # cache corrupt — fall through to re-execution
+                except Exception as _cache_exc:
+                    logger.warning(
+                        "[Signal cache] corrupt JSON for %s, re-executing factor: %s",
+                        name, _cache_exc,
+                    )
             try:
                 fn = make_factor_fn(r["code"])
                 sig = run_factor_with_timeout(fn, self.prices, timeout=self.exec_timeout)
@@ -578,6 +703,72 @@ class PipelineLoop:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    _DUPLICATE_CORR_THRESHOLD = 0.70  # max_abs_corr above which a factor is a duplicate
+
+    def _check_signal_novelty(
+        self, new_signal: pd.DataFrame
+    ) -> tuple[bool, float, str]:
+        """
+        Check whether a newly computed factor signal is a near-duplicate of an
+        existing positive-IC factor in the KB.
+
+        Compares Spearman correlation of the new OOS ranked signal against every
+        cached signal in the knowledge base (loaded from signal_cache_json).
+        Factors without a cached signal are skipped (never re-executes code here).
+
+        Returns:
+            (is_duplicate, max_abs_corr, most_similar_name)
+            is_duplicate is True when max_abs_corr > _DUPLICATE_CORR_THRESHOLD.
+        """
+        import io as _io
+
+        all_results = self.kb.get_all_results()
+        cached_factors = [
+            r for r in all_results
+            if r.get("ic") and r["ic"] > 0 and r.get("signal_cache_json")
+        ]
+        if not cached_factors:
+            return False, 0.0, ""
+
+        # Flatten new OOS signal to a 1-D array for correlation
+        new_oos = new_signal.loc[self.oos_start:].rank(axis=1, pct=True)
+        new_flat = new_oos.values.flatten()
+        new_mask = np.isfinite(new_flat)
+
+        max_corr = 0.0
+        most_similar = ""
+
+        for r in cached_factors:
+            name = r.get("factor_name") or f"impl_{r['implementation_id']}"
+            try:
+                cached = pd.read_json(_io.StringIO(r["signal_cache_json"]), orient="split")
+                cached.index = pd.to_datetime(cached.index)
+                old_flat = cached.loc[self.oos_start:].values.flatten()
+            except Exception:
+                continue
+
+            # Align shapes (different universes / date ranges)
+            min_len = min(len(new_flat), len(old_flat))
+            if min_len < 100:
+                continue
+            nf = new_flat[:min_len]
+            of = old_flat[:min_len]
+            mask = new_mask[:min_len] & np.isfinite(of)
+            if mask.sum() < 100:
+                continue
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                corr, _ = spearmanr(nf[mask], of[mask])
+
+            abs_corr = abs(float(corr))
+            if abs_corr > max_corr:
+                max_corr = abs_corr
+                most_similar = name
+
+        is_dup = max_corr > self._DUPLICATE_CORR_THRESHOLD
+        return is_dup, max_corr, most_similar
+
     # Errors that are worth attempting an automatic one-shot fix
     _FIXABLE_ERRORS = (
         "Grouper for",
@@ -592,21 +783,36 @@ class PipelineLoop:
     )
 
     def _run_validation(
-        self, hypothesis: HypothesisSpec, code: str
+        self,
+        hypothesis: HypothesisSpec,
+        code: str,
+        factor_df: pd.DataFrame | None = None,
     ) -> tuple:
         """
         Compile and run the factor code. Returns (WalkForwardResult | None, error_str | None).
         On a fixable error, attempts one automatic code fix via the implementation agent.
+
+        Args:
+            factor_df: Optional pre-computed factor DataFrame (from the novelty-check
+                       execution in run_iteration step 2b).  When provided, the first
+                       attempt skips re-executing the factor code — saving ~1 factor
+                       execution.  On auto-fix (second attempt), factor_df is ignored
+                       and the fixed code is re-executed.
         """
+        _precomputed = factor_df  # may be None; only used on attempt 0
+
         for attempt in range(2):  # attempt 0 = original, attempt 1 = auto-fixed
             try:
-                factor_fn = make_factor_fn(code)
-
-                # Compute factor values with timeout guard
-                factor_df = run_factor_with_timeout(
-                    factor_fn, self.prices, timeout=self.exec_timeout
-                )
-                validate_factor_output(factor_df, self.prices, name=hypothesis.name)
+                if attempt == 0 and _precomputed is not None:
+                    # Reuse signal computed in the novelty-check step
+                    factor_df = _precomputed
+                else:
+                    factor_fn = make_factor_fn(code)
+                    # Compute factor values with timeout guard
+                    factor_df = run_factor_with_timeout(
+                        factor_fn, self.prices, timeout=self.exec_timeout
+                    )
+                    validate_factor_output(factor_df, self.prices, name=hypothesis.name)
 
                 # Walk-forward validation
                 cached_factor = factor_df

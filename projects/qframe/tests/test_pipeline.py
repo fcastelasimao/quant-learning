@@ -277,7 +277,28 @@ class TestIterationResult:
 # ---------------------------------------------------------------------------
 
 class TestImplementationAgentCompatibility:
+    """
+    Tests for _call_ollama backward-compatibility logic.
+
+    The allweather env may not have `ollama` installed, so these tests inject a
+    mock module directly into `qframe.pipeline.agents.implementation.ollama`
+    before patching its `generate` attribute.  `raising=False` on setattr
+    allows creating the attribute on the mock module even when it is absent.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _inject_mock_ollama(self, monkeypatch):
+        """Ensure a non-None ollama module is in place regardless of installation."""
+        import types
+        import qframe.pipeline.agents.implementation as impl_mod
+
+        if impl_mod.ollama is None:
+            mock_mod = types.ModuleType("ollama")
+            monkeypatch.setattr(impl_mod, "ollama", mock_mod)
+
     def test_call_ollama_retries_without_timeout_on_legacy_sdk(self, monkeypatch):
+        import qframe.pipeline.agents.implementation as impl_mod
+
         calls = []
 
         def fake_generate(**kwargs):
@@ -286,7 +307,7 @@ class TestImplementationAgentCompatibility:
                 raise TypeError("Client.generate() got an unexpected keyword argument 'timeout'")
             return {"response": "def factor(prices):\n    return prices"}
 
-        monkeypatch.setattr("qframe.pipeline.agents.implementation.ollama.generate", fake_generate)
+        monkeypatch.setattr(impl_mod.ollama, "generate", fake_generate, raising=False)
 
         agent = ImplementationAgent(timeout=120)
         out = agent._call_ollama("prompt", temperature=0.2)
@@ -296,10 +317,12 @@ class TestImplementationAgentCompatibility:
         assert "timeout" not in calls[1]
 
     def test_call_ollama_preserves_other_type_errors(self, monkeypatch):
+        import qframe.pipeline.agents.implementation as impl_mod
+
         def fake_generate(**kwargs):
             raise TypeError("some other type error")
 
-        monkeypatch.setattr("qframe.pipeline.agents.implementation.ollama.generate", fake_generate)
+        monkeypatch.setattr(impl_mod.ollama, "generate", fake_generate, raising=False)
 
         agent = ImplementationAgent(timeout=120)
         with pytest.raises(TypeError, match="some other type error"):

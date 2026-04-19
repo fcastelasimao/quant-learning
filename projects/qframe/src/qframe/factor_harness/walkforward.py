@@ -28,6 +28,16 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+# ---------------------------------------------------------------------------
+# Hold-out protection
+# ---------------------------------------------------------------------------
+
+#: Dates on or after this are the sealed hold-out for final live-trading validation.
+#: Do NOT evaluate any strategy against data past this date until a strategy
+#: has been pre-registered for final go/no-go decision.
+#: Unlock by passing ``allow_holdout=True`` to WalkForwardValidator.
+HOLDOUT_START = "2024-06-01"
+
 from qframe.factor_harness import DEFAULT_OOS_START
 from qframe.factor_harness.ic import (
     compute_ic,
@@ -42,6 +52,97 @@ from qframe.factor_harness.costs import (
     compute_turnover,
     net_ic,
 )
+
+
+# ---------------------------------------------------------------------------
+# Fast pre-gate
+# ---------------------------------------------------------------------------
+
+#: Pre-gate evaluation window — fixed historic slice entirely in-sample.
+#: Must end before DEFAULT_OOS_START so it never contaminates OOS evaluation.
+PRE_GATE_START = "2012-01-01"
+PRE_GATE_END   = "2016-12-31"
+
+#: Minimum |IC| and |t-stat| for a factor to pass the pre-gate.
+PRE_GATE_MIN_IC = 0.005
+PRE_GATE_MIN_T  = 1.0
+
+
+def quick_ic(
+    factor_fn: Callable[[pd.DataFrame], pd.DataFrame],
+    prices: pd.DataFrame,
+    *,
+    start: str = PRE_GATE_START,
+    end: str = PRE_GATE_END,
+    horizon: int = 1,
+    min_stocks: int = 10,
+) -> tuple[float, float]:
+    """
+    Fast IC pre-gate on a fixed historic window (2012–2016).
+
+    Computes the factor on the FULL price history (so lookback-dependent factors
+    have adequate warm-up), then evaluates IC only on [start, end].  Because the
+    window lies entirely before DEFAULT_OOS_START (2018-01-01), this introduces
+    no OOS contamination.
+
+    Args:
+        factor_fn:  Callable(prices) → factor_df.
+        prices:     Full (dates × tickers) price history, sorted ascending.
+        start:      Pre-gate window start (default 2012-01-01).
+        end:        Pre-gate window end   (default 2016-12-31).
+        horizon:    Forward-return horizon in days (default 1).
+        min_stocks: Minimum valid stocks per cross-section (default 10).
+
+    Returns:
+        (mean_ic, t_stat) over the pre-gate window.
+        Returns (nan, nan) when fewer than 20 valid IC observations exist.
+    """
+    prices = prices.sort_index()
+    returns = prices.pct_change()
+
+    factor_df = factor_fn(prices)
+
+    # Restrict IC evaluation to the pre-gate window
+    ic_series = compute_ic(factor_df, returns, horizon=horizon, min_stocks=min_stocks)
+    window_ic = ic_series.loc[start:end].dropna()
+
+    if len(window_ic) < 20:
+        return float("nan"), float("nan")
+
+    mean_ic = float(window_ic.mean())
+    t_stat  = float(mean_ic / (window_ic.std(ddof=1) / len(window_ic) ** 0.5))
+    return mean_ic, t_stat
+
+
+def passes_pre_gate(
+    factor_fn: Callable[[pd.DataFrame], pd.DataFrame],
+    prices: pd.DataFrame,
+    *,
+    min_ic: float = PRE_GATE_MIN_IC,
+    min_t: float = PRE_GATE_MIN_T,
+    **kwargs,
+) -> tuple[bool, float, float]:
+    """
+    Return (passes, mean_ic, t_stat) for the factor on the pre-gate window.
+
+    A factor passes when |mean_ic| ≥ min_ic AND |t_stat| ≥ min_t.
+    Uses ``quick_ic()`` internally with the same keyword args.
+
+    Args:
+        factor_fn: Callable(prices) → factor_df.
+        prices:    Full price history.
+        min_ic:    Absolute IC threshold (default 0.005).
+        min_t:     Absolute t-statistic threshold (default 1.0).
+        **kwargs:  Forwarded to ``quick_ic()`` (start, end, horizon, min_stocks).
+
+    Returns:
+        (passes, mean_ic, t_stat)
+    """
+    mean_ic, t_stat = quick_ic(factor_fn, prices, **kwargs)
+    if not (mean_ic == mean_ic) or not (t_stat == t_stat):  # NaN check
+        return False, mean_ic, t_stat
+    passes = abs(mean_ic) >= min_ic and abs(t_stat) >= min_t
+    return passes, mean_ic, t_stat
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +263,7 @@ class WalkForwardValidator:
         min_stocks: int = 10,
         adv_df: pd.DataFrame | None = None,
         portfolio_nav: float = 1e6,
+        allow_holdout: bool = True,
     ):
         """
         Args:
@@ -171,6 +273,11 @@ class WalkForwardValidator:
                             Phase 3 Gate 0 upgrade for more accurate cost estimation.
             portfolio_nav:  Portfolio NAV in dollars, used with adv_df to compute
                             per-stock position sizes for ADV-fraction calculation.
+            allow_holdout:  Default True (existing strategies already evaluated 2024 data).
+                            Set to False in new experimental runs to enforce the hold-out:
+                            any data past HOLDOUT_START will raise RuntimeError, ensuring
+                            the sealed 2024-06-01+ period stays pristine for final
+                            live-trading go/no-go validation of a pre-registered strategy.
         """
         self.factor_fn = factor_fn
         self.oos_start = oos_start
@@ -180,6 +287,7 @@ class WalkForwardValidator:
         self.min_stocks = min_stocks
         self.adv_df = adv_df
         self.portfolio_nav = portfolio_nav
+        self.allow_holdout = allow_holdout
 
     def run(self, prices: pd.DataFrame) -> WalkForwardResult:
         """
@@ -193,6 +301,17 @@ class WalkForwardValidator:
             WalkForwardResult with all metrics populated.
         """
         prices = prices.sort_index()
+
+        # 0. Hold-out guard — prevent accidental evaluation on sealed test data
+        data_end = prices.index[-1].strftime("%Y-%m-%d")
+        if data_end >= HOLDOUT_START and not self.allow_holdout:
+            raise RuntimeError(
+                f"Price data ends {data_end}, which is at or past the sealed "
+                f"hold-out date ({HOLDOUT_START}).\n"
+                f"Do NOT evaluate any strategy on this data until a strategy has been\n"
+                f"pre-registered for final go/no-go live-trading validation.\n"
+                f"To unseal, pass allow_holdout=True to WalkForwardValidator."
+            )
 
         # 1. Compute returns
         returns = prices.pct_change()

@@ -21,13 +21,13 @@ NOT MODELLED — must be considered before live deployment:
   ┌──────────────────────────────────┬──────────────────────────────────────────┐
   │ Gap                              │ Impact & recommendation                  │
   ├──────────────────────────────────┼──────────────────────────────────────────┤
-  │ Position-size-dependent impact   │ Current model uses a FIXED adv_fraction  │
-  │                                  │ across all stocks and all dates.         │
-  │                                  │ Real impact scales with your actual      │
-  │                                  │ position size relative to that stock's   │
-  │                                  │ daily volume. Fix in Phase 2: pass a     │
-  │                                  │ per-stock ADV DataFrame and compute      │
-  │                                  │ impact individually.                     │
+  │ Position-size-dependent impact   │ PARTIALLY MODELLED: pass adv_df to      │
+  │                                  │ net_ic() or WalkForwardValidator to      │
+  │                                  │ enable per-stock ADV-weighted impact     │
+  │                                  │ via compute_per_stock_impact_bps().      │
+  │                                  │ Build adv_df with compute_per_stock_adv  │
+  │                                  │ (prices, volume, window=20). Without     │
+  │                                  │ adv_df, falls back to uniform fraction.  │
   ├──────────────────────────────────┼──────────────────────────────────────────┤
   │ Signal decay during execution    │ The harness uses EOD → EOD forward       │
   │                                  │ returns (1-day horizon), correctly        │
@@ -251,6 +251,83 @@ def compute_short_fraction(weights: pd.DataFrame) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
+# Per-stock ADV helpers  (B7 upgrade)
+# ---------------------------------------------------------------------------
+
+def compute_per_stock_adv(
+    prices: pd.DataFrame,
+    volume: pd.DataFrame,
+    window: int = 20,
+) -> pd.DataFrame:
+    """
+    Compute per-stock dollar average daily volume (ADV) using a rolling window.
+
+    ADV_i(t) = rolling_mean( price_i × volume_i, window )
+
+    Args:
+        prices:  (dates × tickers) adjusted close prices.
+        volume:  (dates × tickers) share volume (same shape and index as prices).
+        window:  Rolling window in trading days (default 20 ≈ 1 month).
+
+    Returns:
+        pd.DataFrame (dates × tickers) of dollar ADV, aligned to prices.
+        NaN where fewer than ``window // 2`` days of data exist.
+    """
+    dollar_vol = prices * volume
+    return dollar_vol.rolling(window, min_periods=window // 2).mean()
+
+
+def compute_per_stock_impact_bps(
+    weight_delta: pd.DataFrame,
+    adv_df: pd.DataFrame,
+    portfolio_nav: float,
+    params: CostParams = DEFAULT_COST_PARAMS,
+) -> pd.Series:
+    """
+    Compute the per-stock market impact in basis points, summed to a portfolio
+    level cost series.
+
+    For each stock i on date t:
+        adv_frac_i(t)  = |Δw_i(t)| × portfolio_nav / adv_i(t)
+        impact_i(t)    = gamma × adv_frac_i(t)^eta    [bps one-way]
+
+    Portfolio impact(t) = Σ_i |Δw_i(t)| × impact_i(t)   (weight-averaged)
+
+    This replaces the uniform ``adv_fraction`` approximation in ``estimate_cost_bps``
+    with a per-stock estimate that correctly penalises small-cap / illiquid names
+    more than large-caps.
+
+    Args:
+        weight_delta:   (dates × tickers) weight changes (= w_t − w_{t−1}).
+                        Use weights.diff() from the portfolio weights DataFrame.
+        adv_df:         (dates × tickers) per-stock dollar ADV (from compute_per_stock_adv).
+        portfolio_nav:  Portfolio NAV in dollars.
+        params:         CostParams instance.
+
+    Returns:
+        pd.Series of portfolio-level one-way impact in bps, indexed by date.
+        NaN on dates with zero turnover or missing ADV.
+    """
+    # Align shapes
+    shared_idx = weight_delta.index.intersection(adv_df.index)
+    shared_col = weight_delta.columns.intersection(adv_df.columns)
+    dw  = weight_delta.loc[shared_idx, shared_col].abs()
+    adv = adv_df.loc[shared_idx, shared_col].replace(0, np.nan)
+
+    # Per-stock ADV fraction: notional traded / ADV
+    adv_frac = (dw * portfolio_nav) / adv
+
+    # Per-stock impact (bps)
+    per_stock_impact = params.gamma * (adv_frac ** params.eta)  # bps one-way
+
+    # Weight-average impact across the portfolio on each date
+    total_dw = dw.sum(axis=1).replace(0, np.nan)
+    impact_series = (per_stock_impact * dw).sum(axis=1) / total_dw
+    impact_series.name = "impact_bps_per_stock"
+    return impact_series
+
+
+# ---------------------------------------------------------------------------
 # Net-of-cost IC
 # ---------------------------------------------------------------------------
 
@@ -303,35 +380,33 @@ def net_ic(
         and compare with estimate_cost_bps() to calibrate the model.
     """
     # --- 1. Trading cost drag ---
-    # When adv_df is provided, compute a per-stock, per-date effective ADV fraction
-    # and derive a weighted-average round-trip cost instead of using the scalar default.
-    if adv_df is not None and weights is not None:
-        try:
-            shared_idx = weights.index.intersection(adv_df.index)
-            shared_col = weights.columns.intersection(adv_df.columns)
-            w_abs = weights.loc[shared_idx, shared_col].abs()
-            adv   = adv_df.loc[shared_idx, shared_col].replace(0, np.nan)
-            per_stock_adv_frac = (w_abs * portfolio_nav) / adv
-            mean_adv_frac = per_stock_adv_frac.mean(axis=1).reindex(gross_ic.index).fillna(params.adv_fraction)
-            rt_cost_series = mean_adv_frac.apply(
-                lambda af: round_trip_cost_bps(adv_fraction=af, params=params) / 10_000.0
-            )
-        except Exception:
-            rt_cost_series = None
-    else:
-        rt_cost_series = None
-
-    if rt_cost_series is None:
-        rt_cost = round_trip_cost_bps(params=params) / 10_000.0  # scalar fallback
-
+    # When adv_df is provided, use true per-stock impact (compute_per_stock_impact_bps)
+    # instead of a fixed scalar adv_fraction.  This correctly penalises illiquid names.
     shared = gross_ic.index.intersection(turnover.index)
     g = gross_ic.loc[shared]
     t = turnover.loc[shared].fillna(0.0)
-    if rt_cost_series is not None:
-        trading_drag = rt_cost_series.reindex(shared).fillna(
-            round_trip_cost_bps(params=params) / 10_000.0
-        ) * t / max(horizon, 1)
+
+    if adv_df is not None and weights is not None:
+        try:
+            # Use the per-stock impact helper (includes spread separately below)
+            w_delta = weights.fillna(0.0).diff()
+            half_spread_frac = params.spread_bps / 2.0 / 10_000.0
+            impact_series = compute_per_stock_impact_bps(
+                w_delta, adv_df, portfolio_nav, params
+            )
+            # round-trip: 2× one-way impact + spread
+            rt_cost_series = (
+                2.0 * impact_series / 10_000.0
+                + 2.0 * half_spread_frac
+            ).reindex(shared)
+            trading_drag = rt_cost_series.fillna(
+                round_trip_cost_bps(params=params) / 10_000.0
+            ) * t / max(horizon, 1)
+        except Exception:
+            rt_cost = round_trip_cost_bps(params=params) / 10_000.0
+            trading_drag = rt_cost * t / max(horizon, 1)
     else:
+        rt_cost = round_trip_cost_bps(params=params) / 10_000.0  # scalar fallback
         trading_drag = rt_cost * t / max(horizon, 1)
 
     # --- 2. Short-borrow drag ---

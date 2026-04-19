@@ -62,7 +62,7 @@ _HYPOTHESIS_TEMPLATE = """\
 Research domain: {factor_domain}
 Universe: {universe_description}
 Constraints: {constraints}
-
+{domain_rotation_hint}
 === LITERATURE SEEDS FOR THIS DOMAIN (strong starting points from academic research) ===
 {literature_seeds}
 
@@ -74,6 +74,11 @@ Existing factors already in the knowledge base (do NOT duplicate these):
 
 Most recently attempted factor archetypes (AVOID these archetypes for variety):
 {recent_archetypes}
+
+=== HIGH-CORRELATION AVOID LIST (top-IC factors already in KB) ===
+DO NOT propose a factor whose mathematical computation would produce signals with
+Spearman correlation > 0.5 against ANY of the following signals:
+{high_ic_avoid_list}
 
 === SATURATED ARCHETYPES — DO NOT IMPLEMENT THESE (already have 2+ versions each) ===
 - 12-1 month price momentum (Jegadeesh-Titman) and any variant thereof
@@ -164,6 +169,70 @@ def _format_dynamic_seeds(domain_results: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _format_high_ic_avoid_list(all_results: list[dict], top_k: int = 10) -> str:
+    """
+    Format the top-K highest-IC factors as an explicit correlation avoid-list.
+
+    The LLM is instructed not to propose a signal whose *mathematical computation*
+    would produce signals correlated > 0.5 with any of these.  This is stronger
+    than the existing name-based dedup: it blocks math-equivalent rewrites too.
+    """
+    # Sort by IC descending, deduplicate by factor_name
+    seen: set[str] = set()
+    top: list[dict] = []
+    for r in sorted(all_results, key=lambda r: r.get("ic") or 0.0, reverse=True):
+        name = r.get("factor_name") or "unknown"
+        if name in seen or name.startswith(("phase25_", "ensemble_", "combined_")):
+            continue
+        seen.add(name)
+        top.append(r)
+        if len(top) >= top_k:
+            break
+
+    if not top:
+        return "  (none yet)"
+
+    lines = []
+    for r in top:
+        name = r.get("factor_name") or "unknown"
+        desc = r.get("description", "")
+        ic   = r.get("ic")
+        ic_str = f" IC={ic:.4f}" if ic is not None else ""
+        lines.append(f"  - [{name}]{ic_str} — {desc}")
+    return "\n".join(lines)
+
+
+def _domain_rotation_hint(all_results: list[dict]) -> str:
+    """
+    Suggest which domain to explore based on how many factors have been tried per domain.
+    Returns a short nudge string for the prompt.
+    """
+    from collections import Counter
+    counts: Counter = Counter()
+    for r in all_results:
+        notes = r.get("impl_notes") or ""
+        for domain in ("momentum", "mean_reversion", "volatility", "quality", "value",
+                       "microstructure", "macro"):
+            if domain in notes:
+                counts[domain] += 1
+                break
+
+    if not counts:
+        return ""
+
+    # Find under-explored domains
+    all_domains = ["momentum", "mean_reversion", "volatility", "quality", "value"]
+    min_count = min(counts.get(d, 0) for d in all_domains)
+    under = [d for d in all_domains if counts.get(d, 0) <= min_count]
+    if not under:
+        return ""
+    return (
+        f"\n=== DOMAIN ROTATION HINT ===\n"
+        f"Under-explored domains (tried {min_count}× or less): {', '.join(under)}.\n"
+        f"PREFER a factor from one of these domains to improve portfolio diversification.\n"
+    )
+
+
 class SynthesisAgent:
     """
     Generates a new factor hypothesis using the configured LLM provider.
@@ -203,6 +272,7 @@ class SynthesisAgent:
         # These reinforce exploration around proven archetypes while keeping
         # literature seeds as the theoretical floor.
         dynamic_results: list[dict] = []
+        all_results: list[dict] = []
         if self._kb is not None:
             try:
                 dynamic_results = self._kb.get_results_by_domain(
@@ -210,17 +280,25 @@ class SynthesisAgent:
                 )
             except Exception:
                 pass  # KB unavailable — fall back to literature seeds only
+            try:
+                all_results = self._kb.get_all_results()
+            except Exception:
+                pass
 
         dynamic_seeds_text = _format_dynamic_seeds(dynamic_results)
+        high_ic_avoid_text = _format_high_ic_avoid_list(all_results, top_k=10)
+        rotation_hint = _domain_rotation_hint(all_results)
 
         prompt = _HYPOTHESIS_TEMPLATE.format(
             factor_domain=spec.factor_domain,
             universe_description=spec.universe_description,
             constraints="\n".join(f"  - {c}" for c in spec.constraints),
+            domain_rotation_hint=rotation_hint,
             literature_seeds=seeds_text,
             dynamic_seeds=dynamic_seeds_text,
             existing_factors=_format_existing_factors(existing),
             recent_archetypes=_format_recent_archetypes(existing, n=5),
+            high_ic_avoid_list=high_ic_avoid_text,
         )
 
         raw = generate(f"{_SYSTEM_PROMPT}\n\n{prompt}")

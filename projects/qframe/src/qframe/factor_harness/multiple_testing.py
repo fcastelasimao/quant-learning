@@ -251,6 +251,97 @@ def correct_ic_pvalues(
     return df.sort_values("ic", ascending=False).reset_index(drop=True)
 
 
+def deflated_sharpe_ratio(
+    sharpe_obs: float,
+    n_trials: int,
+    t: int,
+    skewness: float = 0.0,
+    kurtosis: float = 3.0,
+) -> float:
+    """
+    Deflated Sharpe Ratio (DSR) — probability that the observed Sharpe Ratio
+    is greater than the expected maximum Sharpe Ratio from independent trials.
+
+    Reference: Bailey & López de Prado (2014), "The Deflated Sharpe Ratio:
+    Correcting for Selection Bias, Backtest Overfitting, and Non-Normality".
+    Journal of Portfolio Management 40(5).
+
+    The DSR answers: "What fraction of the observed Sharpe is genuine after
+    accounting for the fact that we searched over `n_trials` strategies?"
+
+    Formula:
+        SR_0* = E[max SR] ≈ ((1 − γ) × Z^{−1}(1 − 1/n) + γ × Z^{−1}(1 − 1/(n×e))) × √(1/T)
+        where γ = Euler-Mascheroni constant ≈ 0.5772
+
+        DSR = Φ( (SR_obs − SR_0*) × √T
+                  × √(1 − ŝkew×SR_obs + (kurt−1)/4 × SR_obs²) )
+
+    Args:
+        sharpe_obs:  Observed annualised Sharpe Ratio from the best backtest.
+        n_trials:    Number of strategies tried (= number of backtest results).
+        t:           Number of independent observations (= OOS trading days).
+        skewness:    Skewness of the strategy return series (default 0).
+        kurtosis:    Kurtosis of the strategy return series (default 3 = Gaussian).
+
+    Returns:
+        float in [0, 1]: probability that SR_obs exceeds the selection-inflated
+        expected maximum SR.  DSR > 0.95 is the conventional significance threshold.
+        Returns NaN if inputs are degenerate.
+    """
+    if n_trials < 1 or t < 2 or not math.isfinite(sharpe_obs):
+        return float("nan")
+
+    n = max(n_trials, 2)
+    euler_gamma = 0.5772156649
+
+    # Expected maximum SR under independent trials (Bailey & López de Prado eq. 8)
+    # Use the analytic approximation for the expected max of n half-normal variates
+    z1 = stats.norm.ppf(1.0 - 1.0 / n)
+    z2 = stats.norm.ppf(1.0 - 1.0 / (n * math.e))
+    sr_0_star = ((1.0 - euler_gamma) * z1 + euler_gamma * z2) / math.sqrt(t)
+
+    # Non-normality adjustment (equation 9 in the paper)
+    # Reduces SR by the amount attributable to fat tails / skew
+    adj = math.sqrt(1.0 - skewness * sharpe_obs + (kurtosis - 1.0) / 4.0 * sharpe_obs ** 2)
+    if adj <= 0:
+        return float("nan")
+
+    # DSR
+    dsr_z = (sharpe_obs - sr_0_star) * math.sqrt(t) * adj
+    return float(stats.norm.cdf(dsr_z))
+
+
+def bhy_t_threshold(
+    m: int,
+    alpha: float = 0.05,
+    n_oos_days: int = _DEFAULT_OOS_DAYS,
+) -> float:
+    """
+    Return the minimum t-statistic required for significance under BHY correction,
+    given that ``m`` positive-IC factors have been tested so far (including the
+    current one).
+
+    This is the online version of the BHY threshold used in the runtime gate:
+    after each factor test, m increments by 1 so the bar rises monotonically.
+
+    Formula: t_BHY = t-distribution quantile at level α / (m × c(m)), one-tailed.
+    where c(m) = Σ_{i=1}^{m} 1/i (harmonic number for arbitrary dependence).
+
+    Args:
+        m:           Number of positive-IC tests (including the current one).
+                     Must be ≥ 1.
+        alpha:       FDR level (default 0.05).
+        n_oos_days:  OOS trading days for the t-distribution df (default 1762).
+
+    Returns:
+        float: t-stat threshold.  Factor passes BHY gate if |t| ≥ this value.
+    """
+    m = max(1, int(m))
+    c_m = sum(1.0 / i for i in range(1, m + 1))
+    level = alpha / (m * c_m)
+    return float(stats.t.isf(level, df=n_oos_days - 1))
+
+
 def print_correction_summary(
     corrected_df: pd.DataFrame,
     n_oos_days: int = _DEFAULT_OOS_DAYS,

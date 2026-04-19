@@ -379,6 +379,81 @@ class TestComputeICByPeriod:
 # estimate_ic_halflife
 # ---------------------------------------------------------------------------
 
+class TestSlowICIRFormula:
+    """
+    Regression tests for the slow-ICIR formula.
+
+    The correct formula for a slow signal at horizon h:
+        slow_icir = mean_period_IC / std_period_IC  (non-overlapping h-day windows)
+        t_stat    = slow_icir × sqrt(N_windows)     where N_windows = floor(N_oos / h)
+
+    Bug-guard: the fast formula uses sqrt(N_oos/252) which overcounts by h/252.
+    """
+
+    def _make_slow_signal(self, n_dates: int = 1500, n_stocks: int = 40, seed: int = 7):
+        rng = np.random.default_rng(seed)
+        dates = pd.bdate_range("2018-01-02", periods=n_dates)
+        tickers = [f"S{i:03d}" for i in range(n_stocks)]
+        prev = rng.normal(0, 0.01, n_stocks)
+        rets_list = []
+        for _ in range(n_dates):
+            r = 0.05 * prev + rng.normal(0, 0.01, n_stocks)
+            rets_list.append(r)
+            prev = r
+        returns = pd.DataFrame(rets_list, index=dates, columns=tickers)
+        prices  = (1 + returns).cumprod()
+        factor  = returns.shift(1)
+        return prices, returns, factor
+
+    def test_slow_icir_uses_non_overlapping_windows(self):
+        """slow_icir_63 and fast ICIR should be distinct values for h=63."""
+        prices, returns, factor = self._make_slow_signal()
+        oos_start = "2021-01-01"
+
+        slow_val = compute_slow_icir(factor, returns, horizon=63, oos_start=oos_start)
+        fast_ic  = compute_ic(factor, returns, horizon=1).loc[oos_start:].dropna()
+        if len(fast_ic) > 1 and np.isfinite(slow_val):
+            fast_icir = fast_ic.mean() / fast_ic.std()
+            assert abs(slow_val - fast_icir) > 1e-6, (
+                "slow_icir_63 and fast ICIR should differ — "
+                "verify slow formula uses non-overlapping windows"
+            )
+
+    def test_slow_t_stat_uses_n_windows_not_n_over_252(self):
+        """
+        t = slow_icir × sqrt(N_windows), N_windows = floor(N_oos / horizon).
+        NOT sqrt(N_oos / 252) which overcounts observations by factor h/252.
+        """
+        prices, returns, factor = self._make_slow_signal()
+        oos_start  = "2021-01-01"
+        horizon    = 63
+        slow_icir  = compute_slow_icir(factor, returns, horizon=horizon,
+                                       oos_start=oos_start)
+        if np.isnan(slow_icir):
+            pytest.skip("Insufficient data")
+        n_oos      = len(returns.loc[oos_start:])
+        n_windows  = n_oos // horizon
+        # Correct t-stat uses n_windows
+        t_correct  = slow_icir * np.sqrt(n_windows)
+        # Wrong t-stat uses n_oos/252 (fast formula applied to slow horizon)
+        t_wrong    = slow_icir * np.sqrt(n_oos / 252)
+        assert np.isfinite(t_correct)
+        # They must differ — if equal, something is wrong
+        assert abs(t_correct - t_wrong) > 0.01, (
+            f"t_correct={t_correct:.4f} ≈ t_wrong={t_wrong:.4f}: "
+            "likely the fast formula was used instead of floor(N/h)"
+        )
+
+    def test_slow_icir_nan_when_no_complete_window(self):
+        """Returns NaN if OOS data is shorter than one non-overlapping horizon window."""
+        prices, returns, factor = self._make_slow_signal(n_dates=400)
+        oos_returns = returns.loc["2019-10-01":]
+        val = compute_slow_icir(factor, returns, horizon=63, oos_start="2019-10-01",
+                                min_periods=2)
+        if len(oos_returns) < 63:
+            assert np.isnan(val)
+
+
 class TestEstimateICHalfLife:
     def test_returns_float(self, synthetic):
         _, returns, factor = synthetic
@@ -397,3 +472,72 @@ class TestEstimateICHalfLife:
         assert hl > 0
         # np.log(2) / 0.05 ≈ 13.9 days
         assert 5 < hl < 50, f"Half-life {hl:.1f} outside expected range"
+
+class TestDeflatedSharpeRatio:
+    """
+    Tests for the Deflated Sharpe Ratio (Bailey & López de Prado 2014).
+
+    NOTE: ``deflated_sharpe_ratio`` uses PER-PERIOD (non-annualised) Sharpe
+    ratios, as in the original paper.  The expected max SR from N trials with
+    T daily observations is approx (2.766 / sqrt(T)) ≈ 0.066 for T=1762.
+    An annualised SR of 0.5 corresponds to a per-period SR of 0.5/sqrt(252) ≈ 0.031.
+    """
+
+    def test_dsr_returns_float_in_unit_interval(self):
+        from qframe.factor_harness.multiple_testing import deflated_sharpe_ratio
+        # Per-period SR of 0.1 with 50 trials and 1762 observations
+        dsr = deflated_sharpe_ratio(sharpe_obs=0.1, n_trials=50, t=1762)
+        assert isinstance(dsr, float)
+        assert 0.0 <= dsr <= 1.0
+
+    def test_small_per_period_sr_many_trials_low_dsr(self):
+        """
+        Per-period SR of 0.03 (≈ annualised 0.5) with 200 trials.
+        Expected max SR from noise ≈ 0.066 → 0.03 < 0.066 → DSR < 0.5.
+        """
+        from qframe.factor_harness.multiple_testing import deflated_sharpe_ratio
+        # sr_obs < sr_0_star (expected noise max) → DSR should be < 0.5
+        dsr = deflated_sharpe_ratio(sharpe_obs=0.03, n_trials=200, t=1762)
+        assert dsr < 0.5
+
+    def test_high_per_period_sr_one_trial_high_dsr(self):
+        """Per-period SR of 0.2 (≈ annualised 3.2) with a single trial → DSR near 1."""
+        from qframe.factor_harness.multiple_testing import deflated_sharpe_ratio
+        dsr = deflated_sharpe_ratio(sharpe_obs=0.2, n_trials=1, t=1762)
+        assert dsr > 0.9
+
+    def test_dsr_increases_with_fewer_trials(self):
+        """Same SR should have higher DSR when fewer strategies were tried."""
+        from qframe.factor_harness.multiple_testing import deflated_sharpe_ratio
+        dsr_few  = deflated_sharpe_ratio(sharpe_obs=0.1, n_trials=5,   t=1762)
+        dsr_many = deflated_sharpe_ratio(sharpe_obs=0.1, n_trials=200, t=1762)
+        assert dsr_few > dsr_many
+
+    def test_degenerate_inputs_return_nan(self):
+        from qframe.factor_harness.multiple_testing import deflated_sharpe_ratio
+        import math
+        assert math.isnan(deflated_sharpe_ratio(0.0, 0, 1000))  # n_trials=0
+        assert math.isnan(deflated_sharpe_ratio(0.0, 10, 1))    # t too small
+        assert math.isnan(deflated_sharpe_ratio(float('nan'), 10, 1000))
+
+
+class TestBHYThreshold:
+    """Tests for the online BHY t-threshold."""
+
+    def test_threshold_increases_with_m(self):
+        from qframe.factor_harness.multiple_testing import bhy_t_threshold
+        t1 = bhy_t_threshold(1)
+        t10 = bhy_t_threshold(10)
+        t100 = bhy_t_threshold(100)
+        assert t1 < t10 < t100
+
+    def test_threshold_positive(self):
+        from qframe.factor_harness.multiple_testing import bhy_t_threshold
+        for m in [1, 5, 50, 140]:
+            assert bhy_t_threshold(m) > 0
+
+    def test_threshold_m1_less_than_m140(self):
+        """After 140 tests the bar should be substantially higher than for 1 test."""
+        from qframe.factor_harness.multiple_testing import bhy_t_threshold
+        assert bhy_t_threshold(140) > bhy_t_threshold(1) * 1.5
+

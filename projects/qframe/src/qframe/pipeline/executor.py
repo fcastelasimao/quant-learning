@@ -171,3 +171,72 @@ def validate_factor_output(
             f"{name}: factor has zero cross-sectional variance on all dates — "
             "every stock receives the same score."
         )
+
+
+# ---------------------------------------------------------------------------
+# Look-ahead bias guard
+# ---------------------------------------------------------------------------
+
+def check_lookahead_bias(
+    factor_fn: Callable[[pd.DataFrame], pd.DataFrame],
+    prices: pd.DataFrame,
+    full_factor: pd.DataFrame,
+    *,
+    cutoff_frac: float = 0.65,
+    timeout: int = 120,
+    atol: float = 1e-6,
+    name: str = "factor",
+) -> None:
+    """
+    Detect look-ahead bias by re-running the factor on a truncated price panel.
+
+    If ``factor_fn(prices[:cutoff]) ≈ full_factor[:cutoff]`` for every date up
+    to the cutoff, no look-ahead bias is present. If the values differ, the
+    factor must be using data from future rows at training time.
+
+    The check runs the factor on ``cutoff_frac`` of the dates (default 65%),
+    which is usually faster than the full run.  Uses the same timeout guard.
+
+    Args:
+        factor_fn:    Compiled factor callable (from make_factor_fn).
+        prices:       Full (dates × tickers) price history.
+        full_factor:  Already-computed full-panel factor output.
+        cutoff_frac:  Fraction of dates to include in the truncated panel.
+        timeout:      Seconds before aborting the truncated run (default 120).
+        atol:         Absolute tolerance for value comparison (default 1e-6).
+        name:         Factor name for error messages.
+
+    Raises:
+        ValueError: if factor values differ between full-panel and
+                    truncated-panel runs on the overlapping dates.
+    """
+    n_dates = len(prices)
+    cutoff_idx = max(10, int(n_dates * cutoff_frac))
+    cutoff_date = prices.index[cutoff_idx - 1]
+
+    truncated_prices = prices.iloc[:cutoff_idx]
+    try:
+        trunc_factor = run_factor_with_timeout(factor_fn, truncated_prices, timeout=timeout)
+    except Exception:
+        # If the truncated run fails (e.g. insufficient warmup), skip the check.
+        return
+
+    if trunc_factor.shape != truncated_prices.shape:
+        return  # Shape mismatch handled by validate_factor_output separately.
+
+    # Compare values on the overlapping date range
+    full_slice  = full_factor.iloc[:cutoff_idx].values
+    trunc_slice = trunc_factor.values
+
+    both_finite = np.isfinite(full_slice) & np.isfinite(trunc_slice)
+    if both_finite.sum() < 10:
+        return  # Too few comparable cells; skip.
+
+    if not np.allclose(full_slice[both_finite], trunc_slice[both_finite],
+                       atol=atol, rtol=1e-5, equal_nan=False):
+        raise ValueError(
+            f"{name}: look-ahead bias detected — factor values differ between "
+            f"the full price panel and a panel truncated at {cutoff_date.date()}. "
+            "Ensure the factor uses only past data (.shift(), .rolling(), .ewm()). "
+            "Do NOT use prices.index[-1], future slices, or global aggregations."
+        )

@@ -1,14 +1,31 @@
 """
-Implementation agent — translates a factor hypothesis into Python code
-using Qwen2.5-Coder:14b via Ollama.
+Implementation agent — translates a factor hypothesis into Python code.
+
+Primary path: Groq llama-3.3-70b-versatile (or whichever provider is configured
+in .env via LLM_PROVIDER) via the shared _llm.generate() router.
+
+Fallback path: Ollama qwen2.5-coder:14b (local).  Triggered when:
+  - IMPLEMENTATION_PROVIDER=ollama in .env, OR
+  - _llm.generate() raises RuntimeError (all cloud providers exhausted)
+
+Set IMPLEMENTATION_PROVIDER=ollama in .env to force local Ollama exclusively.
 """
 from __future__ import annotations
 
-import ollama
+import os
 
 from qframe.pipeline.models import HypothesisSpec
 
+# Module-level import so monkeypatch paths (tests) resolve correctly.
+# Guard with try/except: ollama is only required when IMPLEMENTATION_PROVIDER=ollama
+# or when the cloud LLM fallback is triggered.
+try:
+    import ollama  # type: ignore[import]
+except ImportError:
+    ollama = None  # type: ignore[assignment]
+
 _OLLAMA_MODEL = "qwen2.5-coder:14b"
+_USE_OLLAMA   = os.environ.get("IMPLEMENTATION_PROVIDER", "llm").lower() == "ollama"
 
 _PROMPT_TEMPLATE = """\
 You are a quantitative finance engineer implementing a cross-sectional equity factor.
@@ -176,17 +193,31 @@ Return ONLY the corrected function definition. No explanation.\
 
 class ImplementationAgent:
     """
-    Calls Qwen2.5-Coder:14b (Ollama) to generate factor code.
-    On execution errors, attempts a one-shot self-healing fix.
+    Generates factor Python code from a hypothesis.
+
+    Primary LLM: Groq llama-3.3-70b-versatile (via _llm.generate router).
+    Fallback:    Ollama qwen2.5-coder:14b (local, offline-safe).
+
+    Control via env:
+      IMPLEMENTATION_PROVIDER=ollama  → always use Ollama
+      IMPLEMENTATION_PROVIDER=llm     → try LLM router first (default)
 
     Args:
-        model:   Ollama model tag. Default: qwen2.5-coder:14b.
+        model:   Ollama model tag (fallback only). Default: qwen2.5-coder:14b.
         timeout: seconds to wait for Ollama response. Default: 120.
     """
 
     def __init__(self, model: str = _OLLAMA_MODEL, timeout: int = 120):
         self._model = model
         self._timeout = timeout
+
+    def _call_llm(self, prompt: str) -> str:
+        """
+        Generate text using the cloud LLM router (Groq → fallback chain).
+        Returns the raw response string.
+        """
+        from qframe.pipeline.agents._llm import generate as _llm_generate
+        return _llm_generate(prompt)
 
     def _call_ollama(self, prompt: str, temperature: float) -> dict:
         """
@@ -196,6 +227,11 @@ class ImplementationAgent:
         `generate()`. In that case we retry once without timeout to avoid
         breaking the pipeline.
         """
+        if ollama is None:
+            raise ImportError(
+                "The 'ollama' package is not installed. "
+                "Install it with: pip install ollama"
+            )
         kwargs = {
             "model": self._model,
             "prompt": prompt,
@@ -210,6 +246,22 @@ class ImplementationAgent:
                 raise
             kwargs.pop("timeout", None)
             return ollama.generate(**kwargs)
+
+    def _generate_code(self, prompt: str, temperature_ollama: float = 0.2) -> str:
+        """
+        Try cloud LLM first; fall back to Ollama on failure.
+        Returns the raw generated text string.
+        """
+        if not _USE_OLLAMA:
+            try:
+                return self._call_llm(prompt)
+            except Exception as _llm_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[ImplementationAgent] Cloud LLM failed (%s), falling back to Ollama.",
+                    _llm_err,
+                )
+        return self._call_ollama(prompt, temperature=temperature_ollama)["response"]
 
     def generate(self, hypothesis: HypothesisSpec) -> str:
         """
@@ -227,9 +279,7 @@ class ImplementationAgent:
             rationale=hypothesis.rationale,
         )
 
-        response = self._call_ollama(prompt, temperature=0.2)
-
-        return response["response"]
+        return self._generate_code(prompt, temperature_ollama=0.2)
 
     def fix(self, code: str, error: str) -> str:
         """
@@ -243,7 +293,4 @@ class ImplementationAgent:
             String containing the fixed Python function definition.
         """
         prompt = _FIX_PROMPT_TEMPLATE.format(code=code, error=error)
-
-        response = self._call_ollama(prompt, temperature=0.1)
-
-        return response["response"]
+        return self._generate_code(prompt, temperature_ollama=0.1)
