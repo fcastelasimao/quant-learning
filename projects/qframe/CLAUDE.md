@@ -47,6 +47,7 @@ Always read `agent_docs/research-log.md` first to understand where we left off.
 | File | Read when... |
 |---|---|
 | `agent_docs/research-log.md` | **Every session — read this first** |
+| `agent_docs/backlog.md` | **Every session when picking the next task — single source of truth for open work** |
 | `agent_docs/factor-library.md` | Working on factors, IC analysis, factor additions |
 | `agent_docs/regime-model.md` | Working on HSMM, Hurst, velocity, regime detection |
 | `agent_docs/gate-thresholds.md` | Evaluating whether a backtest passes a gate |

@@ -49,6 +49,7 @@ from qframe.pipeline.models import (
     IterationResult,
     ResearchSpec,
     VERDICT_ERROR,
+    VERDICT_SKIP,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,14 +175,14 @@ class PipelineLoop:
                 f"DUPLICATE: signal correlation {max_corr:.3f} with '{similar_name}' "
                 f"exceeds threshold {self._DUPLICATE_CORR_THRESHOLD}. Skipping walk-forward."
             )
-            print(f"      ⚠  {dup_msg}")
+            print(f"      ⊘ {dup_msg}")
             self.kb.update_hypothesis_status(hyp_id, "retired")
             return IterationResult(
                 hypothesis=hypothesis,
                 code=code,
                 wf_result=None,
                 analysis=dup_msg,
-                verdict=VERDICT_ERROR,
+                verdict=VERDICT_SKIP,
                 kb_hypothesis_id=hyp_id,
                 kb_implementation_id=impl_id,
                 kb_result_id=None,
@@ -225,14 +226,14 @@ class PipelineLoop:
                         f"PRE-GATE FAILED: IC={pg_ic:.4f}, t={pg_t:.2f} on 2012-2016 window "
                         f"(need |IC|≥0.005 and |t|≥1.0). Skipping full walk-forward."
                     )
-                    print(f"      ✗ {pg_msg}")
+                    print(f"      ⊘ {pg_msg}")
                     self.kb.update_hypothesis_status(hyp_id, "failed")
                     return IterationResult(
                         hypothesis=hypothesis,
                         code=code,
                         wf_result=None,
                         analysis=pg_msg,
-                        verdict=VERDICT_ERROR,
+                        verdict=VERDICT_SKIP,
                         kb_hypothesis_id=hyp_id,
                         kb_implementation_id=impl_id,
                         kb_result_id=None,
@@ -655,12 +656,13 @@ class PipelineLoop:
         verdicts = [r.verdict for r in results]
         n_pass  = verdicts.count("PASS")
         n_fail  = verdicts.count("FAIL")
+        n_skip  = verdicts.count("SKIP")
         n_error = verdicts.count("ERROR")
 
         session_lines = [
             f"## Session: {today} (auto — domain={domain})\n",
             f"**Done:** ran {len(results)} iteration(s): "
-            f"{n_pass} PASS / {n_fail} FAIL / {n_error} ERROR\n",
+            f"{n_pass} PASS / {n_fail} FAIL / {n_skip} SKIP / {n_error} ERROR\n",
         ]
         for r in results:
             if r.wf_result is not None:

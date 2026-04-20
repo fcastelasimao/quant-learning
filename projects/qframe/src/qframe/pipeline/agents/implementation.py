@@ -114,6 +114,44 @@ BUG 10 — np.where() on a DataFrame returns a plain ndarray, NOT a DataFrame:
           direction = pd.DataFrame(np.where(returns > 0, 1, np.where(returns < 0, -1, 0)),
                                    index=prices.index, columns=prices.columns)
 
+BUG 11 — Hard-coded ticker symbols (KeyError at runtime):
+  WRONG:  spy = prices['SPY']          # KeyError: 'SPY' — ticker may not exist
+  WRONG:  benchmark = prices['A']      # KeyError: 'A' — single-letter tickers unsafe
+  The universe changes every backtest — NEVER assume a specific ticker is present.
+  CORRECT — use cross-sectional aggregates or column positions:
+          market = prices.mean(axis=1)               # equal-weight market proxy
+          median_px = prices.median(axis=1)          # universe median
+          # or index by position if you really need one column:
+          first_col = prices.iloc[:, 0]
+  RULE: no string literal that looks like a ticker symbol may appear in the code.
+
+BUG 12 — Boolean Series indexer with mismatched index (IndexingError):
+  WRONG:  mask = some_other_df.iloc[:, 0] > 0       # index from other_df
+          result = prices[mask]                      # pandas.errors.IndexingError:
+                                                     # Unalignable boolean Series provided
+  CORRECT option A — build the mask from the frame you are indexing:
+          mask = (prices.pct_change() > 0).any(axis=1)
+          result = prices[mask]
+  CORRECT option B — reindex/align the mask explicitly:
+          mask = mask.reindex(prices.index, fill_value=False)
+          result = prices.where(mask, np.nan)
+  RULE: any boolean Series used as a row indexer must share the target's index.
+
+BUG 13 — .rolling(...).apply(lambda) with a Python callable (TimeoutError):
+  The interpreter-loop overhead makes a 252-day rolling on ~450 stocks take minutes.
+  WRONG:  prices.rolling(252).apply(lambda w: custom_calc(w))       # >120s timeout
+  WRONG:  returns.rolling(60).apply(lambda x: my_python_func(x))    # slow
+  CORRECT option A — use vectorized pandas/numpy rolling ops (compiled C):
+          mu = prices.rolling(252).mean()
+          sd = prices.rolling(252).std()
+          rk = prices.rolling(252).rank()
+          mx = prices.rolling(252).max()
+  CORRECT option B — if a custom function is truly unavoidable, use raw=True AND
+                     scipy.stats for the reduction (it's C-vectorized on arrays):
+          result = returns.rolling(252, min_periods=60).apply(
+                       lambda x: stats.skew(x), raw=True)
+  RULE: prefer native rolling ops; only use .apply() as a last resort with raw=True.
+
 === PERFORMANCE CONSTRAINT ===
 The universe is ~450 stocks × ~3800 dates. Any factor that runs in O(n_stocks × n_dates) with
 a pure-Python scalar function will timeout. FORBIDDEN patterns (will cause TimeoutError):

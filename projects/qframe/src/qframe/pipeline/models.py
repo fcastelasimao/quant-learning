@@ -58,6 +58,7 @@ class HypothesisSpec:
 VERDICT_PASS = "PASS"
 VERDICT_WEAK = "WEAK"
 VERDICT_FAIL = "FAIL"
+VERDICT_SKIP = "SKIP"   # Guard rejection (duplicate / pre-gate fail) — not a crash
 VERDICT_ERROR = "ERROR"
 
 

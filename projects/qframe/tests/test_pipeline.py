@@ -21,6 +21,7 @@ from qframe.pipeline.models import (
     ResearchSpec,
     VERDICT_PASS,
     VERDICT_FAIL,
+    VERDICT_SKIP,
     VERDICT_ERROR,
 )
 
@@ -468,3 +469,61 @@ class TestSignalNovelty:
             f"Uncorrelated signal over different date range should not be a duplicate. "
             f"max_corr={max_corr:.4f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# SKIP verdict — regression tests for guard-rejection taxonomy (2026-04-20)
+#
+# Background: prior to 2026-04-20, the DUPLICATE (novelty filter) and
+# PRE-GATE FAILED branches in loop.py used VERDICT_ERROR, making healthy
+# guard rejections indistinguishable from real crashes in the summary.
+# These tests pin the taxonomy: guard rejections = SKIP, real crashes = ERROR.
+# ---------------------------------------------------------------------------
+
+class TestSkipVerdict:
+    def test_verdict_skip_constant_is_defined(self):
+        """VERDICT_SKIP must be exported from qframe.pipeline.models with value 'SKIP'."""
+        from qframe.pipeline.models import VERDICT_SKIP as V
+        assert V == "SKIP"
+
+    def test_loop_duplicate_branch_uses_skip_verdict(self):
+        """The DUPLICATE rejection path in loop.py must return verdict=VERDICT_SKIP."""
+        from pathlib import Path
+        src = Path(__file__).resolve().parents[1] / "src" / "qframe" / "pipeline" / "loop.py"
+        text = src.read_text()
+        # Locate the DUPLICATE block and check it uses VERDICT_SKIP (not VERDICT_ERROR).
+        dup_idx = text.index("DUPLICATE: signal correlation")
+        # Grab the next ~30 lines after the message — enough to cover the return statement.
+        window = text[dup_idx : dup_idx + 2000]
+        assert "verdict=VERDICT_SKIP" in window, (
+            "DUPLICATE branch in loop.py must use VERDICT_SKIP, not VERDICT_ERROR. "
+            "This was the 2026-04-20 taxonomy fix."
+        )
+
+    def test_loop_pregate_branch_uses_skip_verdict(self):
+        """The PRE-GATE FAILED rejection path in loop.py must return verdict=VERDICT_SKIP."""
+        from pathlib import Path
+        src = Path(__file__).resolve().parents[1] / "src" / "qframe" / "pipeline" / "loop.py"
+        text = src.read_text()
+        pg_idx = text.index("PRE-GATE FAILED:")
+        window = text[pg_idx : pg_idx + 2000]
+        assert "verdict=VERDICT_SKIP" in window, (
+            "PRE-GATE FAILED branch in loop.py must use VERDICT_SKIP, not VERDICT_ERROR. "
+            "This was the 2026-04-20 taxonomy fix."
+        )
+
+    def test_iteration_result_accepts_skip_verdict(self, hypothesis):
+        """IterationResult must accept VERDICT_SKIP as a valid verdict."""
+        r = IterationResult(
+            hypothesis=hypothesis,
+            code="def factor(p): return p",
+            wf_result=None,
+            analysis="DUPLICATE: …",
+            verdict=VERDICT_SKIP,
+            kb_hypothesis_id=1,
+            kb_implementation_id=1,
+            kb_result_id=None,
+            error="DUPLICATE: …",
+        )
+        assert r.verdict == "SKIP"
+        assert r.verdict != VERDICT_ERROR
