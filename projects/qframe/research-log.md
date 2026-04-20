@@ -6,6 +6,61 @@
 
 ## Session: 2026-04-20 (auto — domain=value)
 
+**Done:** ran 5 iteration(s): 0 PASS / 0 FAIL / 5 SKIP / 0 ERROR
+
+- `price_to_52w_range` → **SKIP** (execution error)
+- `price_to_5y_median_deviation` → **SKIP** (execution error)
+- `price_to_5y_median_deviation` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=quality)
+
+**Done:** ran 5 iteration(s): 0 PASS / 1 FAIL / 2 SKIP / 2 ERROR
+
+- `trend_quality_r2`: IC=-0.0059 ICIR=-0.0834 → **FAIL**
+- `drawdown_duration` → **SKIP** (execution error)
+- `recovery_ratio` → **SKIP** (execution error)
+- `return_skewness_63day` → **ERROR** (execution error)
+- `downside_deviation_sortino` → **ERROR** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=volatility)
+
+**Done:** ran 5 iteration(s): 0 PASS / 1 FAIL / 2 SKIP / 2 ERROR
+
+- `realized_skewness` → **ERROR** (execution error)
+- `max_daily_return` → **ERROR** (execution error)
+- `volatility_of_volatility`: IC=-0.0005 ICIR=-0.1126 → **FAIL**
+- `downside_volatility` → **SKIP** (execution error)
+- `bab_frazzini_pedersen` → **SKIP** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=mean_reversion)
+
+**Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 2 SKIP / 0 ERROR
+
+- `bollinger_mean_reversion` → **SKIP** (execution error)
+- `bollinger_mean_reversion`: IC=-0.0086 ICIR=-0.1345 → **FAIL**
+- `long_term_reversal_debondt_thaler`: IC=-0.0105 ICIR=0.0551 → **FAIL**
+- `rsi_contrarian`: IC=0.0033 ICIR=0.0267 → **FAIL**
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=momentum)
+
+**Done:** ran 5 iteration(s): 0 PASS / 3 FAIL / 1 SKIP / 1 ERROR
+
+- `intermediate_momentum_novy_marx`: IC=0.0094 ICIR=0.0321 → **FAIL**
+- `industry_momentum_moskowitz_grinblatt`: IC=0.0125 ICIR=-0.0439 → **FAIL**
+- `residual_momentum_blitz` → **ERROR** (execution error)
+- `aqr_value_momentum` → **SKIP** (execution error)
+- `short_term_reversal_jegadeesh`: IC=0.0018 ICIR=-0.0795 → **FAIL**
+
+
+## Session: 2026-04-20 (auto — domain=value)
+
 **Done:** ran 10 iteration(s): 0 PASS / 1 FAIL / 9 ERROR
 
 - `five_year_range_position_zscore` → **ERROR** (execution error)
@@ -215,20 +270,19 @@
 - Gate 1 (factor library): 🔄 IN PROGRESS
 - Gate 2+ (HSMM regime detection): ⬜ NOT STARTED
 
-**Knowledge base:** 183 hypotheses, 142 backtest results, 957 factor correlations.
+**Knowledge base:** 26 hypotheses, 9 backtest results, 3 factor correlations.
 
 **Passed-gate factors:**
-  - `phase25_combined`: IC=0.0586, ICIR=0.2688
-  - `unnamed`: IC=0.0490, ICIR=0.2513, slow_icir_63=0.2513
+  - None yet
 
 **Top-5 by IC (OOS):**
   | Factor | IC | ICIR | slow_icir_63 |
   |--------|-----|------|----------|
-  | trend_quality_calmar_ratio | 0.0646 | 0.3823 | -0.0718 |
-  | trend_quality_calmar_ratio | 0.0646 | 0.3823 | -0.0718 |
-  | phase25_combined | 0.0586 | 0.2688 | — |
-  | unnamed | 0.0490 | 0.2513 | 0.2513 |
-  | unnamed | 0.0169 | 0.1685 | — |
+  | industry_momentum_moskowitz_grinblatt | 0.0125 | -0.0439 | 0.0144 |
+  | ensemble_top1 | 0.0125 | -0.0439 | 0.0144 |
+  | intermediate_momentum_novy_marx | 0.0094 | 0.0321 | -0.2510 |
+  | rsi_contrarian | 0.0033 | 0.0267 | 0.5918 |
+  | short_term_reversal_jegadeesh | 0.0018 | -0.0795 | 0.5473 |
 ---
 
 ## Session: 2026-04-13 (part 2 — completion + live-trading review)
