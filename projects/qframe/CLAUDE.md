@@ -48,6 +48,8 @@ Always read `agent_docs/research-log.md` first to understand where we left off.
 |---|---|
 | `agent_docs/research-log.md` | **Every session — read this first** |
 | `agent_docs/backlog.md` | **Every session when picking the next task — single source of truth for open work** |
+| `agent_docs/factor-graveyard.md` | **Before proposing a new factor** — check if it was already retired |
+| `factor_library.yaml` | **Before starting a pipeline run** — pick a pending factor from here instead of letting the LLM invent one; update status + ic_oos after each run |
 | `agent_docs/factor-library.md` | Working on factors, IC analysis, factor additions |
 | `agent_docs/regime-model.md` | Working on HSMM, Hurst, velocity, regime detection |
 | `agent_docs/gate-thresholds.md` | Evaluating whether a backtest passes a gate |

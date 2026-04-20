@@ -10,7 +10,7 @@ Status values: **Active** | **Backlog** | **Blocked** | **Done** | **Retired**
 
 ## Active
 
-*(currently empty — the 2026-04-19 hot path is complete: impl_82 retired, six new guards active, 182 tests passing, mean_reversion SKIP/ERROR taxonomy fixed 2026-04-20.)*
+*(currently empty)*
 
 ---
 
@@ -21,11 +21,6 @@ Status values: **Active** | **Backlog** | **Blocked** | **Done** | **Retired**
 - **Effort:** 2 hr
 - **Why:** `HOLDOUT_START=2024-06-01` is currently a convention, not a rule. Any function in `factor_harness/` that receives a date past this should raise `NotImplementedError` unless passed `unseal=True`.
 - **Unblocks:** honest final-stage validation once a new candidate is found.
-
-### #13 — `agent_docs/factor-graveyard.md`
-- **Source:** prior plan §7.3 #8
-- **Effort:** 30 min
-- **Why:** impl_82 was retired but nothing stops someone (or the LLM) re-proposing it. Append-only ledger of retired factors, 100 words per entry, explains why each was cut.
 
 ### #14 — `scripts/cross_market_check.py --impl-id N` CLI
 - **Source:** prior plan §6 task E / §7.3
@@ -47,20 +42,10 @@ Status values: **Active** | **Backlog** | **Blocked** | **Done** | **Retired**
 - **Effort:** 1 day
 - **Why:** next-day open fills + 10 bps slippage + volume cap. Exposes Gate-3 candidates to realistic frictions before paper trading.
 
-### #18 — Dirty-worktree guard in `loop.py`
-- **Source:** prior plan §7.3 #7
-- **Effort:** 30 min
-- **Why:** `git_hash` is logged, but if the worktree is dirty the hash is meaningless. Refuse to start `loop.py` on unclean git state.
-
 ### #19 — Regime-robustness gate
 - **Source:** prior plan §7.3 #6
 - **Effort:** 2 hr
 - **Why:** promote regime analysis from advisory to a hard gate: reject factors positive in <3 of 5 regimes.
-
-### #20 — Literature factor library (MAJOR)
-- **Source:** prior plan §7.1 #2a
-- **Effort:** 1 weekend
-- **Why:** seeds the next research phase. YAML of 50 factors from Hou-Xue-Zhang, FF5 + momentum, QMJ, value/momentum everywhere, BAB. Each is peer-reviewed; our job is measuring how much IC survives on our data.
 
 ### #21 — Feature primitives + `gplearn` symbolic regression (MAJOR)
 - **Source:** prior plan §7.1 #2b
@@ -114,3 +99,6 @@ Status values: **Active** | **Backlog** | **Blocked** | **Done** | **Retired**
 - **2026-04-19** — impl_82 retired; six new guards active; crypto replication added; 137→177 tests (prior plan tasks 1–10).
 - **2026-04-20** — Pipeline run with new guards (prior plan task 11).
 - **2026-04-20** — SKIP/ERROR verdict taxonomy fix; 3 LLM anti-patterns; backlog consolidation (crystalline-questing-star plan tasks 1–3).
+- **2026-04-20** — #18 Dirty-worktree guard: `_enforce_clean_worktree()` added to `run.py` CLI; `QFRAME_ALLOW_DIRTY=1` escape hatch; 8 new tests in `tests/test_run.py`; 194 tests passing.
+- **2026-04-20** — #13 Factor graveyard: `agent_docs/factor-graveyard.md` created; impl_82 (look-ahead) and impl_53 (wrong t-stat formula) documented; graveyard referenced from `CLAUDE.md`.
+- **2026-04-20** — #20 Literature factor library: `factor_library.yaml` created with 22 peer-reviewed factors across 5 domains (22 pending, prices_only=true or flagged); synthesis agent updated to inject pending library factors into the prompt before free exploration; 194 tests still passing.

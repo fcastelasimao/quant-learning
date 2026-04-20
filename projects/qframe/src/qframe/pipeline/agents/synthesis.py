@@ -3,14 +3,71 @@ Synthesis agent — generates factor hypotheses using Gemini 2.5 Flash.
 
 Reads the current knowledge base to avoid duplicating existing factors,
 then produces a new hypothesis in structured JSON.
+
+Literature library
+------------------
+When ``factor_library.yaml`` is present in the repo root, the agent reads
+``pending`` factors for the requested domain and injects them into the prompt
+as high-priority candidates. This prevents the LLM from re-inventing signals
+that have established academic evidence — it should implement those first and
+only explore freely after the library is exhausted.
 """
 from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
+
+try:
+    import yaml as _yaml
+except ImportError:
+    _yaml = None  # type: ignore[assignment]  # graceful degradation if PyYAML absent
 
 from qframe.pipeline.agents._llm import generate
 from qframe.pipeline.models import HypothesisSpec, ResearchSpec
+
+_FACTOR_LIBRARY_PATH = Path(__file__).parent.parent.parent.parent.parent / "factor_library.yaml"
+
+
+def _load_pending_library_factors(domain: str) -> list[dict]:
+    """
+    Load pending factors from factor_library.yaml for the given domain.
+
+    Returns a list of dicts with keys: id, name, formula_notes.
+    Returns an empty list if the file is absent, PyYAML is unavailable,
+    or no pending factors exist for this domain.
+    """
+    if _yaml is None or not _FACTOR_LIBRARY_PATH.exists():
+        return []
+    try:
+        with _FACTOR_LIBRARY_PATH.open() as fh:
+            factors = _yaml.safe_load(fh) or []
+        return [
+            f for f in factors
+            if isinstance(f, dict)
+            and f.get("domain") == domain
+            and f.get("status", "pending") == "pending"
+            and f.get("prices_only", True)  # skip factors needing fundamentals
+        ]
+    except Exception:
+        return []
+
+
+def _format_library_candidates(library_factors: list[dict]) -> str:
+    """Format pending library factors for the synthesis prompt."""
+    if not library_factors:
+        return "  (none — all literature factors for this domain have been attempted)"
+    lines = []
+    for f in library_factors[:5]:  # cap at 5 to keep prompt concise
+        name = f.get("name", f.get("id", "unknown"))
+        notes = f.get("formula_notes", "").strip().replace("\n", " ")
+        citation = f.get("citation", "")
+        lines.append(f"  - [{f.get('id')}] {name}")
+        if citation:
+            lines.append(f"    Citation: {citation}")
+        if notes:
+            lines.append(f"    Formula: {notes[:200]}{'…' if len(notes)>200 else ''}")
+    return "\n".join(lines)
 
 _SYSTEM_PROMPT = """\
 You are a quantitative finance researcher specialising in systematic equity factors.
@@ -63,6 +120,12 @@ Research domain: {factor_domain}
 Universe: {universe_description}
 Constraints: {constraints}
 {domain_rotation_hint}
+=== LITERATURE LIBRARY — IMPLEMENT THESE FIRST (peer-reviewed, not yet attempted) ===
+These factors have documented academic evidence and have NOT yet been run through
+the harness. IMPLEMENT ONE OF THESE before exploring freely. If the list is empty,
+proceed to the literature seeds below.
+{library_candidates}
+
 === LITERATURE SEEDS FOR THIS DOMAIN (strong starting points from academic research) ===
 {literature_seeds}
 
@@ -268,6 +331,10 @@ class SynthesisAgent:
         seeds = _LITERATURE_SEEDS.get(spec.factor_domain, [])
         seeds_text = "\n".join(f"  - {s}" for s in seeds) if seeds else "  (no specific seeds for this domain — explore freely)"
 
+        # Literature library — peer-reviewed factors not yet attempted
+        library_factors = _load_pending_library_factors(spec.factor_domain)
+        library_candidates_text = _format_library_candidates(library_factors)
+
         # Dynamic seeds: top-performing factors from KB for this domain
         # These reinforce exploration around proven archetypes while keeping
         # literature seeds as the theoretical floor.
@@ -294,6 +361,7 @@ class SynthesisAgent:
             universe_description=spec.universe_description,
             constraints="\n".join(f"  - {c}" for c in spec.constraints),
             domain_rotation_hint=rotation_hint,
+            library_candidates=library_candidates_text,
             literature_seeds=seeds_text,
             dynamic_seeds=dynamic_seeds_text,
             existing_factors=_format_existing_factors(existing),

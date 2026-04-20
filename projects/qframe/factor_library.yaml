@@ -1,0 +1,448 @@
+# qframe — Literature Factor Library
+#
+# Purpose: seeds the pipeline with peer-reviewed factors from established papers.
+# Each entry has been published and replicated across multiple markets.
+# Our job is to measure how much IC survives on the S&P 500 universe
+# (449 stocks, 2012–2024) after applying the full harness + cost model.
+#
+# Structure:
+#   id:           unique short identifier (snake_case)
+#   name:         human-readable name
+#   domain:       one of [momentum, mean_reversion, volatility, quality, value]
+#   citation:     primary reference (author, year, journal)
+#   horizon:      typical evaluation horizon in days (1 = daily IC, 63 = quarterly IC)
+#   direction:    expected sign relative to forward returns (+1 = long high-signal stocks)
+#   expected_ic_range: [lo, hi] rough range from literature (varies by universe/period)
+#   formula_notes: plain-English description of the computation (no look-ahead allowed)
+#   prices_only:  true if implementable from prices alone (no fundamentals needed)
+#   status:       pending | running | passed | failed | retired
+#   impl_id:      KB implementation ID once coded (null until implemented)
+#   ic_oos:       measured OOS IC once run through harness (null until run)
+#
+# When to implement: pick any factor with status=pending, implement it in the pipeline
+# as a regular run_iteration, then update status + impl_id + ic_oos here.
+#
+# Conventions:
+#   - All rolling windows count trading days (252 = 1 year, 63 = 1 quarter, 21 = 1 month)
+#   - "Skip last month" means shift(21) before computing the lookback
+#   - Cross-sectional rank is computed by the harness; the factor() function returns raw scores
+#   - Never use negative shifts — see factor-graveyard.md
+
+# ============================================================
+# MOMENTUM (5 factors)
+# ============================================================
+
+- id: ff_momentum_12_1
+  name: "Fama-French 12-1 month momentum"
+  domain: momentum
+  citation: "Jegadeesh & Titman (1993, JF); Carhart (1997, JF)"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.010, 0.025]
+  formula_notes: >
+    Return from 12 months ago to 1 month ago, skipping the most recent month
+    to avoid the 1-month reversal. Implemented as:
+    prices.shift(21) / prices.shift(252) - 1
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: aqr_value_momentum
+  name: "52-week high momentum (George & Hwang)"
+  domain: momentum
+  citation: "George & Hwang (2004, JF)"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.010, 0.020]
+  formula_notes: >
+    Ratio of current price to 52-week high. Stocks near their 52-week high
+    have underreacted to good news (anchoring bias). Formula:
+    prices / prices.rolling(252).max()
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: residual_momentum_blitz
+  name: "Residual momentum (Blitz, Huij, Martens)"
+  domain: momentum
+  citation: "Blitz, Huij & Martens (2011, JFM)"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.012, 0.022]
+  formula_notes: >
+    Momentum computed on residual returns (after removing market beta) rather than
+    raw returns. Compute rolling 12-month OLS beta vs equal-weight market.
+    Residual = raw_return - beta * market_return.
+    Sum residuals from t-252 to t-21 (skip last month).
+    WARNING: avoid .rolling().apply(OLS) — too slow. Use vectorised beta estimate:
+    cov(r, mkt) / var(mkt) on rolling window.
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: intermediate_momentum_novy_marx
+  name: "Intermediate-horizon momentum (Novy-Marx)"
+  domain: momentum
+  citation: "Novy-Marx (2012, JFE)"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.012, 0.022]
+  formula_notes: >
+    Return from 12 to 7 months ago (months 7–12, not the more recent 1–6).
+    Beats standard momentum on risk-adjusted basis.
+    prices.shift(126) / prices.shift(252) - 1
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: industry_momentum_moskowitz_grinblatt
+  name: "Industry-adjusted momentum (Moskowitz & Grinblatt)"
+  domain: momentum
+  citation: "Moskowitz & Grinblatt (1999, JF)"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.008, 0.018]
+  formula_notes: >
+    Standard 12-1 momentum minus the equal-weighted industry average (using GICS
+    sector as a proxy when SIC codes unavailable). Removes sector-level momentum
+    that is easy to arbitrage. Requires a sector mapping — approximate with tickers
+    when no sector data is loaded. NOTE: without sector data, implement as
+    ff_momentum_12_1 minus 5-day cross-sectional median (rough de-trending).
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+# ============================================================
+# MEAN REVERSION (4 factors)
+# ============================================================
+
+- id: short_term_reversal_jegadeesh
+  name: "Short-term reversal (1-month)"
+  domain: mean_reversion
+  citation: "Jegadeesh (1990, JF)"
+  horizon: 21
+  direction: -1
+  expected_ic_range: [0.008, 0.018]
+  formula_notes: >
+    Negative of last month's return. Strong overreaction at 1-month horizon.
+    Factor = -(prices / prices.shift(21) - 1)
+    Best evaluated at h=1 to h=5 day forward horizon (fades quickly).
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: long_term_reversal_debondt_thaler
+  name: "Long-term reversal (3-5 year)"
+  domain: mean_reversion
+  citation: "De Bondt & Thaler (1985, JF)"
+  horizon: 63
+  direction: -1
+  expected_ic_range: [0.008, 0.015]
+  formula_notes: >
+    Negative of 3-to-5 year cumulative return (skipping last year to separate
+    from momentum effect).
+    Factor = -(prices.shift(252) / prices.shift(252 * 4) - 1)
+    Slow signal — evaluate at h=63 day horizon.
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: bollinger_mean_reversion
+  name: "Bollinger Band z-score (mean reversion)"
+  domain: mean_reversion
+  citation: "Bollinger (1992); academic evidence in Lo, Mamaysky & Wang (2000, JF)"
+  horizon: 5
+  direction: -1
+  expected_ic_range: [0.005, 0.015]
+  formula_notes: >
+    Z-score of current price relative to its rolling 20-day mean and std.
+    Negative: high z-score = overbought = expect mean reversion downward.
+    z = (prices - prices.rolling(20).mean()) / prices.rolling(20).std()
+    Factor = -z
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: rsi_contrarian
+  name: "RSI-based contrarian signal"
+  domain: mean_reversion
+  citation: "Wilder (1978); quantitative evidence in Lo, Mamaysky & Wang (2000)"
+  horizon: 5
+  direction: -1
+  expected_ic_range: [0.004, 0.012]
+  formula_notes: >
+    Relative Strength Index (14-day). RSI = 100 - 100/(1 + avg_gain/avg_loss).
+    High RSI (>70) = overbought = expected reversal. Factor = -RSI.
+    Compute vectorised without .apply():
+      delta = prices.diff()
+      gain = delta.clip(lower=0).rolling(14).mean()
+      loss = (-delta.clip(upper=0)).rolling(14).mean()
+      rs = gain / loss.replace(0, np.nan)
+      rsi = 100 - 100 / (1 + rs)
+      Factor = -rsi
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+# ============================================================
+# VOLATILITY (4 factors)
+# ============================================================
+
+- id: idiosyncratic_volatility_ang
+  name: "Idiosyncratic volatility anomaly (BAB-vol)"
+  domain: volatility
+  citation: "Ang, Hodrick, Xing & Zhang (2006, JF)"
+  horizon: 21
+  direction: -1
+  expected_ic_range: [0.008, 0.018]
+  formula_notes: >
+    Standard deviation of daily returns over last 21 days (short window)
+    OR residual std after removing market beta (true idiosyncratic vol).
+    Factor = -rolling_std (short-horizon total vol as proxy for idiosyncratic vol).
+    prices.pct_change().rolling(21).std()
+    Negative: low-volatility stocks outperform (low-vol anomaly).
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: bab_frazzini_pedersen
+  name: "Betting Against Beta (BAB)"
+  domain: volatility
+  citation: "Frazzini & Pedersen (2014, JFE)"
+  horizon: 21
+  direction: -1
+  expected_ic_range: [0.010, 0.020]
+  formula_notes: >
+    Low-beta stocks earn higher risk-adjusted returns than high-beta stocks.
+    Compute rolling 1-year market beta for each stock:
+      returns = prices.pct_change()
+      mkt = returns.mean(axis=1)  # equal-weight market proxy
+      beta = (returns.rolling(252).cov(mkt)) / mkt.rolling(252).var()
+    Factor = -beta (short high-beta, long low-beta)
+    NOTE: beta is noisy on short windows; use 252-day minimum.
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: realized_skewness
+  name: "Realized skewness (lottery demand)"
+  domain: volatility
+  citation: "Boyer, Mitton & Vorkink (2010, RFS); Bali, Cakici & Whitelaw (2011, JFE)"
+  horizon: 21
+  direction: -1
+  expected_ic_range: [0.005, 0.015]
+  formula_notes: >
+    Negative skewness of daily returns over past 3 months.
+    High positive skewness = lottery-like stock = demand premium = lower future returns.
+    Factor = -scipy.stats.skew(returns_window)
+    Use: returns.rolling(63, min_periods=30).apply(lambda x: stats.skew(x), raw=True)
+    Flip sign: factor = -factor
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: max_daily_return
+  name: "MAX — maximum daily return (Bali, Cakici & Whitelaw)"
+  domain: volatility
+  citation: "Bali, Cakici & Whitelaw (2011, JFE)"
+  horizon: 21
+  direction: -1
+  expected_ic_range: [0.006, 0.016]
+  formula_notes: >
+    Maximum single-day return over the past month. Lottery-demand proxy.
+    Stocks with very high maximum returns in the past month tend to underperform.
+    Factor = -(prices.pct_change().rolling(21).max())
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+# ============================================================
+# QUALITY (5 factors)
+# ============================================================
+
+- id: earnings_quality_sloan
+  name: "Earnings quality — Sloan accruals"
+  domain: quality
+  citation: "Sloan (1996, AR)"
+  horizon: 63
+  direction: -1
+  expected_ic_range: [0.006, 0.014]
+  formula_notes: >
+    High accruals = low earnings quality = lower future returns.
+    Accrual = (net_income - operating_cash_flow) / total_assets.
+    REQUIRES fundamentals data (Compustat). With prices only:
+    proxy via earnings announcement return volatility:
+    prices around earnings dates spike → high accrual proxy.
+    If no fundamentals available, skip this factor and note it here.
+    NOTE: this factor REQUIRES Compustat fundamentals — cannot be
+    implemented with prices alone. Mark as blocked until fundamentals
+    data is available.
+  prices_only: false
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: trend_quality_r2
+  name: "Return R² / trend linearity (trend quality)"
+  domain: quality
+  citation: "Grinblatt & Moskowitz (2004); practitioner signal"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.008, 0.018]
+  formula_notes: >
+    R² of a linear regression of cumulative returns on time (252-day window).
+    High R² = smooth, consistent trend = trend quality.
+    Proxy without OLS: correlation between price and a linear time trend.
+    Vectorised: correlation between prices.rolling(252).rank() and the
+    day index (0..251). Use .rolling().corr() on a date-indexed column.
+    Example:
+      t_idx = pd.Series(range(len(prices)), index=prices.index)
+      result = prices.rolling(252).corr(t_idx)
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: earnings_consistency
+  name: "Return consistency (proxy for earnings stability)"
+  domain: quality
+  citation: "Asness, Frazzini & Pedersen (2019, JFE) — QMJ 'stability' component"
+  horizon: 63
+  direction: +1
+  expected_ic_range: [0.006, 0.014]
+  formula_notes: >
+    Fraction of periods with positive returns over past year.
+    Higher = more consistent = quality proxy.
+    returns = prices.pct_change()
+    result = (returns > 0).rolling(252, min_periods=126).mean()
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: sharpe_ratio_factor
+  name: "Rolling Sharpe ratio (risk-adjusted return quality)"
+  domain: quality
+  citation: "Asness et al. (2019, JFE) — QMJ 'profitability' component via returns"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.008, 0.018]
+  formula_notes: >
+    Rolling Sharpe = mean(returns) / std(returns) over 252-day window.
+    High Sharpe = profitable + low-risk = quality.
+    r = prices.pct_change()
+    result = r.rolling(252, min_periods=63).mean() / r.rolling(252, min_periods=63).std()
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: downside_deviation_sortino
+  name: "Downside deviation / Sortino ratio"
+  domain: quality
+  citation: "Sortino & van der Meer (1991); quality signal in Asness et al. (2019)"
+  horizon: 21
+  direction: +1
+  expected_ic_range: [0.006, 0.014]
+  formula_notes: >
+    Sortino ratio = mean(returns) / downside_std where downside_std uses
+    only negative returns in the rolling window.
+    r = prices.pct_change()
+    downside = r.clip(upper=0)   # only negative days
+    dd = downside.rolling(252, min_periods=63).std()
+    result = r.rolling(252, min_periods=63).mean() / dd.replace(0, np.nan)
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+# ============================================================
+# VALUE (4 factors)
+# ============================================================
+
+- id: pb_ratio_proxy
+  name: "Distance from 52-week low (value proxy)"
+  domain: value
+  citation: "Practitioner proxy; related to George & Hwang (2004)"
+  horizon: 63
+  direction: -1
+  expected_ic_range: [0.006, 0.014]
+  formula_notes: >
+    Stocks near their 52-week low are "cheap" on price history.
+    Negative: low ratio = closer to low = value = expect outperformance.
+    Factor = -(prices / prices.rolling(252).min())
+    Note: this is a pure-price proxy for value, not a fundamental P/B ratio.
+    Expect lower IC than true fundamental value factors.
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: earnings_yield_proxy
+  name: "Price reversion to long-run median (earnings yield proxy)"
+  domain: value
+  citation: "Asness, Moskowitz & Pedersen (2013, JF) — Value and Momentum Everywhere"
+  horizon: 63
+  direction: -1
+  expected_ic_range: [0.006, 0.012]
+  formula_notes: >
+    Deviation of current price from its 5-year rolling median.
+    High = expensive relative to own history = value short signal.
+    Factor = -(prices / prices.rolling(252*5).median() - 1)
+    Requires at least 5 years of history; returns NaN otherwise.
+    Slow signal: evaluate at h=63 day horizon.
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: book_to_market_ff3
+  name: "Book-to-market (Fama-French HML)"
+  domain: value
+  citation: "Fama & French (1993, JFE)"
+  horizon: 63
+  direction: +1
+  expected_ic_range: [0.006, 0.012]
+  formula_notes: >
+    Book value / market cap. High B/M = undervalued = expected outperformance.
+    REQUIRES fundamentals (Compustat B/S book equity). NOT implementable with
+    prices only. Price-based proxy: inverse of 52-week price appreciation
+    (expensive stocks have run up more). Without fundamentals:
+    proxy = 1 / (prices / prices.shift(252))  — reciprocal of past-year return ratio.
+    This is a weak proxy; true B/M requires Compustat.
+  prices_only: false
+  status: pending
+  impl_id: null
+  ic_oos: null
+
+- id: price_to_52w_range
+  name: "Price position within 52-week range"
+  domain: value
+  citation: "George & Hwang (2004) extension; practitioner signal"
+  horizon: 21
+  direction: -1
+  expected_ic_range: [0.007, 0.015]
+  formula_notes: >
+    Position of current price within its 52-week high/low range.
+    Low position = near 52-week low = "cheap" on a price basis.
+    hi = prices.rolling(252).max()
+    lo = prices.rolling(252).min()
+    position = (prices - lo) / (hi - lo).replace(0, np.nan)
+    Factor = -position (short high-position, long low-position)
+  prices_only: true
+  status: pending
+  impl_id: null
+  ic_oos: null

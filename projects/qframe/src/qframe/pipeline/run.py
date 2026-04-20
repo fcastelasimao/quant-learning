@@ -7,9 +7,21 @@ Usage:
     python3 -m qframe.pipeline.run --domain mean_reversion --n 3
     python3 -m qframe.pipeline.run --domain volatility --n 5 --oos 2019-01-01
     python3 -m qframe.pipeline.run --domain all --n 5   # 5 iterations × all 5 domains = 25 total
+
+Dirty-worktree guard
+--------------------
+The CLI refuses to start if the git worktree has uncommitted changes.
+This ensures that git_hash logged to the KB is meaningful — a dirty hash
+cannot be reproduced and silently makes backtest traceability worthless.
+
+To bypass in emergencies (NOT recommended for production runs):
+    QFRAME_ALLOW_DIRTY=1 ./run_pipeline.sh --domain momentum
 """
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import argparse
 from pathlib import Path
 
@@ -25,6 +37,82 @@ _KB_PATH = _REPO_ROOT / "knowledge_base" / "qframe.db"
 
 ALL_DOMAINS = ["momentum", "mean_reversion", "volatility", "quality", "value"]
 
+
+# ---------------------------------------------------------------------------
+# Worktree cleanliness guard
+# ---------------------------------------------------------------------------
+
+def _get_dirty_files() -> list[str]:
+    """
+    Return a list of uncommitted (modified/staged/untracked) files.
+
+    Returns an empty list if git is not available or the cwd is not in a repo.
+    Untracked files in `logs/` and `__pycache__/` are excluded — they are
+    runtime artefacts, not research state.
+    """
+    _IGNORE_PREFIXES = ("logs/", "__pycache__/", ".pytest_cache/")
+    try:
+        raw = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            text=True,
+            cwd=str(_REPO_ROOT),
+        ).strip()
+    except Exception:
+        return []  # git not available / not a repo — skip the guard
+
+    dirty = []
+    for line in raw.splitlines():
+        # git --porcelain lines: "XY filename" where XY are status codes
+        filename = line[3:].strip()
+        if not any(filename.startswith(p) for p in _IGNORE_PREFIXES):
+            dirty.append(filename)
+    return dirty
+
+
+def _enforce_clean_worktree() -> None:
+    """
+    Abort the CLI run if the git worktree has uncommitted changes.
+
+    The guard protects traceability: every backtest result in the KB stores
+    a git_hash. A dirty worktree means that hash cannot be reproduced — the
+    KB entry is effectively unauditable.
+
+    Override: set env var QFRAME_ALLOW_DIRTY=1 to skip (not recommended).
+    """
+    if os.environ.get("QFRAME_ALLOW_DIRTY", "0").strip() not in ("", "0"):
+        print("⚠  QFRAME_ALLOW_DIRTY is set — skipping worktree check.")
+        return
+
+    dirty = _get_dirty_files()
+    if not dirty:
+        return  # clean — proceed
+
+    print("\n" + "═" * 62)
+    print("✗  DIRTY WORKTREE — pipeline aborted")
+    print("═" * 62)
+    print(
+        "The git worktree has uncommitted changes. Running the pipeline\n"
+        "on a dirty repo makes the git_hash logged to the KB meaningless:\n"
+        "you cannot reproduce the exact code that produced any result.\n"
+    )
+    print(f"  {len(dirty)} file(s) with uncommitted changes:")
+    for f in dirty[:10]:
+        print(f"    • {f}")
+    if len(dirty) > 10:
+        print(f"    … and {len(dirty) - 10} more.")
+    print(
+        "\nFix: commit or stash your changes before running the pipeline.\n"
+        "  git add <files> && git commit -m '...'\n"
+        "  # or to skip this check (emergency only):\n"
+        "  QFRAME_ALLOW_DIRTY=1 ./run_pipeline.sh --domain momentum\n"
+    )
+    print("═" * 62 + "\n")
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Price loading
+# ---------------------------------------------------------------------------
 
 def load_prices() -> pd.DataFrame:
     if _PRICE_CACHE.exists():
@@ -42,7 +130,14 @@ def load_prices() -> pd.DataFrame:
     return close
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
 def main():
+    # --- Worktree guard: must run before any KB writes ---
+    _enforce_clean_worktree()
+
     parser = argparse.ArgumentParser(description="qframe agentic research pipeline")
     parser.add_argument(
         "--domain", "-d",
