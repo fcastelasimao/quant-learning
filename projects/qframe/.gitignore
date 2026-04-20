@@ -40,5 +40,8 @@ mlruns/
 # DVC
 .dvc/tmp/
 
-# Knowledge base is too big
-knowledge_base/qframe.db
+# Knowledge base database files (local-only; too large for GitHub)
+knowledge_base/*.db
+knowledge_base/*.db-*
+knowledge_base/*.sqlite
+knowledge_base/*.sqlite-*

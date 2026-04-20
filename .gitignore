@@ -11,6 +11,11 @@ results/
 .env
 *.egg-info/
 
+# qframe local knowledge-base DBs (too large for GitHub)
+projects/qframe/knowledge_base/*.db
+projects/qframe/knowledge_base/*.db-*
+projects/qframe/knowledge_base/*.sqlite
+projects/qframe/knowledge_base/*.sqlite-*
 
 #Claude environments
 .claude/
