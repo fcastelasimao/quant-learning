@@ -4,6 +4,86 @@
 
 ---
 
+## Session: 2026-04-20 (auto — domain=value)
+
+**Done:** ran 10 iteration(s): 0 PASS / 1 FAIL / 9 ERROR
+
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_zscore_reversal_velocity`: IC=-0.0169 ICIR=-0.0817 → **FAIL**
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+- `five_year_range_position_zscore` → **ERROR** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=quality)
+
+**Done:** ran 10 iteration(s): 0 PASS / 0 FAIL / 10 ERROR
+
+- `rolling_sharpe_ratio_proxy` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+- `rolling_sharpe_ratio_252` → **ERROR** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=volatility)
+
+**Done:** ran 10 iteration(s): 0 PASS / 0 FAIL / 10 ERROR
+
+- `garch_proxy_skew_adjusted_21` → **ERROR** (execution error)
+- `downside_volatility_skew_ratio_126` → **ERROR** (execution error)
+- `value_from_volatility_regime_deviation` → **ERROR** (execution error)
+- `value_from_realized_volatility_regime` → **ERROR** (execution error)
+- `garch_proxy_regime_adjusted` → **ERROR** (execution error)
+- `value_from_downside_volatility_regime` → **ERROR** (execution error)
+- `garch_proxy_regime_shift` → **ERROR** (execution error)
+- `downside_volatility_skew_ratio_252` → **ERROR** (execution error)
+- `garch_proxy_asymmetry_ratio` → **ERROR** (execution error)
+- `value_from_volatility_regime_deviation` → **ERROR** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=mean_reversion)
+
+**Done:** ran 10 iteration(s): 0 PASS / 0 FAIL / 10 ERROR
+
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+- `value_reversion_to_5_year_median` → **ERROR** (execution error)
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+- `value_long_term_zscore_reversal` → **ERROR** (execution error)
+- `value_long_run_zscore_reversal` → **ERROR** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=momentum)
+
+**Done:** ran 10 iteration(s): 0 PASS / 5 FAIL / 5 ERROR
+
+- `industry_momentum_surprise`: IC=0.0086 ICIR=0.1243 → **FAIL**
+- `industry_momentum_surprise_acceleration` → **ERROR** (execution error)
+- `industry_relative_short_term_reversal` → **ERROR** (execution error)
+- `industry_relative_52_week_high_growth` → **ERROR** (execution error)
+- `residual_momentum_orthogonal_to_52w_high_growth_acceleration`: IC=0.0083 ICIR=-0.0100 → **FAIL**
+- `residual_momentum_orthogonal_to_52w_high_growth` → **ERROR** (execution error)
+- `residual_momentum_orthogonal_to_52w_high_growth`: IC=0.0082 ICIR=0.1175 → **FAIL**
+- `residual_momentum_orthogonal_to_52w_high_growth_industry`: IC=0.0148 ICIR=0.1688 → **FAIL**
+- `industry_momentum_surprise_rescaled` → **ERROR** (execution error)
+- `industry_momentum_surprise_persistence`: IC=-0.0082 ICIR=-0.0798 → **FAIL**
+
+
 ## Session: 2026-04-19 — impl_82 look-ahead discovered; Phase 1 invalidated; six new guards active; crypto replication added
 
 **Done:**
@@ -135,12 +215,9 @@
 - Gate 1 (factor library): 🔄 IN PROGRESS
 - Gate 2+ (HSMM regime detection): ⬜ NOT STARTED
 
-**Knowledge base:** 139 hypotheses, 131 backtest results, 578 factor correlations.
+**Knowledge base:** 183 hypotheses, 142 backtest results, 957 factor correlations.
 
 **Passed-gate factors:**
-  - `trend_quality_calmar_ratio`: IC=0.0646, ICIR=0.3823, slow_icir_63=-0.0718
-  - `phase25_combined`: IC=0.0586, ICIR=0.2688
-  - `phase25_combined`: IC=0.0586, ICIR=0.2688
   - `phase25_combined`: IC=0.0586, ICIR=0.2688
   - `unnamed`: IC=0.0490, ICIR=0.2513, slow_icir_63=0.2513
 
@@ -150,8 +227,8 @@
   | trend_quality_calmar_ratio | 0.0646 | 0.3823 | -0.0718 |
   | trend_quality_calmar_ratio | 0.0646 | 0.3823 | -0.0718 |
   | phase25_combined | 0.0586 | 0.2688 | — |
-  | phase25_combined | 0.0586 | 0.2688 | — |
-  | phase25_combined | 0.0586 | 0.2688 | — |
+  | unnamed | 0.0490 | 0.2513 | 0.2513 |
+  | unnamed | 0.0169 | 0.1685 | — |
 ---
 
 ## Session: 2026-04-13 (part 2 — completion + live-trading review)
