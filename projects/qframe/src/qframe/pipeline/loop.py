@@ -56,6 +56,26 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_KB = Path("knowledge_base/qframe.db")
 
+# Ordered list of research domains used for round-robin rotation.
+# When the loop sees ≥ _SKIP_ROTATION_THRESHOLD consecutive SKIP verdicts in a
+# single run_n() call it automatically pivots to the next domain to break out of
+# a novelty-exhausted rut (most common with mean_reversion near-duplicates).
+_DOMAIN_ORDER = ["momentum", "mean_reversion", "volatility", "quality", "value"]
+_SKIP_ROTATION_THRESHOLD = 3
+
+
+def _next_domain(current: str) -> str:
+    """Return the next domain in the round-robin rotation cycle.
+
+    If *current* is not in the canonical list, returns the first domain.
+    The rotation wraps around: value → momentum.
+    """
+    try:
+        idx = _DOMAIN_ORDER.index(current)
+    except ValueError:
+        return _DOMAIN_ORDER[0]
+    return _DOMAIN_ORDER[(idx + 1) % len(_DOMAIN_ORDER)]
+
 
 def _get_git_hash() -> str | None:
     try:
@@ -337,21 +357,50 @@ class PipelineLoop:
         Run n iterations sequentially, each building on the KB from the last.
         Every 5 completed backtests, automatically runs ensemble + correlation analysis.
 
+        Domain round-robin
+        ------------------
+        If _SKIP_ROTATION_THRESHOLD (3) consecutive iterations all return VERDICT_SKIP
+        (duplicate / pre-gate fail), the loop automatically pivots to the next domain
+        in _DOMAIN_ORDER.  This prevents the loop from getting stuck proposing
+        near-duplicates in a saturated domain (most common with mean_reversion).
+        The original domain is restored for the *next* call to run_n().
+
         Args:
-            spec: ResearchSpec — same domain across all iterations.
+            spec: ResearchSpec — initial domain; may be rotated internally.
             n:    number of iterations.
 
         Returns:
             List of IterationResult, one per iteration.
         """
         results = []
+        current_spec = spec
+        consecutive_skips = 0
+
         for i in range(n):
             print(f"\n{'─'*60}")
-            print(f"Iteration {i+1}/{n}")
+            print(f"Iteration {i+1}/{n}  [domain={current_spec.factor_domain}]")
             print(f"{'─'*60}")
-            result = self.run_iteration(spec)
+            result = self.run_iteration(current_spec)
             result.print_summary()
             results.append(result)
+
+            # Domain round-robin: rotate after _SKIP_ROTATION_THRESHOLD consecutive SKIPs
+            if result.verdict == VERDICT_SKIP:
+                consecutive_skips += 1
+                if consecutive_skips >= _SKIP_ROTATION_THRESHOLD:
+                    rotated = _next_domain(current_spec.factor_domain)
+                    print(
+                        f"\n      ↷ Domain rotation: {current_spec.factor_domain} → {rotated} "
+                        f"({consecutive_skips} consecutive SKIPs — novelty exhausted)"
+                    )
+                    current_spec = ResearchSpec(
+                        factor_domain=rotated,
+                        universe_description=spec.universe_description,
+                        constraints=spec.constraints,
+                    )
+                    consecutive_skips = 0  # reset after rotation
+            else:
+                consecutive_skips = 0
 
             # After every 5 iterations, run correlation + ensemble analysis
             total_results = len(self.kb.get_results(limit=1000))

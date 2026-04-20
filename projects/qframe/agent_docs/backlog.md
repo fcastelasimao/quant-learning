@@ -10,7 +10,7 @@ Status values: **Active** | **Backlog** | **Blocked** | **Done** | **Retired**
 
 ## Active
 
-*(currently empty)*
+*(currently empty — #12 and #27 completed 2026-04-20)*
 
 ---
 
@@ -102,3 +102,5 @@ Status values: **Active** | **Backlog** | **Blocked** | **Done** | **Retired**
 - **2026-04-20** — #18 Dirty-worktree guard: `_enforce_clean_worktree()` added to `run.py` CLI; `QFRAME_ALLOW_DIRTY=1` escape hatch; 8 new tests in `tests/test_run.py`; 194 tests passing.
 - **2026-04-20** — #13 Factor graveyard: `agent_docs/factor-graveyard.md` created; impl_82 (look-ahead) and impl_53 (wrong t-stat formula) documented; graveyard referenced from `CLAUDE.md`.
 - **2026-04-20** — #20 Literature factor library: `factor_library.yaml` created with 22 peer-reviewed factors across 5 domains (22 pending, prices_only=true or flagged); synthesis agent updated to inject pending library factors into the prompt before free exploration; 194 tests still passing.
+- **2026-04-20** — #12 Sealed hold-out enforcement: `WalkForwardValidator` default changed to `allow_holdout=False`; `QFRAME_UNSEAL_HOLDOUT=1` env-var escape hatch; `run.py` `load_prices()` truncates at `HOLDOUT_START - 1 day` by default; 5 new tests.
+- **2026-04-20** — #27 Domain round-robin: `_next_domain()` + `_DOMAIN_ORDER` added to `loop.py`; `run_n()` rotates domain after 3 consecutive SKIP verdicts; 4 new tests. 194 → 204 tests passing.

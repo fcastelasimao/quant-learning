@@ -16,6 +16,15 @@ cannot be reproduced and silently makes backtest traceability worthless.
 
 To bypass in emergencies (NOT recommended for production runs):
     QFRAME_ALLOW_DIRTY=1 ./run_pipeline.sh --domain momentum
+
+Hold-out enforcement
+--------------------
+By default the price data fed to the pipeline is silently truncated one day
+before HOLDOUT_START (2024-06-01).  This keeps the sealed hold-out pristine
+for the final go/no-go evaluation of a pre-registered strategy.
+
+To include hold-out data (final validation only — never during exploration):
+    QFRAME_UNSEAL_HOLDOUT=1 ./run_pipeline.sh --domain momentum
 """
 from __future__ import annotations
 
@@ -115,19 +124,44 @@ def _enforce_clean_worktree() -> None:
 # ---------------------------------------------------------------------------
 
 def load_prices() -> pd.DataFrame:
+    """
+    Load adjusted close prices from the parquet cache (or yfinance fallback).
+
+    Hold-out enforcement
+    --------------------
+    Unless QFRAME_UNSEAL_HOLDOUT=1 is set, prices are silently truncated to the
+    day before HOLDOUT_START (2024-06-01).  This prevents any research evaluation
+    from accidentally consuming the sealed hold-out period.
+    """
     if _PRICE_CACHE.exists():
         print(f"Loading prices from cache: {_PRICE_CACHE}")
-        return pd.read_parquet(_PRICE_CACHE)
+        prices = pd.read_parquet(_PRICE_CACHE)
+    else:
+        print("No price cache found — fetching from yfinance (this takes a few minutes)...")
+        tickers = load_sp500_tickers()
+        ohlcv = load_ohlcv(tickers, start="2010-01-01", end="2024-12-31")
+        prices = ohlcv["Close"].sort_index()
+        prices = prices.loc[:, prices.isna().mean() < 0.20].ffill(limit=5)
+        _PRICE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        prices.to_parquet(_PRICE_CACHE)
+        print(f"Prices cached to {_PRICE_CACHE}")
 
-    print("No price cache found — fetching from yfinance (this takes a few minutes)...")
-    tickers = load_sp500_tickers()
-    ohlcv = load_ohlcv(tickers, start="2010-01-01", end="2024-12-31")
-    close = ohlcv["Close"].sort_index()
-    close = close.loc[:, close.isna().mean() < 0.20].ffill(limit=5)
-    _PRICE_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    close.to_parquet(_PRICE_CACHE)
-    print(f"Prices cached to {_PRICE_CACHE}")
-    return close
+    # Hold-out guard: truncate prices before the sealed hold-out date unless unsealed
+    if os.environ.get("QFRAME_UNSEAL_HOLDOUT", "0").strip() in ("", "0"):
+        from qframe.factor_harness.walkforward import HOLDOUT_START
+        cutoff = pd.Timestamp(HOLDOUT_START) - pd.Timedelta(days=1)
+        n_before = len(prices)
+        prices = prices.loc[:cutoff]
+        n_after = len(prices)
+        if n_before != n_after:
+            print(
+                f"  ⚠  Hold-out enforced: truncated {n_before - n_after} trading days "
+                f"(data past {HOLDOUT_START} sealed). Set QFRAME_UNSEAL_HOLDOUT=1 to include."
+            )
+    else:
+        print("  ⚠  QFRAME_UNSEAL_HOLDOUT is set — hold-out data included.")
+
+    return prices
 
 
 # ---------------------------------------------------------------------------

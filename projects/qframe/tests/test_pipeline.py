@@ -527,3 +527,207 @@ class TestSkipVerdict:
         )
         assert r.verdict == "SKIP"
         assert r.verdict != VERDICT_ERROR
+
+
+# ---------------------------------------------------------------------------
+# #12 — Sealed hold-out enforcement (2026-04-20)
+#
+# WalkForwardValidator must raise RuntimeError when price data extends past
+# HOLDOUT_START unless allow_holdout=True or QFRAME_UNSEAL_HOLDOUT=1 is set.
+# ---------------------------------------------------------------------------
+
+class TestHoldoutEnforcement:
+    """Tests for the sealed hold-out guard in WalkForwardValidator."""
+
+    @pytest.fixture
+    def prices_before_holdout(self):
+        """Prices that end well before HOLDOUT_START=2024-06-01."""
+        rng = np.random.default_rng(7)
+        dates = pd.bdate_range("2018-01-01", "2024-05-30")
+        tickers = [f"S{i}" for i in range(10)]
+        ret = pd.DataFrame(rng.normal(0, 0.01, (len(dates), 10)), index=dates, columns=tickers)
+        return (1 + ret).cumprod()
+
+    @pytest.fixture
+    def prices_past_holdout(self):
+        """Prices that extend past HOLDOUT_START=2024-06-01."""
+        rng = np.random.default_rng(8)
+        dates = pd.bdate_range("2018-01-01", "2024-12-31")
+        tickers = [f"S{i}" for i in range(10)]
+        ret = pd.DataFrame(rng.normal(0, 0.01, (len(dates), 10)), index=dates, columns=tickers)
+        return (1 + ret).cumprod()
+
+    def _trivial_factor(self, prices):
+        return prices.pct_change(5)
+
+    def test_raises_when_prices_include_holdout_by_default(self, prices_past_holdout):
+        """Default allow_holdout=False must raise when data extends past HOLDOUT_START."""
+        from qframe.factor_harness.walkforward import WalkForwardValidator
+        validator = WalkForwardValidator(
+            factor_fn=self._trivial_factor,
+            oos_start="2018-01-01",
+        )
+        with pytest.raises(RuntimeError, match="hold-out"):
+            validator.run(prices_past_holdout)
+
+    def test_no_raise_when_data_ends_before_holdout(self, prices_before_holdout):
+        """Validator must not raise when data ends before HOLDOUT_START."""
+        from qframe.factor_harness.walkforward import WalkForwardValidator
+        validator = WalkForwardValidator(
+            factor_fn=self._trivial_factor,
+            oos_start="2018-01-01",
+        )
+        result = validator.run(prices_before_holdout)  # must not raise
+        assert result is not None
+
+    def test_allow_holdout_true_bypasses_guard(self, prices_past_holdout):
+        """Passing allow_holdout=True must allow holdout data through."""
+        from qframe.factor_harness.walkforward import WalkForwardValidator
+        validator = WalkForwardValidator(
+            factor_fn=self._trivial_factor,
+            oos_start="2018-01-01",
+            allow_holdout=True,
+        )
+        result = validator.run(prices_past_holdout)  # must not raise
+        assert result is not None
+
+    def test_env_var_bypasses_guard(self, prices_past_holdout, monkeypatch):
+        """QFRAME_UNSEAL_HOLDOUT=1 env var must bypass the guard."""
+        monkeypatch.setenv("QFRAME_UNSEAL_HOLDOUT", "1")
+        from qframe.factor_harness import walkforward as wf_mod
+        import importlib
+        # Re-instantiate validator after env var is set — __init__ reads the env var
+        validator = wf_mod.WalkForwardValidator(
+            factor_fn=self._trivial_factor,
+            oos_start="2018-01-01",
+        )
+        result = validator.run(prices_past_holdout)  # must not raise
+        assert result is not None
+
+    def test_run_py_load_prices_truncates_at_holdout(self, monkeypatch, tmp_path):
+        """load_prices() must truncate data at HOLDOUT_START - 1 day by default."""
+        import pandas as pd
+        from qframe.factor_harness.walkforward import HOLDOUT_START
+
+        # Build a fake parquet with data extending past HOLDOUT_START
+        rng = np.random.default_rng(99)
+        dates = pd.bdate_range("2018-01-01", "2024-12-31")
+        tickers = [f"S{i}" for i in range(5)]
+        ret = pd.DataFrame(rng.normal(0, 0.01, (len(dates), 5)), index=dates, columns=tickers)
+        fake_prices = (1 + ret).cumprod()
+        fake_cache = tmp_path / "sp500_close.parquet"
+        fake_prices.to_parquet(fake_cache)
+
+        # Patch the module-level _PRICE_CACHE to point at our fake file
+        import qframe.pipeline.run as run_mod
+        monkeypatch.setattr(run_mod, "_PRICE_CACHE", fake_cache)
+        monkeypatch.delenv("QFRAME_UNSEAL_HOLDOUT", raising=False)
+
+        prices = run_mod.load_prices()
+        cutoff = pd.Timestamp(HOLDOUT_START) - pd.Timedelta(days=1)
+        assert prices.index[-1] <= cutoff, (
+            f"load_prices() must truncate at or before {cutoff.date()}, "
+            f"but last date is {prices.index[-1].date()}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# #27 — Domain round-robin after 3 consecutive SKIPs (2026-04-20)
+#
+# run_n() must pivot to the next domain after _SKIP_ROTATION_THRESHOLD
+# consecutive SKIP verdicts to prevent getting stuck in a saturated domain.
+# ---------------------------------------------------------------------------
+
+class TestDomainRotation:
+    """Tests for the domain round-robin logic in loop._next_domain and run_n."""
+
+    def test_next_domain_cycles_through_list(self):
+        from qframe.pipeline.loop import _next_domain, _DOMAIN_ORDER
+        for i, domain in enumerate(_DOMAIN_ORDER):
+            expected = _DOMAIN_ORDER[(i + 1) % len(_DOMAIN_ORDER)]
+            assert _next_domain(domain) == expected
+
+    def test_next_domain_unknown_returns_first(self):
+        from qframe.pipeline.loop import _next_domain, _DOMAIN_ORDER
+        assert _next_domain("unknown_domain") == _DOMAIN_ORDER[0]
+
+    def test_next_domain_wraps_around(self):
+        from qframe.pipeline.loop import _next_domain, _DOMAIN_ORDER
+        last = _DOMAIN_ORDER[-1]
+        assert _next_domain(last) == _DOMAIN_ORDER[0]
+
+    def test_run_n_rotates_domain_after_threshold_skips(self, monkeypatch):
+        """After _SKIP_ROTATION_THRESHOLD consecutive SKIPs, run_n must rotate domain."""
+        from unittest.mock import MagicMock, patch
+        from qframe.pipeline.loop import PipelineLoop, _SKIP_ROTATION_THRESHOLD, _DOMAIN_ORDER
+        from qframe.pipeline.models import ResearchSpec, VERDICT_SKIP, VERDICT_PASS
+
+        # Build a minimal PipelineLoop without real KB / LLM
+        loop = PipelineLoop.__new__(PipelineLoop)
+
+        # Track which domains were used
+        domains_used = []
+
+        def mock_run_iteration(spec):
+            domains_used.append(spec.factor_domain)
+            result = MagicMock()
+            result.verdict = VERDICT_SKIP
+            result.wf_result = None
+            result.hypothesis = MagicMock()
+            result.hypothesis.name = "test_factor"
+            return result
+
+        loop.run_iteration = mock_run_iteration
+        # Stub out KB calls used in run_n
+        loop.kb = MagicMock()
+        loop.kb.get_results.return_value = []
+        loop._update_research_log = MagicMock()
+
+        starting_domain = "mean_reversion"
+        spec = ResearchSpec(factor_domain=starting_domain)
+
+        # Run enough iterations to trigger at least one rotation
+        n = _SKIP_ROTATION_THRESHOLD + 1
+        loop.run_n(spec, n=n)
+
+        # The first _SKIP_ROTATION_THRESHOLD iters should use the starting domain
+        assert all(d == starting_domain for d in domains_used[:_SKIP_ROTATION_THRESHOLD])
+        # The iteration after the threshold should use the rotated domain
+        expected_rotated = _DOMAIN_ORDER[(_DOMAIN_ORDER.index(starting_domain) + 1) % len(_DOMAIN_ORDER)]
+        assert domains_used[_SKIP_ROTATION_THRESHOLD] == expected_rotated
+
+    def test_consecutive_skip_counter_resets_on_non_skip(self, monkeypatch):
+        """A non-SKIP verdict must reset the consecutive-skip counter, preventing rotation."""
+        from unittest.mock import MagicMock
+        from qframe.pipeline.loop import PipelineLoop, _SKIP_ROTATION_THRESHOLD
+        from qframe.pipeline.models import ResearchSpec, VERDICT_SKIP, VERDICT_FAIL
+
+        loop = PipelineLoop.__new__(PipelineLoop)
+        domains_used = []
+        call_count = [0]
+
+        def mock_run_iteration(spec):
+            domains_used.append(spec.factor_domain)
+            call_count[0] += 1
+            result = MagicMock()
+            # Alternate: 2 SKIPs, then a FAIL (resets), then 2 more SKIPs — never reaches threshold
+            if call_count[0] in (1, 2):
+                result.verdict = VERDICT_SKIP
+            else:
+                result.verdict = VERDICT_FAIL
+            result.wf_result = None
+            result.hypothesis = MagicMock()
+            result.hypothesis.name = "test_factor"
+            return result
+
+        loop.run_iteration = mock_run_iteration
+        loop.kb = MagicMock()
+        loop.kb.get_results.return_value = []
+        loop._update_research_log = MagicMock()
+
+        starting_domain = "mean_reversion"
+        spec = ResearchSpec(factor_domain=starting_domain)
+        loop.run_n(spec, n=_SKIP_ROTATION_THRESHOLD + 2)
+
+        # No rotation should have occurred — all iterations use the starting domain
+        assert all(d == starting_domain for d in domains_used)

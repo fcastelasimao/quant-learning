@@ -22,6 +22,7 @@ Usage:
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -263,7 +264,7 @@ class WalkForwardValidator:
         min_stocks: int = 10,
         adv_df: pd.DataFrame | None = None,
         portfolio_nav: float = 1e6,
-        allow_holdout: bool = True,
+        allow_holdout: bool = False,
     ):
         """
         Args:
@@ -273,12 +274,15 @@ class WalkForwardValidator:
                             Phase 3 Gate 0 upgrade for more accurate cost estimation.
             portfolio_nav:  Portfolio NAV in dollars, used with adv_df to compute
                             per-stock position sizes for ADV-fraction calculation.
-            allow_holdout:  Default True (existing strategies already evaluated 2024 data).
-                            Set to False in new experimental runs to enforce the hold-out:
-                            any data past HOLDOUT_START will raise RuntimeError, ensuring
-                            the sealed 2024-06-01+ period stays pristine for final
-                            live-trading go/no-go validation of a pre-registered strategy.
+            allow_holdout:  Default False — raises RuntimeError if the price data
+                            extends into the sealed hold-out period (>= HOLDOUT_START).
+                            Set to True, or set the env var QFRAME_UNSEAL_HOLDOUT=1,
+                            only when conducting the final go/no-go evaluation of a
+                            pre-registered strategy.  Never unseal during exploration.
         """
+        # Env-var override: QFRAME_UNSEAL_HOLDOUT=1 allows holdout data through
+        if os.environ.get("QFRAME_UNSEAL_HOLDOUT", "0").strip() not in ("", "0"):
+            allow_holdout = True
         self.factor_fn = factor_fn
         self.oos_start = oos_start
         self.horizon = horizon
