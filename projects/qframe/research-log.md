@@ -4,6 +4,136 @@
 
 ---
 
+## Session: 2026-04-21 (auto — domain=value)
+
+**Done:** ran 20 iteration(s): 0 PASS / 2 FAIL / 9 SKIP / 9 ERROR
+
+- `price_to_52w_range_george_hwang` → **ERROR** (execution error)
+- `price_to_5y_median_deviation_log` → **ERROR** (execution error)
+- `price_to_5y_median_deviation_normalized` → **ERROR** (execution error)
+- `price_to_5y_median_deviation_log` → **SKIP** (execution error)
+- `price_to_5y_median_deviation_symmetric` → **SKIP** (execution error)
+- `price_to_5y_median_deviation_signed` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `long_term_reversal_debondt_thaler`: IC=-0.0105 ICIR=0.0551 → **FAIL**
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `value_realized_skewness_ratio` → **ERROR** (execution error)
+- `value_realized_volatility_ratio_adjusted` → **ERROR** (execution error)
+- `value_realized_skewness_ratio_adjusted` → **ERROR** (execution error)
+- `value_realized_semivariance_ratio` → **ERROR** (execution error)
+- `value_realized_volatility_ratio_adjusted_v2` → **ERROR** (execution error)
+- `idiosyncratic_volatility_residual_std`: IC=0.0001 ICIR=0.0354 → **FAIL**
+- `realized_kurtosis_126day` → **ERROR** (execution error)
+
+
+## Session: 2026-04-21 (auto — domain=quality)
+
+**Done:** ran 20 iteration(s): 0 PASS / 1 FAIL / 13 SKIP / 6 ERROR
+
+- `trend_convexity_quadratic_fit` → **SKIP** (execution error)
+- `trend_linearity_r2` → **ERROR** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `price_to_52w_range_george_hwang` → **SKIP** (execution error)
+- `price_to_5y_median_deviation_normalized` → **SKIP** (execution error)
+- `price_to_5y_median_deviation_log` → **SKIP** (execution error)
+- `volatility_regime_skew_premium` → **ERROR** (execution error)
+- `volatility_regime_duration`: IC=0.0014 ICIR=0.0174 → **FAIL**
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `long_term_reversal_debondt_thaler` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `value_realized_skewness_ratio` → **ERROR** (execution error)
+- `value_realized_volatility_ratio_adjusted` → **ERROR** (execution error)
+- `value_realized_semivariance_ratio` → **ERROR** (execution error)
+- `realized_kurtosis_21day` → **ERROR** (execution error)
+
+
+## Session: 2026-04-21 (auto — domain=volatility)
+
+**Done:** ran 20 iteration(s): 0 PASS / 2 FAIL / 17 SKIP / 1 ERROR
+
+- `realized_volatility_regime_shift` → **SKIP** (execution error)
+- `realized_volatility_regime_shift` → **SKIP** (execution error)
+- `realized_volatility_regime_shift` → **SKIP** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `price_to_5y_median_deviation_normalized` → **SKIP** (execution error)
+- `price_to_5y_mean_deviation` → **SKIP** (execution error)
+- `price_to_5y_median_deviation_signed` → **SKIP** (execution error)
+- `volatility_regime_adjusted_momentum` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `volatility_regime_shift_skew` → **ERROR** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `bollinger_band_width_mean_reversion`: IC=0.0019 ICIR=-0.0004 → **FAIL**
+- `long_term_reversal_debondt_thaler` → **SKIP** (execution error)
+- `long_term_reversal_debondt_thaler`: IC=-0.0105 ICIR=0.0551 → **FAIL**
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+
+
+## Session: 2026-04-21 (auto — domain=mean_reversion)
+
+**Done:** ran 20 iteration(s): 0 PASS / 1 FAIL / 18 SKIP / 1 ERROR
+
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `garch_proxy_short_long_vol_diff` → **SKIP** (execution error)
+- `realized_volatility_regime_shift` → **SKIP** (execution error)
+- `realized_volatility_regime_shift` → **SKIP** (execution error)
+- `trend_quality_r2`: IC=-0.0059 ICIR=-0.0834 → **FAIL**
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `downside_deviation_sortino` → **SKIP** (execution error)
+- `price_to_52w_range` → **SKIP** (execution error)
+- `price_to_5y_median_deviation` → **SKIP** (execution error)
+- `price_to_52w_range_george_hwang` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `garch_proxy_volatility_regime` → **ERROR** (execution error)
+
+
+## Session: 2026-04-20 (auto — domain=momentum)
+
+**Done:** ran 20 iteration(s): 0 PASS / 3 FAIL / 12 SKIP / 5 ERROR
+
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `ff_momentum_12_1` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `williams_percent_r_proxy` → **SKIP** (execution error)
+- `idiosyncratic_volatility_ang` → **SKIP** (execution error)
+- `realized_kurtosis_63day` → **ERROR** (execution error)
+- `realized_semivariance_ratio` → **ERROR** (execution error)
+- `realized_kurtosis_21day` → **ERROR** (execution error)
+- `downside_volatility_ratio` → **ERROR** (execution error)
+- `value_realized_volatility_ratio` → **ERROR** (execution error)
+- `value_realized_volatility_ratio`: IC=0.0034 ICIR=0.0537 → **FAIL**
+- `garch_proxy_vol_spread` → **SKIP** (execution error)
+- `garch_proxy_vol_ratio` → **SKIP** (execution error)
+- `garch_proxy_vol_ratio` → **SKIP** (execution error)
+- `trend_convexity_acceleration` → **SKIP** (execution error)
+- `trend_convexity_curvature`: IC=-0.0110 ICIR=-0.0780 → **FAIL**
+- `rolling_sortino_ratio` → **SKIP** (execution error)
+- `trend_stability_ratio`: IC=0.0048 ICIR=0.0639 → **FAIL**
+
+
 ## Session: 2026-04-20 (auto — domain=value)
 
 **Done:** ran 5 iteration(s): 0 PASS / 0 FAIL / 5 SKIP / 0 ERROR
@@ -270,7 +400,7 @@
 - Gate 1 (factor library): 🔄 IN PROGRESS
 - Gate 2+ (HSMM regime detection): ⬜ NOT STARTED
 
-**Knowledge base:** 26 hypotheses, 9 backtest results, 3 factor correlations.
+**Knowledge base:** 129 hypotheses, 21 backtest results, 36 factor correlations.
 
 **Passed-gate factors:**
   - None yet
@@ -280,9 +410,9 @@
   |--------|-----|------|----------|
   | industry_momentum_moskowitz_grinblatt | 0.0125 | -0.0439 | 0.0144 |
   | ensemble_top1 | 0.0125 | -0.0439 | 0.0144 |
-  | intermediate_momentum_novy_marx | 0.0094 | 0.0321 | -0.2510 |
-  | rsi_contrarian | 0.0033 | 0.0267 | 0.5918 |
-  | short_term_reversal_jegadeesh | 0.0018 | -0.0795 | 0.5473 |
+  | ensemble_top1 | 0.0125 | -0.0439 | 0.0144 |
+  | ensemble_top1 | 0.0125 | -0.0439 | 0.0144 |
+  | ensemble_top1 | 0.0125 | -0.0439 | 0.0144 |
 ---
 
 ## Session: 2026-04-13 (part 2 — completion + live-trading review)
