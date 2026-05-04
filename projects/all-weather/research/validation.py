@@ -21,8 +21,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from engine.backtest import (run_backtest, compute_cagr, compute_max_drawdown,
-                              compute_calmar, compute_ulcer_index, compute_sortino)
+from engine.backtest import run_backtest
+from engine.stats import (compute_cagr, compute_max_drawdown,
+                           compute_calmar, compute_ulcer_index, compute_sortino)
 from engine.optimiser import optimise_random, optimise_allocation
 from engine.plotting import style_ax
 from engine import config
@@ -199,25 +200,12 @@ def run_walk_forward(prices: pd.DataFrame,
             continue
 
         # Optimise on training data only
-        # Asset class caps are passed through to both DE and random methods
-        if config.WF_OPT_METHOD == "differential_evolution":
-            opt_alloc_dict = optimise_allocation(
-                train_prices, train_bench, allocation,
-                method      = "differential_evolution",
-                min_weight  = min_weight,
-                max_weight  = max_weight,
-                min_cagr    = 0.0,
-                n_trials    = n_trials,
-                random_seed = random_seed,
-            )
-            opt_weights = np.array(list(opt_alloc_dict.values()))
-        else:
-            opt_weights, _ = optimise_random(
-                train_prices, train_bench, allocation,
-                min_weight, max_weight, 0.0, n_trials,
-                config.WF_OPT_METHOD, random_seed,
-                asset_class_groups, asset_class_max_weight
-            )
+        opt_weights, _ = optimise_random(
+            train_prices, train_bench, allocation,
+            min_weight, max_weight, 0.0, n_trials,
+            config.WF_OPT_METHOD, random_seed,
+            asset_class_groups, asset_class_max_weight
+        )
 
         if opt_weights is None:
             print(f"    Optimiser failed -- skipping window.")

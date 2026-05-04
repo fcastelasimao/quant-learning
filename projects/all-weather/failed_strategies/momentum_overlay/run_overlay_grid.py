@@ -17,9 +17,10 @@ matplotlib.use("Agg")
 import numpy as np
 import pandas as pd
 
-import config
-from data import fetch_prices
-from backtest import run_backtest_with_overlay, compute_stats
+from engine import config
+from engine.data import fetch_prices
+from engine.stats import compute_stats
+from failed_strategies.momentum_overlay.overlay import run_backtest_with_overlay
 
 # ---- Grid parameters (IS tuning) ----
 

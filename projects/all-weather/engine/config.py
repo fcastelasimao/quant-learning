@@ -112,15 +112,6 @@ RP_MIN_WEIGHT = 0.02  # minimum per-asset weight in risk parity optimisation
 
 PARETO_CAGR_RANGE = np.arange(4.0, 14.0, 1.0)
 
-# ---- Asset momentum overlays (parked — default off) ----
-
-ASSET_OVERLAYS = {
-    "SPY": {"enabled": False, "threshold": -0.10, "d_window": 5, "reduce_pct": 1.0},
-    "TLT": {"enabled": False, "threshold": -0.10, "d_window": 5, "reduce_pct": 1.0},
-}
-
-OVERLAY_CASH_RETURN = 0.0  # annual return on cash when overlay exits (0 = no interest)
-
 # ---- Plot lines ----
 
 PLOT_LINES = {
@@ -139,23 +130,17 @@ WF_STEP_YEARS  = 3
 # ---- Run label (auto-generated) ----
 
 def _build_run_label(price_start: str, price_end: str) -> str:
-    _method_abbr = {
-        "differential_evolution": "de", "sharpe_slsqp": "sharpe",
-        "calmar": "calmar", "random": "rnd",
-    }
+    _method_abbr = {"sharpe_slsqp": "sharpe", "calmar": "calmar", "random": "rnd"}
     _freq_abbr = {"ME": "M", "W": "W"}
 
     n     = len(TARGET_ALLOCATION)
     freq  = _freq_abbr.get(DATA_FREQUENCY, DATA_FREQUENCY)
     start = price_start[:4]
     end   = price_end[:4]
-
-    active_ov = sorted(t for t, v in ASSET_OVERLAYS.items() if v["enabled"])
-    ov_suffix = ("_ov_" + "_".join(active_ov)) if active_ov else ""
     tag_suffix = f"_{RUN_TAG}" if RUN_TAG else ""
 
     def _label(base: str) -> str:
-        return f"{base}{ov_suffix}{tag_suffix}"
+        return f"{base}{tag_suffix}"
 
     if RUN_MODE == "backtest":
         return _label(f"backtest_{n}assets_{freq}_{start}_{end}")
@@ -197,10 +182,6 @@ def validate_config() -> None:
     assert OPT_METHOD in ("random", "calmar", "sharpe_slsqp", "martin")
     assert PRICING_MODEL in ("total_return", "price_return")
     assert 0.0 <= RISK_FREE_RATE <= 0.20
-    for ticker, ov in ASSET_OVERLAYS.items():
-        assert -0.50 <= ov["threshold"] <= 0.50 and ov["threshold"] != 0.0
-        assert 1 <= ov["d_window"] <= 60
-        assert 0.0 < ov["reduce_pct"] <= 1.0
     assert 0.0 <= TRANSACTION_COST_PCT <= 0.05
     assert 0.0 <= TAX_DRAG_PCT <= 0.30
     assert (DATA_FREQUENCY == "ME" and SHARPE_ANNUALISATION == 12) or \

@@ -31,8 +31,9 @@ import os
 import pandas as pd
 
 from engine import config
-from engine.backtest import run_backtest, run_backtest_rolling_rp, compute_stats
+from engine.backtest import run_backtest, compute_stats
 from engine.data import fetch_prices
+from failed_strategies.rolling_rp.rolling_rp import run_backtest_rolling_rp
 from research.export import (
     append_to_master_log,
     export_results,

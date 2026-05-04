@@ -39,14 +39,14 @@ import traceback
 import numpy as np
 import pandas as pd
 
-import config
-from data      import fetch_prices
-from backtest  import run_backtest, compute_stats
-from optimiser import optimise_allocation
-from validation import run_walk_forward
-from plotting  import plot_backtest
-from export    import (make_results_dir, export_results, append_to_master_log,
-                       print_header, print_stats, start_run_log, stop_run_log)
+from engine import config
+from engine.data      import fetch_prices
+from engine.backtest  import run_backtest, compute_stats
+from engine.optimiser import optimise_allocation
+from research.validation import run_walk_forward
+from engine.plotting  import plot_backtest
+from research.export  import (make_results_dir, export_results, append_to_master_log,
+                               print_header, print_stats, start_run_log, stop_run_log)
 
 # ===========================================================================
 # BASELINE REFERENCE

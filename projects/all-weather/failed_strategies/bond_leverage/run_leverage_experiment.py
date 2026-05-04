@@ -27,10 +27,10 @@ import copy
 import numpy as np
 import pandas as pd
 
-import config
-from data import fetch_prices
-from backtest import (compute_cagr, compute_max_drawdown, compute_sharpe,
-                      compute_calmar, compute_ulcer_index, compute_sortino)
+from engine import config
+from engine.data import fetch_prices
+from engine.stats import (compute_cagr, compute_max_drawdown, compute_sharpe,
+                           compute_calmar, compute_ulcer_index, compute_sortino)
 
 
 # ---- Config ----

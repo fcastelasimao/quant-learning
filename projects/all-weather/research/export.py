@@ -28,7 +28,7 @@ import pandas as pd
 from openpyxl.styles import (Alignment, Font, PatternFill, Border, Side)
 from openpyxl.utils import get_column_letter
 
-from engine.backtest import StrategyStats
+from engine.stats import StrategyStats
 from engine import config
 
 import sys
@@ -130,11 +130,6 @@ def save_run_config(allocation: dict, results_dir: str, label: str) -> None:
         },
         "run_mode": config.RUN_MODE,
         "run_tag":  config.RUN_TAG,
-        "asset_overlays": {
-            t: {"enabled": v["enabled"], "threshold": v["threshold"],
-                "d_window": v["d_window"], "reduce_pct": v["reduce_pct"]}
-            for t, v in config.ASSET_OVERLAYS.items()
-        },
         "target_allocation": allocation,
     }
 
@@ -264,20 +259,13 @@ def _all_flat_columns() -> list[str]:
     return cols
 
 
-def _overlay_str() -> str:
-    """Return a readable summary of active overlay assets, or 'none'."""
-    active = sorted(t for t, v in config.ASSET_OVERLAYS.items() if v["enabled"])
-    return " | ".join(active) if active else "none"
-
-
 def _de_objective_str() -> str:
     """Return the optimiser objective label for the current run mode."""
     _obj_map = {
-        "differential_evolution": "Martin",
-        "calmar":                 "Calmar",
-        "random":                 "Calmar",
-        "sharpe_slsqp":           "Sharpe",
-        "martin":                 "Martin",
+        "calmar":     "Calmar",
+        "random":     "Calmar",
+        "sharpe_slsqp": "Sharpe",
+        "martin":     "Martin",
     }
     if config.RUN_MODE == "optimise":
         return _obj_map.get(config.OPT_METHOD, config.OPT_METHOD)
@@ -295,8 +283,6 @@ def build_log_row(results_dir: str,
         "Timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
         "Label":          label,
         "Run Mode":       config.RUN_MODE,
-        #"Overlay":        _overlay_str(),
-        #"DE Objective":   _de_objective_str(),
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
         "OOS Start":      config.OOS_START,

@@ -17,7 +17,8 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize, differential_evolution
 
-from backtest import run_backtest, compute_cagr, compute_max_drawdown, \
+from engine.backtest import run_backtest
+from engine.stats import compute_cagr, compute_max_drawdown, \
                      compute_sharpe, compute_calmar, compute_ulcer_index
 
 

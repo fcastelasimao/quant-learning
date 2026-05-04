@@ -10,10 +10,10 @@ Active methods:
   martin            -- random search with Martin ratio objective
   risk_parity       -- compute_risk_parity_weights() (primary methodology)
 
-Differential Evolution is archived in archive/optimiser_de.py.
-It was confirmed to fail OOS across 26 experiments (Phase 9, Gate 1 closed).
-
 All scipy optimisers minimise by convention; objectives are negated.
+
+Differential Evolution is in failed_strategies/differential_evolution/
+(26 experiments, all failed OOS — structural regime mismatch).
 
 Dependency: backtest.py, config.py
 """
@@ -24,8 +24,9 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from .backtest import run_backtest, compute_cagr, compute_max_drawdown, \
-                     compute_sharpe, compute_calmar, compute_ulcer_index
+from .backtest import run_backtest
+from .stats import compute_cagr, compute_max_drawdown, compute_sharpe, \
+                   compute_calmar, compute_ulcer_index
 
 # Penalty returned when a candidate allocation violates constraints
 # (CAGR floor or asset-class caps). Must be large enough that the
@@ -127,12 +128,7 @@ def _score_allocation(weights_array: np.ndarray,
     Scores:
       "sharpe_slsqp"                         -> -Sharpe
       "random", "calmar"                     -> -Calmar
-      "martin", "differential_evolution"     -> -Martin  (CAGR / Ulcer Index)
-
-    Martin ratio is preferred for DE because Calmar is dominated by a single
-    worst data point and is discontinuous, making it a poor landscape for
-    population-based search. Martin is smoother (RMS drawdown) and better
-    reflects persistent drawdown risk.
+      "martin"                               -> -Martin  (CAGR / Ulcer Index)
 
     A large penalty (1e6) is returned if the CAGR constraint is violated
     or if any asset class group exceeds its maximum weight.
@@ -161,7 +157,7 @@ def _score_allocation(weights_array: np.ndarray,
         ret_col = "All Weather Value Monthly Ret (%)"
         return -compute_sharpe(bt[ret_col])
 
-    if method in ("martin", "differential_evolution"):
+    if method == "martin":
         ulcer = compute_ulcer_index(series)
         if ulcer < 1e-10:
             return -cagr  # degenerate: no drawdowns at all, use CAGR directly
@@ -258,8 +254,7 @@ def optimise_allocation(prices: pd.DataFrame,
     ----------
     prices, benchmark_prices : price DataFrames from data.fetch_prices()
     allocation               : starting allocation (used as initial guess for SLSQP)
-    method                   : "random" | "calmar" | "martin" |
-                               "differential_evolution" | "sharpe_slsqp"
+    method                   : "random" | "calmar" | "martin" | "sharpe_slsqp"
     min_weight, max_weight   : fallback uniform per-asset weight bounds
     min_cagr                 : minimum acceptable CAGR (percent)
     n_trials                 : number of trials for random/calmar methods

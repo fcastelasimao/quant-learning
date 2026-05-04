@@ -31,7 +31,7 @@ import pandas as pd
 
 from engine import config
 from engine.data import fetch_prices
-from engine.backtest import compute_cagr, compute_max_drawdown, compute_sharpe, compute_calmar
+from engine.stats import compute_cagr, compute_max_drawdown, compute_sharpe, compute_calmar
 
 
 # ---------------------------------------------------------------------------

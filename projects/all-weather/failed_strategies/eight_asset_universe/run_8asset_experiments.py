@@ -24,13 +24,13 @@ matplotlib.use("Agg")
 import numpy as np
 import pandas as pd
 
-import config
-from data import fetch_prices
-from backtest import run_backtest, compute_stats
-from optimiser import compute_risk_parity_weights
-from export import (make_results_dir, export_results,
-                    append_to_master_log, start_run_log, stop_run_log)
-from plotting import plot_backtest
+from engine import config
+from engine.data import fetch_prices
+from engine.backtest import run_backtest, compute_stats
+from engine.optimiser import compute_risk_parity_weights
+from research.export import (make_results_dir, export_results,
+                              append_to_master_log, start_run_log, stop_run_log)
+from engine.plotting import plot_backtest
 
 
 # ---- Experiment definitions ----
