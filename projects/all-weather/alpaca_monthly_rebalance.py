@@ -153,10 +153,11 @@ def calculate_benchmark_returns(logger: logging.Logger) -> dict[str, float]:
     """Calculate monthly returns for SPY, ALLW, 60/40 by fetching last month's prices."""
     try:
         tickers = yf.download(["SPY", "ALLW", "TLT"], period="2mo", progress=False)
-        
+        close_prices = tickers["Close"]
+
         # Get last traded day (today) and previous month's last day
-        today_close = {t: tickers[t].iloc[-1] for t in ["SPY", "ALLW", "TLT"]}
-        prev_close = {t: tickers[t].iloc[-22] for t in ["SPY", "ALLW", "TLT"]}  # ~1 month back
+        today_close = {t: close_prices[t].iloc[-1] for t in ["SPY", "ALLW", "TLT"]}
+        prev_close = {t: close_prices[t].iloc[-22] for t in ["SPY", "ALLW", "TLT"]}  # ~1 month back
         
         spy_ret = _get_price_pct_change(today_close["SPY"], prev_close["SPY"])
         allw_ret = _get_price_pct_change(today_close["ALLW"], prev_close["ALLW"])
@@ -397,17 +398,34 @@ def build_rebalance_plan(
     min_trade_value: float,
     cash_buffer_pct: float,
     liquidate_other_positions: bool,
+    rebalance_mode: str = "per_asset",
 ) -> tuple[list[RebalanceRow], list[str]]:
     """
     Build a conservative monthly rebalance plan.
 
     Buys use notional market orders, so target assets should be fractionable.
     Sells use qty market orders derived from the current position and price.
+
+    rebalance_mode:
+        "per_asset"      — each asset checked independently; only breaching assets traded
+        "full_on_breach" — if any asset breaches drift_threshold, ALL assets go to target
     """
     equity = float(account.equity)
     investable_equity = equity * (1.0 - cash_buffer_pct)
     if investable_equity <= 0:
         raise ValueError("Investable equity is <= 0. Check account funding and cash buffer.")
+
+    # In full_on_breach mode: if any asset drifts past the threshold, rebalance everything.
+    # Achieved by setting the effective threshold to 0 for this run.
+    if rebalance_mode == "full_on_breach":
+        any_breach = any(
+            abs((positions[s].market_value / equity if equity > 0 else 0.0) - w) > drift_threshold
+            for s, w in allocation.items()
+            if s in positions
+        )
+        effective_threshold = 0.0 if any_breach else drift_threshold
+    else:
+        effective_threshold = drift_threshold
 
     target_symbols = set(allocation)
     warnings: list[str] = []
@@ -429,7 +447,7 @@ def build_rebalance_plan(
         notional: float | None = None
         reason = ""
 
-        if abs(drift) <= drift_threshold or abs(delta_value) < min_trade_value:
+        if abs(drift) <= effective_threshold or abs(delta_value) < min_trade_value:
             reason = "within thresholds"
         elif delta_value < 0:
             action = "SELL"
@@ -576,6 +594,7 @@ def execute_rebalance(
     liquidate_other_positions: bool,
     timeout_seconds: int,
     logger: logging.Logger,
+    rebalance_mode: str = "per_asset",
 ) -> None:
     """Execute monthly rebalance: sells first, then refresh, then buys."""
     sells = [row for row in initial_rows if row.action == "SELL" and row.qty and row.qty > 0]
@@ -612,6 +631,7 @@ def execute_rebalance(
         min_trade_value=min_trade_value,
         cash_buffer_pct=cash_buffer_pct,
         liquidate_other_positions=liquidate_other_positions,
+        rebalance_mode=rebalance_mode,
     )
 
     if warnings:
@@ -672,6 +692,15 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=config.REBALANCE_THRESHOLD,
         help=f"Minimum absolute weight drift to trade (default: {config.REBALANCE_THRESHOLD:.2f})",
+    )
+    parser.add_argument(
+        "--rebalance-mode",
+        choices=["per_asset", "full_on_breach"],
+        default=config.REBALANCE_MODE,
+        help=(
+            "per_asset: only breaching assets are traded (default). "
+            "full_on_breach: if any asset breaches the threshold, all assets are brought to target."
+        ),
     )
     parser.add_argument(
         "--min-trade-value",
@@ -783,6 +812,7 @@ def main() -> None:
             min_trade_value=args.min_trade_value,
             cash_buffer_pct=args.cash_buffer_pct,
             liquidate_other_positions=args.liquidate_other_positions,
+            rebalance_mode=args.rebalance_mode,
         )
         logger.info(f"Rebalance plan built: {len(rows)} positions analyzed")
 
@@ -796,6 +826,7 @@ def main() -> None:
         print(f"Last trading day:     {last_trading_day.isoformat()}")
         print(f"Today is month-end:   {'yes' if is_last_trading_day else 'no'}")
         print(f"Execution mode:       {'EXECUTE' if args.execute else 'PREVIEW ONLY'}")
+        print(f"Rebalance mode:       {args.rebalance_mode}")
         print(f"Equity:               ${float(account.equity):,.2f}")
         print(f"Cash:                 ${float(account.cash):,.2f}")
         print(f"Buying power:         ${float(account.buying_power):,.2f}")
@@ -859,6 +890,7 @@ def main() -> None:
             liquidate_other_positions=args.liquidate_other_positions,
             timeout_seconds=args.timeout_seconds,
             logger=logger,
+            rebalance_mode=args.rebalance_mode,
         )
         logger.info("Execution complete. ✓")
         print("\nExecution complete.")

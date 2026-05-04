@@ -21,6 +21,9 @@ RUN_TAG = "monthly_2018oos" #run tag
 
 PRICING_MODEL = "total_return"
 REBALANCE_THRESHOLD = 0.05
+# "per_asset"     — each asset is checked independently; only breaching assets are traded
+# "full_on_breach" — if any asset breaches the threshold, ALL assets are brought back to target
+REBALANCE_MODE = "per_asset"
 HOLDINGS_FILE = "portfolio_holdings.json"
 
 DATA_FREQUENCY       = "ME"    # "ME" = monthly, "W" = weekly
