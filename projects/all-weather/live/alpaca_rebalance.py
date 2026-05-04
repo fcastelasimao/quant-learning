@@ -60,7 +60,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yfinance as yf
 
-import config
+from engine import config
 
 try:
     from alpaca.trading.client import TradingClient

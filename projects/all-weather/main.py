@@ -12,20 +12,20 @@ Run with:
     python main.py
 """
 
-import config
-from config import validate_config
+from engine import config
+from engine.config import validate_config
 
-from data      import fetch_prices
-from portfolio import (load_holdings, save_holdings, initialise_holdings,
-                       rebalancing_instructions)
-from backtest  import run_backtest, run_backtest_with_overlay, compute_stats
-from optimiser import optimise_allocation
-from validation import run_walk_forward, run_pareto_frontier
-from plotting  import plot_backtest
-from export import (make_results_dir, export_results,
-                    append_to_master_log, print_header,
-                    print_rebalancing, print_stats,
-                    start_run_log, stop_run_log)
+from engine.data      import fetch_prices
+from live.portfolio   import (load_holdings, save_holdings, initialise_holdings,
+                               rebalancing_instructions)
+from engine.backtest  import run_backtest, run_backtest_with_overlay, compute_stats
+from engine.optimiser import optimise_allocation
+from research.validation import run_walk_forward, run_pareto_frontier
+from engine.plotting  import plot_backtest
+from research.export  import (make_results_dir, export_results,
+                               append_to_master_log, print_header,
+                               print_rebalancing, print_stats,
+                               start_run_log, stop_run_log)
 
 
 def main():

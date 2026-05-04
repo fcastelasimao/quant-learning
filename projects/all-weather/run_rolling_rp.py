@@ -30,18 +30,18 @@ import os
 
 import pandas as pd
 
-import config
-from backtest import run_backtest, run_backtest_rolling_rp, compute_stats
-from data import fetch_prices
-from export import (
+from engine import config
+from engine.backtest import run_backtest, run_backtest_rolling_rp, compute_stats
+from engine.data import fetch_prices
+from research.export import (
     append_to_master_log,
     export_results,
     make_results_dir,
     start_run_log,
     stop_run_log,
 )
-from optimiser import compute_risk_parity_weights
-from plotting import plot_backtest
+from engine.optimiser import compute_risk_parity_weights
+from engine.plotting import plot_backtest
 
 # ---------------------------------------------------------------------------
 # Configuration

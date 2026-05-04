@@ -12,7 +12,7 @@ import warnings
 from datetime import date
 import pandas as pd
 import yfinance as yf
-import config
+from . import config
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
 warnings.filterwarnings("ignore", category=FutureWarning, module="pandas")

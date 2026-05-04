@@ -151,7 +151,7 @@ class TestRollingRPBehaviour:
 
     @staticmethod
     def _run(prices):
-        from backtest import run_backtest_rolling_rp
+        from engine.backtest import run_backtest_rolling_rp
         return run_backtest_rolling_rp(
             prices, prices["SPY"], TICKERS,
             rp_lookback_years=1.0,
@@ -217,7 +217,7 @@ class TestOOSFiltering:
     """Verify that filtering a full backtest to an OOS window gives valid stats."""
 
     def test_filtered_backtest_starts_at_oos_date(self, synthetic_prices):
-        from backtest import run_backtest_rolling_rp
+        from engine.backtest import run_backtest_rolling_rp
         oos_start = "2016-01-01"
         df, _ = run_backtest_rolling_rp(
             synthetic_prices, synthetic_prices["SPY"], TICKERS,
@@ -228,7 +228,7 @@ class TestOOSFiltering:
 
     def test_filtered_backtest_compute_stats(self, synthetic_prices):
         """compute_stats must succeed on an OOS-filtered backtest slice."""
-        from backtest import compute_stats, run_backtest_rolling_rp
+        from engine.backtest import compute_stats, run_backtest_rolling_rp
         oos_start = "2016-01-01"
         df, weight_history = run_backtest_rolling_rp(
             synthetic_prices, synthetic_prices["SPY"], TICKERS,

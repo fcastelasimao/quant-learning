@@ -46,7 +46,7 @@ TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"
 
 def _load_default_allocation() -> dict[str, float]:
-    base_path = os.path.dirname(__file__)
+    base_path = os.path.dirname(os.path.dirname(__file__))  # project root, not engine/
     strategies_path = os.path.join(base_path, "strategies.json")
     example_path = os.path.join(base_path, "strategies.example.json")
 
@@ -217,7 +217,7 @@ def validate_config() -> None:
 # ---- Strategy loader ----
 
 def load_strategy(strategy_id: str) -> dict:
-    strategies_path = os.path.join(os.path.dirname(__file__), "strategies.json")
+    strategies_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "strategies.json")
     with open(strategies_path, "r") as f:
         data = json.load(f)
     strategies = data["strategies"]

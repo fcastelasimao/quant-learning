@@ -28,8 +28,8 @@ import pandas as pd
 from openpyxl.styles import (Alignment, Font, PatternFill, Border, Side)
 from openpyxl.utils import get_column_letter
 
-from backtest import StrategyStats
-import config
+from engine.backtest import StrategyStats
+from engine import config
 
 import sys
 

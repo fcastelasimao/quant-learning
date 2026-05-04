@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from backtest import run_backtest, compute_cagr, compute_max_drawdown, \
+from .backtest import run_backtest, compute_cagr, compute_max_drawdown, \
                      compute_sharpe, compute_calmar, compute_ulcer_index
 
 # Penalty returned when a candidate allocation violates constraints

@@ -21,12 +21,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from backtest import (run_backtest, compute_cagr, compute_max_drawdown,
-                      compute_calmar, compute_ulcer_index, compute_sortino)
-from optimiser import optimise_random, optimise_allocation
-from plotting import style_ax
-
-import config
+from engine.backtest import (run_backtest, compute_cagr, compute_max_drawdown,
+                              compute_calmar, compute_ulcer_index, compute_sortino)
+from engine.optimiser import optimise_random, optimise_allocation
+from engine.plotting import style_ax
+from engine import config
 
 # ===========================================================================
 # WALK-FORWARD HELPERS

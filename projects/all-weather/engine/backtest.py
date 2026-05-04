@@ -24,7 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-import config
+from . import config
 
 # ---------------------------------------------------------------------------
 # Named constants
@@ -453,7 +453,7 @@ def run_backtest_rolling_rp(prices: pd.DataFrame,
     backtest_df    : same format as run_backtest output
     weight_history : list of {date, weights_dict} for each recomputation
     """
-    from optimiser import compute_risk_parity_weights
+    from .optimiser import compute_risk_parity_weights
 
     if portfolio_value is None:
         portfolio_value = config.INITIAL_PORTFOLIO_VALUE

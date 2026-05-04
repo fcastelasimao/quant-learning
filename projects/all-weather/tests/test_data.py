@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 import yfinance as yf
 
-from backtest import run_backtest
+from engine.backtest import run_backtest
 
 
 # ===========================================================================

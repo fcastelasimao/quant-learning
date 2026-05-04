@@ -19,8 +19,8 @@ import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 
-from backtest import StrategyStats
-import config
+from .backtest import StrategyStats
+from . import config
 
 
 def style_ax(ax: plt.Axes) -> None:
