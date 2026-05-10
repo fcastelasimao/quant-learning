@@ -40,6 +40,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
+from engine.calendar import pandas_resample_frequency
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*auto_adjust.*")
 
@@ -66,6 +68,7 @@ SIXTY_FORTY_BOND   = 0.40
 
 IRAN_WAR_DATE = pd.Timestamp("2026-02-28")
 WATERMARK     = "github.com/fcastelasimao/quant-learning"
+MONTH_END = pandas_resample_frequency("ME")
 
 # DARK THEME COLOURS (charts only) ---------------------------------------------
 
@@ -80,8 +83,8 @@ BORDER_COL  = "#30363d"
 # ---------------------------------------------------------------------------
 
 def _load_strategies_json() -> dict:
-    """Load strategies.json from the same directory as this script."""
-    base = os.path.dirname(os.path.abspath(__file__))
+    """Load strategies.json from the project root."""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(base, "strategies.json")
     if not os.path.exists(path):
         print(f"WARNING: {path} not found — using hardcoded fallback allocations")
@@ -332,7 +335,7 @@ def build_daily_series(prices: pd.DataFrame,
         return daily.rename("portfolio")
 
     # Monthly rebalancing: restore target weights at each month-end
-    month_ends = set(prices.resample("ME").last().dropna(how="all").index)
+    month_ends = set(prices.resample(MONTH_END).last().dropna(how="all").index)
     values = []
 
     for date, row in prices[tickers].iterrows():
@@ -387,7 +390,7 @@ def _daily_stats(series: pd.Series,
 
     vol = float(rets.std() * np.sqrt(annualise) * 100)
 
-    monthly_prices = s.resample("ME").last()
+    monthly_prices = s.resample(MONTH_END).last()
     monthly_rets   = monthly_prices.pct_change().dropna() * 100
     worst_month    = float(monthly_rets.min()) if len(monthly_rets) > 0 else float("nan")
     best_month     = float(monthly_rets.max()) if len(monthly_rets) > 0 else float("nan")
@@ -415,7 +418,7 @@ def print_comparison_table(rows: list[dict],
                             period_label: str) -> None:
     """Print a formatted side-by-side comparison table to stdout."""
     SEP  = "─" * 90
-    HDR  = f"{'Strategy':<35} {"Allocations":<75} {'TotRet':>8} {'CAGR':>8} {'MaxDD':>8} "  \
+    HDR  = f"{'Strategy':<35} {'Allocations':<75} {'TotRet':>8} {'CAGR':>8} {'MaxDD':>8} "  \
            f"{'Calmar':>8} {'Ulcer':>8} {'Sortino':>9}"
 
     print()

@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from . import config
+from .calendar import pandas_resample_frequency
 from .stats import (
     StrategyStats,
     compute_cagr,
@@ -97,9 +98,10 @@ def run_backtest(prices: pd.DataFrame,
 
     tickers = list(allocation.keys())
 
-    monthly     = prices[tickers].resample(config.DATA_FREQUENCY).last().dropna()
-    bench       = benchmark_prices.resample(config.DATA_FREQUENCY).last().dropna()
-    tlt_monthly = (tlt_prices.resample(config.DATA_FREQUENCY).last().dropna()
+    resample_freq = pandas_resample_frequency(config.DATA_FREQUENCY)
+    monthly     = prices[tickers].resample(resample_freq).last().dropna()
+    bench       = benchmark_prices.resample(resample_freq).last().dropna()
+    tlt_monthly = (tlt_prices.resample(resample_freq).last().dropna()
                    if tlt_prices is not None else None)
 
     common  = monthly.index.intersection(bench.index)
@@ -129,8 +131,6 @@ def run_backtest(prices: pd.DataFrame,
         sixty_forty_tlt = portfolio_value * SIXTY_FORTY_BOND / float(tlt_monthly.iloc[0])
         sixty_forty_prev_year = monthly.index[0].year
 
-    aw_prev_year = monthly.index[0].year
-
     # Note: this loop is intentionally iterative due to stateful monthly rebalancing
     # with transaction costs and 60/40 annual rebalance logic.
     records = []
@@ -149,11 +149,11 @@ def run_backtest(prices: pd.DataFrame,
             sixty_forty_tlt = current_6040 * SIXTY_FORTY_BOND / float(tlt_monthly.loc[date])
             sixty_forty_prev_year = date.year
 
-        aw_value  = sum(sh * float(row[t]) for t, sh in aw_holdings.items())
+        aw_value = sum(sh * float(row[t]) for t, sh in aw_holdings.items())
 
-        if tax_drag_pct > 0 and date.year != aw_prev_year:
+        # Tax drag on December close (annual deduction lands on year-end, not year-start)
+        if tax_drag_pct > 0 and date.month == 12:
             aw_value *= (1 - tax_drag_pct)
-            aw_prev_year = date.year
 
         if transaction_cost_pct > 0:
             trade_values = sum(
@@ -161,8 +161,7 @@ def run_backtest(prices: pd.DataFrame,
                 for t, w in allocation.items()
             )
             aw_value -= trade_values * transaction_cost_pct
-            for t, w in allocation.items():
-                aw_holdings[t] = (aw_value * w) / float(row[t])
+
         bh_value  = sum(sh * float(row[t]) for t, sh in bh_holdings.items())
         spy_value = bench_shares * float(bench.loc[date])
 
@@ -186,13 +185,10 @@ def run_backtest(prices: pd.DataFrame,
 
         records.append(record)
 
-        # Rebalance: restore target weights for the rebalanced strategy only
-        # (skipped when transaction_cost_pct > 0 as rebalancing already
-        # happened inside the cost block above)
-        if transaction_cost_pct == 0.0:
-            for t, w in allocation.items():
-                aw_holdings[t] = (aw_value * w) / float(row[t])
+        # Rebalance to target weights (single path regardless of cost mode)
         # Buy & Hold: do nothing -- holdings stay fixed
+        for t, w in allocation.items():
+            aw_holdings[t] = (aw_value * w) / float(row[t])
 
     df = pd.DataFrame(records).set_index("Date")
     for col in ["All Weather Value", "Buy & Hold All Weather", "S&P 500 Value"]:

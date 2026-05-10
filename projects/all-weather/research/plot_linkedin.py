@@ -30,10 +30,13 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+from engine.calendar import pandas_resample_frequency
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*auto_adjust.*")
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
 _RESULTS_DIR = os.path.join(_SCRIPT_DIR, "results")
 os.makedirs(_RESULTS_DIR, exist_ok=True)
 
@@ -46,7 +49,7 @@ DATE_END = date.today().strftime("%Y-%m-%d")
 
 # Load DIY allocation from strategies.json
 def _load_allocation() -> dict[str, float]:
-    path = os.path.join(_SCRIPT_DIR, "strategies.json")
+    path = os.path.join(_PROJECT_ROOT, "strategies.json")
     with open(path, "r") as f:
         data = json.load(f)
     return dict(data["strategies"]["6asset_tip_gsg_rpavg"]["allocation"])
@@ -70,7 +73,17 @@ COL_ALLW = "#f0b429"  # amber
 COL_SPY  = "#f78166"  # coral
 COL_6040 = "#3fb950"  # green
 
+PLOT_SPECS = {
+    "diy_monthly": ("DIY RP - monthly", COL_DIY_MONTHLY, 1.5, "--"),
+    "diy_pa":      ("DIY RP - per asset 5%", COL_DIY_PA, 1.5, "-."),
+    "diy_fob":     ("DIY RP - drift rebalance", COL_DIY_FOB, 2.8, "-"),
+    "allw":        ("ALLW", COL_ALLW, 2.3, "-"),
+    "spy":         ("S&P 500", COL_SPY, 1.5, ":"),
+    "6040":        ("60/40", COL_6040, 1.5, "-."),
+}
+
 WATERMARK = "github.com/fcastelasimao/quant-learning"
+MONTH_END = pandas_resample_frequency("ME")
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -239,7 +252,7 @@ def compute_metrics(series: pd.Series) -> dict:
 
     calmar = cagr / abs(max_dd) if max_dd != 0 else float("inf")
 
-    monthly = series.resample("ME").last().pct_change().dropna()
+    monthly = series.resample(MONTH_END).last().pct_change().dropna()
     vol = monthly.std() * np.sqrt(12)
 
     return {
@@ -317,14 +330,10 @@ def plot_linkedin(all_series: dict[str, pd.Series],
     _style_ax(ax_bot)
 
     # ── Top panel: full equity curves ──────────────────────────────────────
-    # DIY variants (same blue family, different styles) + benchmarks
     plot_order = [
-        ("diy_monthly", "DIY RP — monthly",         COL_DIY_MONTHLY, 1.5, "--"),
-        ("diy_pa",      "DIY RP — per asset (5%)",  COL_DIY_PA,      1.5, "-."),
-        ("diy_fob",     "DIY RP — full on breach",  COL_DIY_FOB,     2.5, "-"),
-        ("allw",        "ALLW (Bridgewater)",        COL_ALLW,        2.2, "-"),
-        ("spy",         "S&P 500",                   COL_SPY,         1.5, ":"),
-        ("6040",        "60/40 (SPY/TLT)",           COL_6040,        1.5, "-."),
+        (key, *PLOT_SPECS[key])
+        for key in ["diy_fob", "allw", "spy", "6040", "diy_monthly", "diy_pa"]
+        if key in all_series
     ]
 
     for key, label, color, lw, ls in plot_order:
@@ -344,7 +353,7 @@ def plot_linkedin(all_series: dict[str, pd.Series],
             )
 
     ax_top.set_title(
-        "$10,000 invested at ALLW launch — where are you today?",
+        "$10,000 invested at ALLW launch",
         fontsize=13, pad=12, color="white", fontweight="bold",
     )
     ax_top.set_ylabel("Portfolio Value ($)", fontsize=10)
@@ -360,50 +369,34 @@ def plot_linkedin(all_series: dict[str, pd.Series],
     )
 
     # ── Metrics table inset (lower right of top panel) ─────────────────────
-    # 3 DIY modes + ALLW + SPY + 60/40; show CAGR, Max DD, Calmar only to fit
     m = metrics
-    table_data = [
-        ["",       "Monthly", "Per asset", "Breach", "ALLW",  "SPY",   "60/40"],
-        ["CAGR",
-         f"{m['diy_monthly']['cagr']:.1%}",
-         f"{m['diy_pa']['cagr']:.1%}",
-         f"{m['diy_fob']['cagr']:.1%}",
-         f"{m['allw']['cagr']:.1%}",
-         f"{m['spy']['cagr']:.1%}",
-         f"{m['6040']['cagr']:.1%}"],
-        ["Max DD",
-         f"{m['diy_monthly']['max_dd']:.1%}",
-         f"{m['diy_pa']['max_dd']:.1%}",
-         f"{m['diy_fob']['max_dd']:.1%}",
-         f"{m['allw']['max_dd']:.1%}",
-         f"{m['spy']['max_dd']:.1%}",
-         f"{m['6040']['max_dd']:.1%}"],
-        ["Calmar",
-         f"{m['diy_monthly']['calmar']:.2f}",
-         f"{m['diy_pa']['calmar']:.2f}",
-         f"{m['diy_fob']['calmar']:.2f}",
-         f"{m['allw']['calmar']:.2f}",
-         f"{m['spy']['calmar']:.2f}",
-         f"{m['6040']['calmar']:.2f}"],
-        ["Cost/yr",
-         "$120", "$120", "$120", "$850", "$9", "$12"],
-    ]
-
-    col_colors = {
-        1: COL_DIY_MONTHLY,
-        2: COL_DIY_PA,
-        3: COL_DIY_FOB,
-        4: COL_ALLW,
+    table_keys = [key for key in ["diy_fob", "allw", "spy", "6040"] if key in all_series]
+    short_labels = {
+        "diy_fob": "DIY RP",
+        "allw": "ALLW",
+        "spy": "SPY",
+        "6040": "60/40",
     }
+    header = [""] + [short_labels[key] for key in table_keys]
+    table_data = [header]
+    for label, metric, fmt in [
+        ("CAGR", "cagr", ".1%"),
+        ("Max DD", "max_dd", ".1%"),
+        ("Calmar", "calmar", ".2f"),
+        ("Return", "total_ret", ".1%"),
+    ]:
+        table_data.append([label] + [format(m[key][metric], fmt) for key in table_keys])
+
+    col_colors = {i + 1: PLOT_SPECS[key][1] for i, key in enumerate(table_keys)}
 
     table = ax_top.table(
         cellText=table_data,
         cellLoc="center",
         loc="lower right",
-        bbox=[0.30, 0.02, 0.69, 0.36],
+        bbox=[0.47, 0.03, 0.51, 0.30],
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(7.5)
+    table.set_fontsize(8)
 
     for (row, col), cell in table.get_celld().items():
         cell.set_edgecolor(GRID_COL)
@@ -411,15 +404,15 @@ def plot_linkedin(all_series: dict[str, pd.Series],
         if row == 0:
             cell.set_facecolor("#21262d")
             c = col_colors.get(col, "white")
-            cell.set_text_props(color=c, fontweight="bold", fontsize=7.5)
+            cell.set_text_props(color=c, fontweight="bold", fontsize=8)
         else:
             cell.set_facecolor(PANEL_BG)
             if col in col_colors:
-                cell.set_text_props(color=col_colors[col], fontweight="bold", fontsize=7.5)
+                cell.set_text_props(color=col_colors[col], fontweight="bold", fontsize=8)
             else:
-                cell.set_text_props(color=TEXT_COL, fontsize=7.5)
+                cell.set_text_props(color=TEXT_COL, fontsize=8)
         if col == 0:
-            cell.set_text_props(color="#8b949e", fontweight="bold", fontsize=7.5)
+            cell.set_text_props(color="#8b949e", fontweight="bold", fontsize=8)
             cell.set_facecolor("#21262d" if row == 0 else "#1c2128")
 
     # ── Bottom panel: drawdown zoom ───────────────────────────────────────
@@ -431,7 +424,8 @@ def plot_linkedin(all_series: dict[str, pd.Series],
     zoom_start = min(zoom_start, diy_start)
     zoom_end = pd.Timestamp("2025-05-31")
 
-    for key, label, color, lw, ls in plot_order:
+    zoom_plot_order = [row for row in plot_order if row[0] in {"diy_fob", "allw"}]
+    for key, label, color, lw, ls in zoom_plot_order:
         s = all_series[key]
         zoomed = s.loc[zoom_start:zoom_end]
         if len(zoomed) == 0:
@@ -471,7 +465,7 @@ def plot_linkedin(all_series: dict[str, pd.Series],
         )
 
     ax_bot.set_title(
-        "Zoomed: Worst Drawdown Period",
+        "Drawdown zoom",
         fontsize=12, pad=10, color="white", fontweight="bold",
     )
     ax_bot.set_ylabel("Indexed Value (start = 100)", fontsize=10)
@@ -479,10 +473,7 @@ def plot_linkedin(all_series: dict[str, pd.Series],
     ax_bot.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
     plt.setp(ax_bot.xaxis.get_majorticklabels(), rotation=25, ha="right")
 
-    ax_bot.legend(
-        fontsize=9, facecolor="#21262d", edgecolor=BORDER_COL,
-        labelcolor=TEXT_COL, loc="lower left", framealpha=0.92,
-    )
+    ax_bot.legend().remove()
 
     #_add_watermark(ax_bot)
 
@@ -526,8 +517,6 @@ def main() -> None:
     s_6040 = s_6040 / s_6040.iloc[0] * 10_000
 
     all_series = {
-        "diy_monthly": diy_monthly,
-        "diy_pa":      diy_pa,
         "diy_fob":     diy_fob,
         "allw":        allw,
         "spy":         spy,

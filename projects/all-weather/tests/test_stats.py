@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from engine.backtest import (
+from engine.stats import (
     compute_cagr,
     compute_max_drawdown,
     compute_sharpe,

@@ -94,6 +94,8 @@ def current_weights(holdings: dict,
     """
     values = {t: h["shares"] * float(prices_row[t]) for t, h in holdings.items()}
     total  = sum(values.values())
+    if total <= 0:
+        return {t: 0.0 for t in holdings}, 0.0
     return {t: v / total for t, v in values.items()}, total
 
 

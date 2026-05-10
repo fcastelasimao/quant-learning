@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+from . import config as _config
 from .backtest import run_backtest
 from .stats import compute_cagr, compute_max_drawdown, compute_sharpe, \
                    compute_calmar, compute_ulcer_index
@@ -260,8 +261,6 @@ def optimise_allocation(prices: pd.DataFrame,
     n_trials                 : number of trials for random/calmar methods
     random_seed              : numpy random seed for reproducibility
     """
-    import config as _config
-
     tickers = list(allocation.keys())
     n       = len(tickers)
 
@@ -395,11 +394,10 @@ def compute_risk_parity_weights(prices: pd.DataFrame,
     tickers          : list of tickers to include
     estimation_years : lookback window for covariance estimation (default 5yr)
     min_weight       : minimum weight per asset (default 2% floor)
-    end_date         : if provided, truncate prices to rows strictly before this
-                       date before computing the covariance matrix. Use this to
-                       enforce IS/OOS discipline — set end_date = OOS_START so
-                       the covariance matrix never sees out-of-sample data.
-                       Without this, RP weights have subtle look-ahead bias.
+    end_date         : truncate prices to rows strictly before this date before
+                       computing the covariance matrix. Defaults to OOS_START to
+                       enforce IS/OOS discipline — covariance never sees OOS data.
+                       Pass an explicit date to override (e.g. for research scripts).
 
     Returns
     -------
@@ -415,11 +413,14 @@ def compute_risk_parity_weights(prices: pd.DataFrame,
     if not available:
         raise ValueError(f"None of {tickers} found in prices columns.")
 
-    # Enforce IS/OOS boundary: strip out any data on or after end_date
-    if end_date is not None:
-        prices = prices.loc[prices.index < pd.Timestamp(end_date)]
-        if prices.empty:
-            raise ValueError(f"No price data before end_date={end_date}.")
+    # Enforce IS/OOS boundary: strip out any data on or after end_date.
+    # Defaults to OOS_START so callers can't accidentally use OOS data.
+    if end_date is None:
+        end_date = _config.OOS_START
+        print(f"INFO: compute_risk_parity_weights defaulting end_date to OOS_START={end_date}")
+    prices = prices.loc[prices.index < pd.Timestamp(end_date)]
+    if prices.empty:
+        raise ValueError(f"No price data before end_date={end_date}.")
 
     # Slice to estimation window
     cutoff     = prices.index[-1] - pd.DateOffset(years=estimation_years)

@@ -19,7 +19,7 @@ import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 
-from .backtest import StrategyStats
+from .stats import StrategyStats
 from . import config
 
 

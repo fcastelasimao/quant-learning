@@ -1,9 +1,12 @@
 # Generated outputs — never commit these
 results/
+research/results/
+notebooks/__marimo__/
 
 # Live portfolio state and trade logs
 portfolio_holdings.json
 logs/
+rebalance_run_registry.json
 
 # Private strategy data and drafts
 strategies.json
@@ -11,6 +14,7 @@ linkedin_post.md
 
 # Session-specific notes (not for public repo)
 session_handoff.md
+.claude/
 
 # Python
 __pycache__/

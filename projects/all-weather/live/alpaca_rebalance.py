@@ -1,12 +1,12 @@
 """
-alpaca_monthly_rebalance.py
-===========================
-Monthly ETF rebalancer for an Alpaca paper-trading account.
+alpaca_rebalance.py
+===================
+Monthly ETF rebalancer for Alpaca paper or live accounts.
 
 What it does
 ------------
 - Loads a target ETF allocation from strategies.json
-- Connects to Alpaca paper trading via alpaca-py
+- Connects to Alpaca paper or live trading via alpaca-py
 - Checks whether today is the last US trading day of the month
 - Reads account equity, cash, and open positions
 - Builds a rebalance plan from current weights to target weights
@@ -17,12 +17,16 @@ Safety defaults
 - Preview only unless --execute is passed
 - Refuses to trade outside the last trading day of the month unless --force
 - Refuses to trade when the regular market is closed
+- Refuses to trade with open target-symbol orders
+- Refuses duplicate executions unless explicitly allowed
+- Fails on rejected, canceled, expired, or timed-out orders
+- Verifies final portfolio weights after execution
 - Executes sells first, then refreshes the account and computes buys again
 - Leaves non-strategy positions alone unless --liquidate-other-positions is passed
 
 Environment
 -----------
-Set Alpaca paper keys in your shell before running:
+Set Alpaca keys in your shell before running:
 
     export APCA_API_KEY_ID="..."
     export APCA_API_SECRET_KEY="..."
@@ -35,13 +39,13 @@ For multiple accounts, add a suffix (e.g. --account live):
 Examples
 --------
 Preview only (default account, backtest tickers):
-    conda run -n allweather python alpaca_monthly_rebalance.py
+    conda run -n allweather python -m live.alpaca_rebalance --paper
 
 Preview with live tickers on the "live" account:
-    conda run -n allweather python alpaca_monthly_rebalance.py --account live --use-live-tickers
+    conda run -n allweather python -m live.alpaca_rebalance --paper --account live --use-live-tickers
 
 Execute on the last trading day:
-    conda run -n allweather python alpaca_monthly_rebalance.py --execute
+    conda run -n allweather python -m live.alpaca_rebalance --paper --execute
 """
 
 from __future__ import annotations
@@ -64,8 +68,8 @@ from engine import config
 
 try:
     from alpaca.trading.client import TradingClient
-    from alpaca.trading.enums import OrderSide, TimeInForce
-    from alpaca.trading.requests import GetCalendarRequest, MarketOrderRequest
+    from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
+    from alpaca.trading.requests import GetCalendarRequest, GetOrdersRequest, MarketOrderRequest
 except ImportError as exc:  # pragma: no cover - import guard for environments without alpaca-py
     raise SystemExit(
         "alpaca-py is not installed. Install it with:\n\n"
@@ -75,14 +79,14 @@ except ImportError as exc:  # pragma: no cover - import guard for environments w
 
 NY_TZ = ZoneInfo("America/New_York")
 DEFAULT_TIMEOUT_SECONDS = 60
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_PATH = os.path.join(_SCRIPT_DIR, "logs", "performance_tracking.csv")
-HOLDINGS_PATH = os.path.join(_SCRIPT_DIR, "portfolio_holdings.json")
-CSV_HEADERS = [
-    "Date", "Portfolio_Equity", "SPY_Weight%", "QQQ_Weight%", "TLT_Weight%",
-    "TIP_Weight%", "GLD_Weight%", "GSG_Weight%", "Portfolio_Return%",
-    "SPY_Return%", "ALLW_Return%", "60_40_Return%",
-]
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOGS_DIR = os.path.join(_PROJECT_ROOT, "logs")
+HOLDINGS_PATH = os.path.join(_PROJECT_ROOT, "portfolio_holdings.json")
+RUN_REGISTRY_PATH = os.path.join(LOGS_DIR, "rebalance_run_registry.json")
+
+
+class OrderExecutionError(RuntimeError):
+    """Raised when a submitted order is not safely filled."""
 
 
 def setup_logging() -> logging.Logger:
@@ -92,13 +96,12 @@ def setup_logging() -> logging.Logger:
     Creates logs/ directory if it doesn't exist.
     Returns a logger instance that writes to both stdout and a timestamped log file.
     """
-    logs_dir = os.path.join(os.path.dirname(__file__), "logs")
-    os.makedirs(logs_dir, exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
     
     # Create timestamped log file
     now_et = datetime.now(NY_TZ)
     log_filename = now_et.strftime("%Y-%m-%d_%H-%M-%S_alpaca_rebalance.log")
-    log_path = os.path.join(logs_dir, log_filename)
+    log_path = os.path.join(LOGS_DIR, log_filename)
     
     # Set up logger
     logger = logging.getLogger("alpaca_rebalancer")
@@ -149,15 +152,34 @@ def _get_price_pct_change(current: float, previous: float) -> float:
     return round(((current - previous) / previous * 100), 2) if previous > 0 else 0.0
 
 
-def calculate_benchmark_returns(logger: logging.Logger) -> dict[str, float]:
-    """Calculate monthly returns for SPY, ALLW, 60/40 by fetching last month's prices."""
-    try:
-        tickers = yf.download(["SPY", "ALLW", "TLT"], period="2mo", progress=False)
-        close_prices = tickers["Close"]
+def _previous_month_end_closes(close_prices: pd.DataFrame) -> tuple[dict[str, float], dict[str, float]]:
+    """Return latest and previous calendar-month-end closes for each column."""
+    close_prices = close_prices.dropna(how="all").ffill()
+    if close_prices.empty:
+        raise ValueError("No benchmark prices returned.")
 
-        # Get last traded day (today) and previous month's last day
-        today_close = {t: close_prices[t].iloc[-1] for t in ["SPY", "ALLW", "TLT"]}
-        prev_close = {t: close_prices[t].iloc[-22] for t in ["SPY", "ALLW", "TLT"]}  # ~1 month back
+    latest_date = close_prices.index[-1]
+    previous_month = close_prices.index.to_period("M") < latest_date.to_period("M")
+    previous = close_prices.loc[previous_month]
+    if previous.empty:
+        raise ValueError("Not enough benchmark history to find previous month-end.")
+
+    latest_row = close_prices.iloc[-1]
+    previous_row = previous.iloc[-1]
+    latest = {ticker: float(latest_row[ticker]) for ticker in close_prices.columns}
+    prior = {ticker: float(previous_row[ticker]) for ticker in close_prices.columns}
+    return latest, prior
+
+
+def calculate_benchmark_returns(logger: logging.Logger) -> dict[str, float]:
+    """Calculate month-to-date benchmark returns using real month-end closes."""
+    try:
+        tickers = yf.download(["SPY", "ALLW", "TLT"], period="3mo", progress=False)
+        close_prices = tickers["Close"]
+        if isinstance(close_prices, pd.Series):
+            close_prices = close_prices.to_frame()
+
+        today_close, prev_close = _previous_month_end_closes(close_prices)
         
         spy_ret = _get_price_pct_change(today_close["SPY"], prev_close["SPY"])
         allw_ret = _get_price_pct_change(today_close["ALLW"], prev_close["ALLW"])
@@ -173,12 +195,40 @@ def calculate_benchmark_returns(logger: logging.Logger) -> dict[str, float]:
         return {"SPY_Return%": 0.0, "ALLW_Return%": 0.0, "60_40_Return%": 0.0}
 
 
-def _ensure_csv_header_exists() -> None:
+def _performance_csv_path(account_label: str, trading_mode: str) -> str:
+    """Return the private audit CSV path for one Alpaca account/mode."""
+    safe_account = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in account_label)
+    return os.path.join(LOGS_DIR, f"performance_tracking_{trading_mode}_{safe_account}.csv")
+
+
+def _performance_headers(allocation: dict[str, float]) -> list[str]:
+    """Build CSV headers from actual tradable symbols, e.g. GLDM not GLD."""
+    weight_cols = [f"{symbol}_Weight%" for symbol in allocation]
+    drift_cols = [f"{symbol}_Drift%" for symbol in allocation]
+    return [
+        "Date", "Portfolio_Equity",
+        *weight_cols,
+        *drift_cols,
+        "Portfolio_Return%",
+        "SPY_Return%", "ALLW_Return%", "60_40_Return%",
+    ]
+
+
+def _ensure_csv_header_exists(csv_path: str, headers: list[str]) -> None:
     """Create CSV with header if it doesn't exist."""
-    if not os.path.exists(CSV_PATH):
-        os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
-        with open(CSV_PATH, "w", newline="") as f:
-            csv.DictWriter(f, fieldnames=CSV_HEADERS).writeheader()
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+    if os.path.exists(csv_path):
+        with open(csv_path, newline="") as f:
+            existing = next(csv.reader(f), [])
+        if existing and existing != headers:
+            raise ValueError(
+                f"Performance CSV header mismatch in {csv_path}. "
+                "Use a separate account label or archive the old CSV before changing symbols."
+            )
+        return
+
+    with open(csv_path, "w", newline="") as f:
+        csv.DictWriter(f, fieldnames=headers).writeheader()
 
 
 def record_performance_snapshot(
@@ -186,18 +236,24 @@ def record_performance_snapshot(
     positions: dict[str, PositionSnapshot],
     allocation: dict[str, float],
     logger: logging.Logger,
+    csv_path: str,
 ) -> None:
     """Record monthly performance snapshot to CSV."""
-    _ensure_csv_header_exists()
+    headers = _performance_headers(allocation)
+    _ensure_csv_header_exists(csv_path, headers)
     
     equity = float(account.equity)
     actual_allocation = calculate_allocation_actual(positions, allocation, equity)
     benchmark_returns = calculate_benchmark_returns(logger)
+    drift = {
+        symbol: round(actual_allocation.get(symbol, 0.0) - weight * 100, 2)
+        for symbol, weight in allocation.items()
+    }
     
     # Calculate portfolio return from previous month if available
     portfolio_return = 0.0
     try:
-        prev_equity = float(pd.read_csv(CSV_PATH).iloc[-1]["Portfolio_Equity"].replace("$", "").replace(",", ""))
+        prev_equity = float(pd.read_csv(csv_path).iloc[-1]["Portfolio_Equity"].replace("$", "").replace(",", ""))
         portfolio_return = round((equity - prev_equity) / prev_equity * 100, 2) if prev_equity > 0 else 0.0
     except (IndexError, KeyError, ValueError):
         pass
@@ -205,14 +261,15 @@ def record_performance_snapshot(
     row = {
         "Date": date.today().isoformat(),
         "Portfolio_Equity": f"${equity:,.2f}",
-        **{f"{s}_Weight%": actual_allocation.get(s, 0) for s in ["SPY", "QQQ", "TLT", "TIP", "GLD", "GSG"]},
+        **{f"{s}_Weight%": actual_allocation.get(s, 0) for s in allocation},
+        **{f"{s}_Drift%": drift.get(s, 0) for s in allocation},
         "Portfolio_Return%": portfolio_return,
         **benchmark_returns,
     }
     
     try:
-        with open(CSV_PATH, "a", newline="") as f:
-            csv.DictWriter(f, fieldnames=CSV_HEADERS).writerow(row)
+        with open(csv_path, "a", newline="") as f:
+            csv.DictWriter(f, fieldnames=headers).writerow(row)
         logger.info(f"Performance snapshot: {date.today().isoformat()} | Portfolio ${equity:,.2f} ({portfolio_return:+.2f}%) | "
                     f"Benchmarks SPY {benchmark_returns['SPY_Return%']:+.2f}% | ALLW {benchmark_returns['ALLW_Return%']:+.2f}% | 60/40 {benchmark_returns['60_40_Return%']:+.2f}%")
     except Exception as exc:
@@ -269,9 +326,8 @@ class RebalanceRow:
 
 def _load_strategy_payload(strategy_id: str) -> dict[str, Any]:
     """Load one strategy definition from strategies.json or the example fallback."""
-    base_path = os.path.dirname(__file__)
-    strategies_path = os.path.join(base_path, "strategies.json")
-    example_path = os.path.join(base_path, "strategies.example.json")
+    strategies_path = os.path.join(_PROJECT_ROOT, "strategies.json")
+    example_path = os.path.join(_PROJECT_ROOT, "strategies.example.json")
 
     if not os.path.exists(strategies_path):
         strategies_path = example_path
@@ -387,6 +443,31 @@ def _validate_target_assets(client: TradingClient, symbols: list[str]) -> dict[s
             raise ValueError(f"{symbol} is not tradable in Alpaca.")
         assets[symbol] = asset
     return assets
+
+
+def get_open_orders(client: TradingClient, symbols: list[str]) -> list[Any]:
+    """Return open Alpaca orders for the symbols this run might trade."""
+    request = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=list(symbols))
+    return list(client.get_orders(filter=request))
+
+
+def assert_no_open_orders(client: TradingClient,
+                          symbols: list[str],
+                          logger: logging.Logger) -> None:
+    """Refuse to trade when there are already open orders in target symbols."""
+    open_orders = get_open_orders(client, symbols)
+    if not open_orders:
+        return
+
+    details = []
+    for order in open_orders:
+        symbol = getattr(order, "symbol", "UNKNOWN")
+        order_id = getattr(order, "id", "UNKNOWN")
+        status = _status_str(order)
+        details.append(f"{symbol}:{order_id}:{status}")
+    msg = "Open Alpaca orders already exist for target symbols: " + ", ".join(details)
+    logger.error(msg)
+    raise SystemExit(msg)
 
 
 def build_rebalance_plan(
@@ -519,6 +600,80 @@ def build_rebalance_plan(
     return rows, warnings
 
 
+def validate_order_guardrails(rows: list[RebalanceRow],
+                              equity: float,
+                              max_order_pct_equity: float,
+                              max_total_trade_pct_equity: float) -> None:
+    """Apply conservative notional limits before any order is submitted."""
+    trade_rows = [row for row in rows if row.action in {"BUY", "SELL"}]
+    if not trade_rows or equity <= 0:
+        return
+
+    max_order_value = equity * max_order_pct_equity
+    max_total_value = equity * max_total_trade_pct_equity
+    total_trade_value = sum(abs(row.delta_value) for row in trade_rows)
+
+    oversized = [
+        row for row in trade_rows
+        if abs(row.delta_value) > max_order_value
+    ]
+    if oversized:
+        details = ", ".join(
+            f"{row.symbol} ${abs(row.delta_value):,.2f}" for row in oversized
+        )
+        raise SystemExit(
+            f"Refusing to trade: one or more orders exceed "
+            f"{max_order_pct_equity:.0%} of equity (${max_order_value:,.2f}): {details}"
+        )
+    if total_trade_value > max_total_value:
+        raise SystemExit(
+            f"Refusing to trade: total planned turnover ${total_trade_value:,.2f} "
+            f"exceeds {max_total_trade_pct_equity:.0%} of equity (${max_total_value:,.2f})."
+        )
+
+
+def verify_post_trade_drift(account: Any,
+                            positions: dict[str, PositionSnapshot],
+                            allocation: dict[str, float],
+                            tolerance: float,
+                            min_extra_position_value: float,
+                            logger: logging.Logger) -> pd.DataFrame:
+    """Validate final account weights against target allocation after execution."""
+    equity = float(account.equity)
+    rows = []
+    breaches = []
+    for symbol, target_weight in allocation.items():
+        current = positions.get(
+            symbol,
+            PositionSnapshot(symbol=symbol, qty=0.0, qty_available=0.0, market_value=0.0, current_price=0.0),
+        )
+        current_weight = current.market_value / equity if equity > 0 else 0.0
+        drift = current_weight - target_weight
+        rows.append({
+            "Symbol": symbol,
+            "Target %": round(target_weight * 100, 2),
+            "Actual %": round(current_weight * 100, 2),
+            "Drift %": round(drift * 100, 2),
+            "Market Value": round(current.market_value, 2),
+        })
+        if abs(drift) > tolerance:
+            breaches.append(f"{symbol} drift {drift:+.2%}")
+
+    extra_positions = sorted(set(positions) - set(allocation))
+    for symbol in extra_positions:
+        position = positions[symbol]
+        if position.market_value >= min_extra_position_value:
+            breaches.append(f"non-strategy {symbol} ${position.market_value:,.2f}")
+
+    frame = pd.DataFrame(rows)
+    logger.info("\nPost-trade verification:\n" + frame.to_string(index=False))
+    if breaches:
+        raise OrderExecutionError(
+            "Post-trade verification failed: " + "; ".join(breaches)
+        )
+    return frame
+
+
 def plan_to_frame(rows: list[RebalanceRow]) -> pd.DataFrame:
     """Render the rebalance plan as a DataFrame for readable terminal output."""
     return pd.DataFrame(
@@ -545,17 +700,72 @@ def _status_str(order: Any) -> str:
     return str(order.status).split(".")[-1].lower()
 
 
+def _run_registry_key(trading_day: date,
+                      account_label: str,
+                      trading_mode: str,
+                      strategy_id: str) -> str:
+    return f"{trading_day.isoformat()}|{trading_mode}|{account_label}|{strategy_id}"
+
+
+def assert_not_duplicate_run(trading_day: date,
+                             account_label: str,
+                             trading_mode: str,
+                             strategy_id: str,
+                             allow_duplicate: bool,
+                             logger: logging.Logger) -> None:
+    """Prevent accidental second execution for the same account/date/strategy."""
+    if allow_duplicate or not os.path.exists(RUN_REGISTRY_PATH):
+        return
+
+    with open(RUN_REGISTRY_PATH, "r", encoding="utf-8") as handle:
+        registry = json.load(handle)
+    key = _run_registry_key(trading_day, account_label, trading_mode, strategy_id)
+    if key in registry:
+        msg = (
+            f"Refusing duplicate execution for {key}. "
+            "Use --allow-duplicate-run only after manually confirming no orders are pending."
+        )
+        logger.error(msg)
+        raise SystemExit(msg)
+
+
+def record_successful_run(trading_day: date,
+                          account_label: str,
+                          trading_mode: str,
+                          strategy_id: str,
+                          logger: logging.Logger) -> None:
+    """Persist a small private marker after a successful execution."""
+    os.makedirs(os.path.dirname(RUN_REGISTRY_PATH), exist_ok=True)
+    if os.path.exists(RUN_REGISTRY_PATH):
+        with open(RUN_REGISTRY_PATH, "r", encoding="utf-8") as handle:
+            registry = json.load(handle)
+    else:
+        registry = {}
+
+    key = _run_registry_key(trading_day, account_label, trading_mode, strategy_id)
+    registry[key] = {
+        "recorded_at": datetime.now(NY_TZ).isoformat(),
+        "account": account_label,
+        "trading_mode": trading_mode,
+        "strategy_id": strategy_id,
+    }
+    with open(RUN_REGISTRY_PATH, "w", encoding="utf-8") as handle:
+        json.dump(registry, handle, indent=2, sort_keys=True)
+    logger.info(f"Recorded successful rebalance run marker: {key}")
+
+
 def wait_for_orders(
     client: TradingClient,
     order_ids: list[str],
     timeout_seconds: int,
     logger: logging.Logger,
-) -> None:
+) -> dict[str, str]:
     """Poll submitted orders until they reach a terminal state or timeout."""
     if not order_ids:
-        return
+        return {}
 
     pending = set(order_ids)
+    statuses: dict[str, str] = {}
     started = time.time()
 
     while pending and (time.time() - started) < timeout_seconds:
@@ -568,19 +778,30 @@ def wait_for_orders(
                 print(f"  {msg}")
                 logger.info(msg)
                 completed.add(order_id)
+                statuses[order_id] = status
         pending -= completed
         if pending:
             time.sleep(2)
 
     if pending:
-        msg = f"WARNING: Timed out waiting for {len(pending)} orders"
+        msg = f"Timed out waiting for {len(pending)} orders"
         print(f"\n{msg}:")
-        logger.warning(msg)
+        logger.error(msg)
         for order_id in sorted(pending):
             order = client.get_order_by_id(order_id)
             status_msg = f"  {order_id} -> {_status_str(order)}"
             print(status_msg)
-            logger.warning(status_msg)
+            logger.error(status_msg)
+            statuses[order_id] = "timeout"
+
+    failed = {
+        order_id: status for order_id, status in statuses.items()
+        if status != "filled"
+    }
+    if failed:
+        details = ", ".join(f"{order_id}:{status}" for order_id, status in failed.items())
+        raise OrderExecutionError(f"Order execution failed: {details}")
+    return statuses
 
 
 def execute_rebalance(
@@ -670,7 +891,18 @@ def execute_rebalance(
 def parse_args() -> argparse.Namespace:
     """CLI options for preview and execution."""
     parser = argparse.ArgumentParser(
-        description="Monthly ETF rebalancer for an Alpaca paper account."
+        description="Monthly ETF rebalancer for Alpaca paper or live accounts."
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--paper",
+        action="store_true",
+        help="Use Alpaca paper trading. This is the default.",
+    )
+    mode.add_argument(
+        "--live",
+        action="store_true",
+        help="Use Alpaca live trading. Requires live credentials and all safety checks.",
     )
     parser.add_argument(
         "--strategy-id",
@@ -680,7 +912,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--execute",
         action="store_true",
-        help="Actually submit paper-trading orders. Without this flag the script is preview only.",
+        help="Actually submit Alpaca orders. Without this flag the script is preview only.",
     )
     parser.add_argument(
         "--force",
@@ -739,13 +971,36 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_TIMEOUT_SECONDS,
         help=f"How long to wait for fills after submitting orders (default: {DEFAULT_TIMEOUT_SECONDS})",
     )
+    parser.add_argument(
+        "--post-trade-tolerance",
+        type=float,
+        default=0.015,
+        help="Maximum allowed absolute post-trade weight drift (default: 0.015 = 1.5%%).",
+    )
+    parser.add_argument(
+        "--max-order-pct-equity",
+        type=float,
+        default=0.40,
+        help="Refuse any single planned trade above this fraction of equity (default: 0.40).",
+    )
+    parser.add_argument(
+        "--max-total-trade-pct-equity",
+        type=float,
+        default=1.05,
+        help="Refuse total planned turnover above this fraction of equity (default: 1.05).",
+    )
+    parser.add_argument(
+        "--allow-duplicate-run",
+        action="store_true",
+        help="Allow a second execution for the same trading day/account/strategy after manual review.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     """Entry point."""
-    logger = setup_logging()
     args = parse_args()
+    logger = setup_logging()
 
     logger.info("=" * 72)
     logger.info("ALPACA MONTHLY PAPER REBALANCER")
@@ -753,6 +1008,9 @@ def main() -> None:
     logger.info(f"Strategy ID: {args.strategy_id}")
     logger.info(f"Mode: {'EXECUTE' if args.execute else 'PREVIEW ONLY'}")
     logger.info(f"Force flag: {args.force}")
+    paper_trading = not args.live
+    trading_mode = "paper" if paper_trading else "live"
+    logger.info(f"Trading environment: {trading_mode.upper()}")
 
     # Resolve credentials: --account <suffix> reads APCA_API_KEY_ID_<SUFFIX>
     if args.account:
@@ -782,8 +1040,8 @@ def main() -> None:
         )
         logger.info(f"Strategy loaded with {len(allocation)} assets")
         
-        logger.info("Connecting to Alpaca paper trading...")
-        client = TradingClient(api_key=api_key, secret_key=secret_key, paper=True)
+        logger.info(f"Connecting to Alpaca {trading_mode} trading...")
+        client = TradingClient(api_key=api_key, secret_key=secret_key, paper=paper_trading)
         logger.info("Successfully connected to Alpaca")
         
         logger.info("Validating target assets...")
@@ -795,6 +1053,17 @@ def main() -> None:
         logger.info(f"Last trading day of month: {last_trading_day.isoformat()}")
         logger.info(f"Today is month-end: {is_last_trading_day}")
         logger.info(f"Market is open: {market_is_open}")
+
+        if args.execute:
+            assert_not_duplicate_run(
+                trading_day=last_trading_day,
+                account_label=account_label,
+                trading_mode=trading_mode,
+                strategy_id=args.strategy_id,
+                allow_duplicate=args.allow_duplicate_run,
+                logger=logger,
+            )
+            assert_no_open_orders(client, list(allocation.keys()), logger)
         
         logger.info("Fetching account snapshot...")
         account, positions = get_account_snapshot(client)
@@ -818,11 +1087,12 @@ def main() -> None:
 
         now_et = _today_et()
         print("=" * 72)
-        print("ALPACA MONTHLY PAPER REBALANCER")
+        print(f"ALPACA MONTHLY {trading_mode.upper()} REBALANCER")
         print("=" * 72)
         print(f"Now (ET):             {now_et.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         print(f"Strategy:             {args.strategy_id}")
-        print(f"Paper account status: {'market open' if market_is_open else 'market closed'}")
+        print(f"Trading environment:  {trading_mode.upper()}")
+        print(f"Account status:       {'market open' if market_is_open else 'market closed'}")
         print(f"Last trading day:     {last_trading_day.isoformat()}")
         print(f"Today is month-end:   {'yes' if is_last_trading_day else 'no'}")
         print(f"Execution mode:       {'EXECUTE' if args.execute else 'PREVIEW ONLY'}")
@@ -856,10 +1126,6 @@ def main() -> None:
         if not args.execute:
             print("\nPreview complete. Re-run with --execute to submit paper orders.")
             logger.info("Preview mode: no orders submitted")
-            # Record snapshot even in preview mode for tracking
-            logger.info("Recording performance snapshot (preview mode)...")
-            record_performance_snapshot(account, positions, allocation, logger)
-            _save_portfolio_holdings(positions, logger)
             return
 
         if not is_last_trading_day and not args.force:
@@ -878,6 +1144,13 @@ def main() -> None:
             logger.error(msg)
             raise SystemExit(msg)
 
+        validate_order_guardrails(
+            rows=rows,
+            equity=float(account.equity),
+            max_order_pct_equity=args.max_order_pct_equity,
+            max_total_trade_pct_equity=args.max_total_trade_pct_equity,
+        )
+
         logger.info("All pre-execution checks passed. Beginning execution...")
         execute_rebalance(
             client=client,
@@ -895,12 +1168,26 @@ def main() -> None:
         logger.info("Execution complete. ✓")
         print("\nExecution complete.")
         
+        logger.info("Verifying final positions...")
+        final_account, final_positions = get_account_snapshot(client)
+        verification = verify_post_trade_drift(
+            account=final_account,
+            positions=final_positions,
+            allocation=allocation,
+            tolerance=args.post_trade_tolerance,
+            min_extra_position_value=args.min_trade_value,
+            logger=logger,
+        )
+        print("\nPost-trade verification:")
+        print(verification.to_string(index=False))
+
         # Record performance snapshot and holdings after execution
         logger.info("Recording performance snapshot...")
-        final_account, final_positions = get_account_snapshot(client)
-        record_performance_snapshot(final_account, final_positions, allocation, logger)
+        performance_path = _performance_csv_path(account_label, trading_mode)
+        record_performance_snapshot(final_account, final_positions, allocation, logger, performance_path)
         _save_portfolio_holdings(final_positions, logger)
-        print("Performance snapshot recorded to logs/performance_tracking.csv")
+        record_successful_run(last_trading_day, account_label, trading_mode, args.strategy_id, logger)
+        print(f"Performance snapshot recorded to {performance_path}")
         print(f"Portfolio holdings saved to {HOLDINGS_PATH}")
         
     except SystemExit:

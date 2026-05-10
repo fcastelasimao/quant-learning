@@ -28,7 +28,7 @@ import pandas as pd
 from openpyxl.styles import (Alignment, Font, PatternFill, Border, Side)
 from openpyxl.utils import get_column_letter
 
-from engine.stats import StrategyStats
+from engine.stats import StrategyStats, compute_calendar_year_metrics
 from engine import config
 
 import sys
@@ -103,6 +103,8 @@ def save_run_config(allocation: dict, results_dir: str, label: str) -> None:
         "backtest_start":          config.BACKTEST_START,
         "backtest_end":            config.BACKTEST_END,
         "oos_start":               config.OOS_START,
+        "data_source":             config.DATA_SOURCE,
+        "fmp_price_column":        config.FMP_PRICE_COLUMN,
         "pricing_model":           config.PRICING_MODEL,
         "transaction_cost_pct":    config.TRANSACTION_COST_PCT,
         "tax_drag_pct":            config.TAX_DRAG_PCT,
@@ -138,6 +140,15 @@ def save_run_config(allocation: dict, results_dir: str, label: str) -> None:
         json.dump(config_data, f, indent=2)
 
 
+def save_price_provenance(price_provenance: dict | None, results_dir: str) -> None:
+    """Write data-source provenance for the prices used in this run."""
+    if not price_provenance:
+        return
+    path = os.path.join(results_dir, "price_provenance.json")
+    with open(path, "w") as f:
+        json.dump(price_provenance, f, indent=2)
+
+
 # ===========================================================================
 # RESULTS EXPORT
 # ===========================================================================
@@ -147,7 +158,8 @@ def export_results(backtest: pd.DataFrame,
                    stats_list: list[StrategyStats],
                    allocation: dict,
                    results_dir: str,
-                   label: str) -> None:
+                   label: str,
+                   price_provenance: dict | None = None) -> None:
     """
     Export all results to results_dir:
       backtest_history.csv         -- monthly portfolio values
@@ -176,6 +188,9 @@ def export_results(backtest: pd.DataFrame,
     pd.DataFrame(stats_rows).to_csv(
         os.path.join(results_dir, "stats.csv"), index=False)
 
+    compute_calendar_year_metrics(backtest).to_csv(
+        os.path.join(results_dir, "annual_metrics.csv"), index=False)
+
     backtest.to_csv(
         os.path.join(results_dir, "backtest_history.csv"))
 
@@ -188,12 +203,16 @@ def export_results(backtest: pd.DataFrame,
     ]).to_csv(os.path.join(results_dir, "allocation.csv"), index=False)
 
     save_run_config(allocation, results_dir, label)
+    save_price_provenance(price_provenance, results_dir)
 
     print(f"  backtest_history.csv")
+    print(f"  annual_metrics.csv")
     print(f"  rebalancing_instructions.csv")
     print(f"  stats.csv")
     print(f"  allocation.csv")
     print(f"  run_config.json")
+    if price_provenance:
+        print(f"  price_provenance.json")
 
 
 # ===========================================================================
@@ -215,6 +234,8 @@ META_COLS = [
     "Backtest End",
     "OOS Start",
     "Tickers",
+    "Data Source",
+    "FMP Price Col",
     "Pricing Model",
     "Tx Cost %",
     "Tax Drag %",
@@ -286,6 +307,8 @@ def build_log_row(results_dir: str,
         "Backtest Start": config.BACKTEST_START,
         "Backtest End":   config.BACKTEST_END,
         "OOS Start":      config.OOS_START,
+        "Data Source":    config.DATA_SOURCE,
+        "FMP Price Col":  config.FMP_PRICE_COLUMN if config.DATA_SOURCE == "fmp" else "",
         "Pricing Model":  config.PRICING_MODEL,
         "Tx Cost %":      config.TRANSACTION_COST_PCT,
         "Tax Drag %":     config.TAX_DRAG_PCT,

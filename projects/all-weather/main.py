@@ -12,23 +12,62 @@ Run with:
     python main.py
 """
 
-from engine import config
-from engine.config import validate_config
+import argparse
 
-from engine.data      import fetch_prices
+from engine import config
+from engine.config import RuntimeConfig, validate_config
+
+from engine.data      import fetch_prices, get_price_provenance
 from live.portfolio   import (load_holdings, save_holdings, initialise_holdings,
                                rebalancing_instructions)
 from engine.backtest  import run_backtest, compute_stats
 from engine.optimiser import optimise_allocation
-from research.validation import run_walk_forward, run_pareto_frontier
-from engine.plotting  import plot_backtest
 from research.export  import (make_results_dir, export_results,
                                append_to_master_log, print_header,
                                print_rebalancing, print_stats,
                                start_run_log, stop_run_log)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse explicit runtime overrides for reproducible command-line runs."""
+    defaults = config.current_runtime_config()
+    parser = argparse.ArgumentParser(description="Run the All Weather backtest engine.")
+    parser.add_argument("--run-mode", default=defaults.run_mode,
+                        choices=["backtest", "optimise", "walk_forward", "pareto", "oos_evaluate", "full_backtest"])
+    parser.add_argument("--strategy-id", default=defaults.strategy_id)
+    parser.add_argument("--data-source", default=defaults.data_source, choices=["yfinance", "fmp"])
+    parser.add_argument("--fmp-price-column", default=defaults.fmp_price_column,
+                        choices=["open", "high", "low", "close", "adj_close"])
+    parser.add_argument("--pricing-model", default=defaults.pricing_model,
+                        choices=["total_return", "price_return"])
+    parser.add_argument("--backtest-start", default=defaults.backtest_start)
+    parser.add_argument("--backtest-end", default=defaults.backtest_end)
+    parser.add_argument("--oos-start", default=defaults.oos_start)
+    parser.add_argument("--transaction-cost-pct", type=float, default=defaults.transaction_cost_pct)
+    parser.add_argument("--tax-drag-pct", type=float, default=defaults.tax_drag_pct)
+    parser.add_argument("--run-tag", default=defaults.run_tag)
+    return parser.parse_args()
+
+
+def _runtime_from_args(args: argparse.Namespace) -> RuntimeConfig:
+    return RuntimeConfig(
+        run_mode=args.run_mode,
+        strategy_id=args.strategy_id,
+        data_source=args.data_source,
+        fmp_price_column=args.fmp_price_column,
+        pricing_model=args.pricing_model,
+        backtest_start=args.backtest_start,
+        backtest_end=args.backtest_end,
+        oos_start=args.oos_start,
+        transaction_cost_pct=args.transaction_cost_pct,
+        tax_drag_pct=args.tax_drag_pct,
+        run_tag=args.run_tag,
+    )
+
+
 def main():
+
+    config.apply_runtime_config(_runtime_from_args(parse_args()))
 
     # ---- Validate all parameters before doing any work ----
     validate_config()
@@ -90,6 +129,8 @@ def main():
 
         # ---- Pareto frontier (optional) ----
         if config.RUN_MODE == "pareto":
+            from research.validation import run_pareto_frontier
+
             run_pareto_frontier(
                 prices           = port_prices,
                 benchmark_prices = bench_prices,
@@ -104,6 +145,8 @@ def main():
 
         # ---- Walk-forward validation (optional) ----
         if config.RUN_MODE == "walk_forward":
+            from research.validation import run_walk_forward
+
             run_walk_forward(
                 prices           = port_prices,
                 benchmark_prices = bench_prices,
@@ -126,22 +169,30 @@ def main():
             # ---- Current holdings & rebalancing ----
             latest_prices = port_prices.iloc[-1]
 
+            # Translate backtest tickers → live tickers (e.g. GLD → GLDM)
+            live_tickers  = config.LIVE_TICKERS  # {backtest_ticker: live_ticker}
+            live_alloc    = {live_tickers.get(t, t): w for t, w in allocation.items()}
+            # Rename price columns so they match live tickers for holdings lookup
+            live_prices   = latest_prices.rename(
+                {t: live_tickers.get(t, t) for t in allocation}
+            )
+
             holdings = load_holdings()
             if holdings is None:
                 print("No existing holdings found. Initialising with target allocation...\n")
-                holdings = initialise_holdings(latest_prices, allocation,
+                holdings = initialise_holdings(live_prices, live_alloc,
                                                config.INITIAL_PORTFOLIO_VALUE)
                 save_holdings(holdings)
-            elif set(holdings.keys()) != set(allocation.keys()):
+            elif set(holdings.keys()) != set(live_alloc.keys()):
                 print("Target allocation has changed -- resetting holdings...\n")
                 print(f"  Old tickers: {sorted(holdings.keys())}")
-                print(f"  New tickers: {sorted(allocation.keys())}\n")
-                holdings = initialise_holdings(latest_prices, allocation,
+                print(f"  New tickers: {sorted(live_alloc.keys())}\n")
+                holdings = initialise_holdings(live_prices, live_alloc,
                                                config.INITIAL_PORTFOLIO_VALUE)
                 save_holdings(holdings)
 
             instructions, total_value = rebalancing_instructions(
-                holdings, latest_prices, allocation, config.REBALANCE_THRESHOLD
+                holdings, live_prices, live_alloc, config.REBALANCE_THRESHOLD
             )
             print_rebalancing(instructions, total_value)
 
@@ -160,10 +211,12 @@ def main():
             # ---- Export ----
             print_header(f"SAVING RESULTS TO {results_dir}")
             export_results(backtest, instructions, stats_list, allocation, results_dir,
-                           run_label)
+                           run_label, price_provenance=get_price_provenance(prices))
             append_to_master_log(results_dir, stats_list, allocation, run_label)
 
             # ---- Plot ----
+            from engine.plotting import plot_backtest
+
             plot_backtest(backtest, stats_list, results_dir, run_label,
                           allocation=allocation)
     finally:

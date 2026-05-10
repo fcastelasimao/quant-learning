@@ -2,10 +2,28 @@
 config.py — Single source of truth for all parameters.
 """
 
+from dataclasses import dataclass
 from datetime import datetime, date
 import json
 import os
 import numpy as np
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    """Typed runtime overrides for a single main.py run."""
+
+    run_mode: str
+    strategy_id: str
+    data_source: str
+    fmp_price_column: str
+    pricing_model: str
+    backtest_start: str
+    backtest_end: str
+    oos_start: str
+    transaction_cost_pct: float
+    tax_drag_pct: float
+    run_tag: str
 
 # ---- Core parameters ----
 
@@ -20,6 +38,11 @@ RUN_MODE = "oos_evaluate"
 RUN_TAG = "monthly_2018oos" #run tag
 
 PRICING_MODEL = "total_return"
+DATA_SOURCE = "yfinance"
+# Options: "yfinance", "fmp"
+FMP_PRICE_COLUMN = "close"
+# Options: "open", "high", "low", "close", "adj_close"
+FMP_DATA_DIR = None  # None -> repo-level quant-learning/data
 REBALANCE_THRESHOLD = 0.05
 # "per_asset"     — each asset is checked independently; only breaching assets are traded
 # "full_on_breach" — if any asset breaches the threshold, ALL assets are brought back to target
@@ -45,12 +68,11 @@ TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 # Load from strategies.json. Override by setting DEFAULT_STRATEGY.
 DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"
 
-def _load_default_allocation() -> dict[str, float]:
+def _load_default_strategy() -> tuple[dict[str, float], dict[str, str]]:
     base_path = os.path.dirname(os.path.dirname(__file__))  # project root, not engine/
     strategies_path = os.path.join(base_path, "strategies.json")
     example_path = os.path.join(base_path, "strategies.example.json")
 
-    # Check if the private file exists; if not, use the example
     if not os.path.exists(strategies_path):
         if os.path.exists(example_path):
             strategies_path = example_path
@@ -59,14 +81,48 @@ def _load_default_allocation() -> dict[str, float]:
 
     with open(strategies_path) as f:
         data = json.load(f)
-    
-    return data["strategies"][DEFAULT_STRATEGY]["allocation"]
 
-TARGET_ALLOCATION = _load_default_allocation()
+    s = data["strategies"][DEFAULT_STRATEGY]
+    return s["allocation"], s.get("live_tickers", {})
+
+TARGET_ALLOCATION, LIVE_TICKERS = _load_default_strategy()
 
 
-assert abs(sum(TARGET_ALLOCATION.values()) - 1.0) < 1e-6, \
-    f"TARGET_ALLOCATION must sum to 1.0, got {sum(TARGET_ALLOCATION.values()):.4f}"
+def current_runtime_config() -> RuntimeConfig:
+    """Build a typed snapshot from module defaults."""
+    return RuntimeConfig(
+        run_mode=RUN_MODE,
+        strategy_id=DEFAULT_STRATEGY,
+        data_source=DATA_SOURCE,
+        fmp_price_column=FMP_PRICE_COLUMN,
+        pricing_model=PRICING_MODEL,
+        backtest_start=BACKTEST_START,
+        backtest_end=BACKTEST_END,
+        oos_start=OOS_START,
+        transaction_cost_pct=TRANSACTION_COST_PCT,
+        tax_drag_pct=TAX_DRAG_PCT,
+        run_tag=RUN_TAG,
+    )
+
+
+def apply_runtime_config(runtime: RuntimeConfig) -> None:
+    """Apply explicit runtime settings before validation and execution."""
+    global RUN_MODE, DEFAULT_STRATEGY, DATA_SOURCE, FMP_PRICE_COLUMN, PRICING_MODEL
+    global BACKTEST_START, BACKTEST_END, OOS_START, TRANSACTION_COST_PCT, TAX_DRAG_PCT
+    global RUN_TAG, TARGET_ALLOCATION, LIVE_TICKERS
+
+    RUN_MODE = runtime.run_mode
+    DEFAULT_STRATEGY = runtime.strategy_id
+    DATA_SOURCE = runtime.data_source
+    FMP_PRICE_COLUMN = runtime.fmp_price_column
+    PRICING_MODEL = runtime.pricing_model
+    BACKTEST_START = runtime.backtest_start
+    BACKTEST_END = runtime.backtest_end
+    OOS_START = runtime.oos_start
+    TRANSACTION_COST_PCT = runtime.transaction_cost_pct
+    TAX_DRAG_PCT = runtime.tax_drag_pct
+    RUN_TAG = runtime.run_tag
+    TARGET_ALLOCATION, LIVE_TICKERS = _load_default_strategy()
 
 # ---- Optimiser ----
 
@@ -165,6 +221,9 @@ def _build_run_label(price_start: str, price_end: str) -> str:
 # ---- Validation ----
 
 def validate_config() -> None:
+    total = sum(TARGET_ALLOCATION.values())
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(f"TARGET_ALLOCATION must sum to 1.0, got {total:.4f}")
     assert OPT_MIN_WEIGHT >= 0.0
     assert OPT_MAX_WEIGHT <= 1.0
     assert OPT_MIN_WEIGHT < OPT_MAX_WEIGHT
@@ -181,6 +240,8 @@ def validate_config() -> None:
     ), f"Unknown RUN_MODE: '{RUN_MODE}'"
     assert OPT_METHOD in ("random", "calmar", "sharpe_slsqp", "martin")
     assert PRICING_MODEL in ("total_return", "price_return")
+    assert DATA_SOURCE in ("yfinance", "fmp")
+    assert FMP_PRICE_COLUMN in ("open", "high", "low", "close", "adj_close")
     assert 0.0 <= RISK_FREE_RATE <= 0.20
     assert 0.0 <= TRANSACTION_COST_PCT <= 0.05
     assert 0.0 <= TAX_DRAG_PCT <= 0.30

@@ -247,6 +247,16 @@ def compute_stats(backtest: pd.DataFrame,
       [All Weather (Rebalanced), Buy & Hold All Weather, S&P 500 Buy & Hold]
       plus 60/40 as the fourth element if the "60/40 Value" column exists.
     """
+    required = {
+        "All Weather Value", "Buy & Hold All Weather", "S&P 500 Value",
+        "All Weather Value Monthly Ret (%)",
+        "Buy & Hold All Weather Monthly Ret (%)",
+        "S&P 500 Value Monthly Ret (%)",
+    }
+    missing = required - set(backtest.columns)
+    if missing:
+        raise ValueError(f"compute_stats: backtest is missing columns: {sorted(missing)}")
+
     years = (backtest.index[-1] - backtest.index[0]).days / DAYS_PER_YEAR
 
     daily_mdd_aw = 0.0
@@ -301,3 +311,52 @@ def compute_stats(backtest: pd.DataFrame,
                                 "60/40 Value Monthly Ret (%)"))
 
     return stats
+
+
+def compute_calendar_year_metrics(backtest: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute year-by-year PnL, return, and drawdown for each value series.
+
+    PnL is measured from the previous year-end value to the current year-end
+    value. For the first partial year, the start value is the first available
+    observation in that year.
+    """
+    value_cols = [
+        "All Weather Value",
+        "Buy & Hold All Weather",
+        "S&P 500 Value",
+        "60/40 Value",
+    ]
+    value_cols = [c for c in value_cols if c in backtest.columns]
+
+    rows = []
+    for col in value_cols:
+        series = backtest[col].dropna()
+        if series.empty:
+            continue
+
+        prev_year_end = None
+        for year, year_series in series.groupby(series.index.year):
+            if year_series.empty:
+                continue
+            start_value = float(prev_year_end if prev_year_end is not None else year_series.iloc[0])
+            end_value = float(year_series.iloc[-1])
+            pnl = end_value - start_value
+            ret = pnl / start_value * 100 if start_value else 0.0
+
+            dd_base = pd.concat([
+                pd.Series([start_value], index=[year_series.index[0] - pd.Timedelta(days=1)]),
+                year_series,
+            ])
+            rows.append({
+                "Year": int(year),
+                "Strategy": col,
+                "Start Value ($)": round(start_value, 2),
+                "End Value ($)": round(end_value, 2),
+                "PnL ($)": round(pnl, 2),
+                "Return (%)": round(ret, 2),
+                "Max Drawdown (%)": round(compute_max_drawdown(dd_base), 2),
+            })
+            prev_year_end = end_value
+
+    return pd.DataFrame(rows)

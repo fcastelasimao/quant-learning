@@ -10,8 +10,8 @@
           "TIP": 0.348, "GLD": 0.142, "GSG": 0.098
       },
       "live_tickers": {
-          "SPY": "IVV", "QQQ": "QQQM", "TLT": "TLT",
-          "TIP": "TIP", "GLD": "GLDM", "GSG": "PDBC"
+          "SPY": "SPY", "QQQ": "QQQ", "TLT": "TLT",
+          "TIP": "TIP", "GLD": "GLDM", "GSG": "GSG"
       },
       "notes": "Production allocation. RP weights averaged across 3 OOS splits. Beats manual allocation on all 3 splits."
     },
