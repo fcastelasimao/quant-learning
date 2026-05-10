@@ -1,6 +1,6 @@
 # Alpaca Monthly Rebalancer — Mac Setup Guide
 
-This guide walks you through setting up and running `alpaca_monthly_rebalance.py` on macOS.
+This guide walks you through setting up and running `python -m live.alpaca_rebalance` on macOS.
 
 ---
 
@@ -103,9 +103,9 @@ These will disappear when you close the terminal.
 Preview mode shows what *would* trade without actually submitting any orders.
 
 ```bash
-cd ~/Documents/quant-learning/All_weather_portfolio
+cd ~/Documents/quant-learning/projects/all-weather
 conda activate allweather
-python3 alpaca_monthly_rebalance.py
+python -m live.alpaca_rebalance --paper
 ```
 
 ### Expected Output
@@ -162,7 +162,7 @@ This log contains debug-level information (more detail than console) for trouble
 When you're ready to actually trade, add the `--execute` flag:
 
 ```bash
-python3 alpaca_monthly_rebalance.py --execute
+python -m live.alpaca_rebalance --paper --execute
 ```
 
 ### Safety Guards
@@ -171,7 +171,7 @@ The script will **refuse to execute** if:
 
 1. **Today is NOT the last trading day of the month**
    - Override with: `--force`
-   - Example: `python3 alpaca_monthly_rebalance.py --execute --force`
+   - Example: `python -m live.alpaca_rebalance --paper --execute --force`
 
 2. **The market is closed**
    - No override possible (intentional safety measure)
@@ -227,10 +227,10 @@ Execution complete. ✓
 
 ### Review Performance Tracking
 
-The script automatically records performance metrics to `logs/performance_tracking.csv`:
+The script automatically records performance metrics to `logs/performance_tracking_paper_default.csv`:
 
 ```bash
-cat logs/performance_tracking.csv
+cat logs/performance_tracking_paper_default.csv
 ```
 
 This CSV contains:
@@ -274,7 +274,7 @@ This contains the full execution trail:
 ### Scenario 1: You Want to Preview on a Non-Last Trading Day
 
 ```bash
-python3 alpaca_monthly_rebalance.py
+python -m live.alpaca_rebalance --paper
 ```
 
 Works fine. Shows what *would* trade if it were the last trading day.
@@ -282,7 +282,7 @@ Works fine. Shows what *would* trade if it were the last trading day.
 ### Scenario 2: It's the Last Trading Day but Market is Closed
 
 ```bash
-python3 alpaca_monthly_rebalance.py --execute
+python -m live.alpaca_rebalance --paper --execute
 ```
 
 **Error:** "Refusing to submit market orders while the regular session is closed."
@@ -292,7 +292,7 @@ python3 alpaca_monthly_rebalance.py --execute
 ### Scenario 3: You Have Non-Strategy Positions (e.g., old trades)
 
 ```bash
-python3 alpaca_monthly_rebalance.py --execute
+python -m live.alpaca_rebalance --paper --execute
 ```
 
 **Error:** "Refusing to execute with unresolved warnings. Review the preview output first."
@@ -302,13 +302,13 @@ python3 alpaca_monthly_rebalance.py --execute
 **Solution (Option B):** Let the script liquidate them automatically:
 
 ```bash
-python3 alpaca_monthly_rebalance.py --execute --liquidate-other-positions
+python -m live.alpaca_rebalance --paper --execute --liquidate-other-positions
 ```
 
 ### Scenario 4: You Want to Test on a Non-Month-End Day
 
 ```bash
-python3 alpaca_monthly_rebalance.py --execute --force
+python -m live.alpaca_rebalance --paper --execute --force
 ```
 
 (Only works if market is open. The market-close guard remains.)
@@ -371,13 +371,13 @@ grep '"allocation"' strategies.json | head -5
 Or just list all strategy IDs:
 
 ```bash
-python3 -c "import json; print(list(json.load(open('strategies.json'))['strategies'].keys()))"
+python -c "import json; print(list(json.load(open('strategies.json'))['strategies'].keys()))"
 ```
 
 Use one of those strategy IDs:
 
 ```bash
-python3 alpaca_monthly_rebalance.py --strategy-id 6asset_tip_gsg_rp --execute
+python -m live.alpaca_rebalance --paper --strategy-id 6asset_tip_gsg_rpavg --execute
 ```
 
 ### Orders Stuck in Pending State
@@ -406,13 +406,13 @@ grep "WARNING" logs/newest_log.log
 
 1. First trading day of next month, run:
    ```bash
-   python3 alpaca_monthly_rebalance.py
+   python -m live.alpaca_rebalance --paper
    ```
    Review the preview.
 
 2. Last trading day of the month, run:
    ```bash
-   python3 alpaca_monthly_rebalance.py --execute
+   python -m live.alpaca_rebalance --paper --execute
    ```
 
 3. Check your holdings in Alpaca dashboard. They should be back to target weights.

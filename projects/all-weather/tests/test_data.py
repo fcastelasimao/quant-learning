@@ -14,12 +14,20 @@ Run the full suite (requires network):
     pytest tests/test_data.py -v
 """
 
+import sqlite3
+import importlib.util
+from datetime import date
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 import yfinance as yf
 
-from backtest import run_backtest
+from engine import config
+from engine.backtest import run_backtest
+from engine.data import fetch_prices_from_fmp_db, get_price_provenance
+from engine.stats import compute_calendar_year_metrics
 
 
 # ===========================================================================
@@ -235,3 +243,232 @@ def test_bh_receives_no_transaction_costs():
         "All Weather Value should differ between zero-cost and high-cost runs "
         "-- if it doesn't, transaction costs are not being applied to AW_R."
     )
+
+
+# ===========================================================================
+# FMP SQLITE DATA LOADER
+# ===========================================================================
+
+def _write_fmp_test_db(path, rows):
+    with sqlite3.connect(path) as conn:
+        conn.execute("""
+            create table candles_1d (
+                ts integer primary key,
+                open real not null,
+                high real not null,
+                low real not null,
+                close real not null,
+                volume real not null,
+                utc_datetime text not null,
+                et_datetime text not null
+            )
+        """)
+        conn.executemany("""
+            insert into candles_1d
+            (ts, open, high, low, close, volume, utc_datetime, et_datetime)
+            values (?, ?, ?, ?, ?, ?, ?, ?)
+        """, rows)
+
+
+def _load_root_fmp_downloader():
+    root = Path(__file__).resolve().parents[3]
+    path = root / "91_1_XXX_Data_Manager_FMP_single_database_v2_no_api.py"
+    spec = importlib.util.spec_from_file_location("fmp_downloader_test_module", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_fetch_prices_from_fmp_db_loads_close_prices(tmp_path):
+    rows_a = [
+        (1, 10, 11, 9, 10.0, 100, "2020-01-02 05:00:00", "2020-01-02 00:00:00"),
+        (2, 11, 12, 10, 11.0, 120, "2020-01-03 05:00:00", "2020-01-03 00:00:00"),
+    ]
+    rows_b = [
+        (1, 20, 21, 19, 20.0, 100, "2020-01-02 05:00:00", "2020-01-02 00:00:00"),
+        (2, 21, 22, 20, 21.0, 120, "2020-01-03 05:00:00", "2020-01-03 00:00:00"),
+    ]
+    _write_fmp_test_db(tmp_path / "DB_A_historical_data.db", rows_a)
+    _write_fmp_test_db(tmp_path / "DB_B_historical_data.db", rows_b)
+
+    prices = fetch_prices_from_fmp_db(["A", "B"], "2020-01-01", "2020-01-04",
+                                      data_dir=str(tmp_path))
+
+    assert list(prices.columns) == ["A", "B"]
+    assert prices.loc[pd.Timestamp("2020-01-03"), "A"] == 11.0
+    assert prices.loc[pd.Timestamp("2020-01-03"), "B"] == 21.0
+    provenance = get_price_provenance(prices)
+    assert provenance["source"] == "fmp_sqlite"
+    assert provenance["price_column"] == "close"
+    assert provenance["requested_tickers"] == ["A", "B"]
+
+
+def test_fetch_prices_from_fmp_db_raises_for_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        fetch_prices_from_fmp_db(["MISSING"], "2020-01-01", "2020-01-04",
+                                 data_dir=str(tmp_path))
+
+
+def test_fetch_prices_from_fmp_db_loads_adj_close(tmp_path):
+    path = tmp_path / "DB_A_historical_data.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("""
+            create table candles_1d (
+                ts integer primary key,
+                open real not null,
+                high real not null,
+                low real not null,
+                close real not null,
+                adj_close real,
+                volume real not null,
+                utc_datetime text not null,
+                et_datetime text not null
+            )
+        """)
+        conn.execute("""
+            insert into candles_1d
+            (ts, open, high, low, close, adj_close, volume, utc_datetime, et_datetime)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (1, 10, 11, 9, 10.0, 9.5, 100, "2020-01-02 05:00:00",
+              "2020-01-02 00:00:00"))
+
+    prices = fetch_prices_from_fmp_db(["A"], "2020-01-01", "2020-01-04",
+                                      data_dir=str(tmp_path),
+                                      price_column="adj_close")
+
+    assert prices.loc[pd.Timestamp("2020-01-02"), "A"] == 9.5
+    assert get_price_provenance(prices)["price_column"] == "adj_close"
+
+
+def test_fetch_prices_from_fmp_db_requires_adj_close_column(tmp_path):
+    rows = [
+        (1, 10, 11, 9, 10.0, 100, "2020-01-02 05:00:00", "2020-01-02 00:00:00"),
+    ]
+    _write_fmp_test_db(tmp_path / "DB_A_historical_data.db", rows)
+
+    with pytest.raises(ValueError, match="adj_close"):
+        fetch_prices_from_fmp_db(["A"], "2020-01-01", "2020-01-04",
+                                 data_dir=str(tmp_path),
+                                 price_column="adj_close")
+
+
+def test_config_validates_data_source(monkeypatch):
+    monkeypatch.setattr(config, "DATA_SOURCE", "bad_source")
+    with pytest.raises(AssertionError):
+        config.validate_config()
+
+
+def test_fmp_downloader_migrates_daily_table_to_adj_close(tmp_path):
+    dm = _load_root_fmp_downloader()
+    db_path = tmp_path / "DB_A_historical_data.db"
+    conn = dm.sqlite_connect(str(db_path))
+    try:
+        conn.execute("""
+            create table candles_1d (
+                ts integer primary key,
+                open real not null,
+                high real not null,
+                low real not null,
+                close real not null,
+                volume real not null,
+                utc_datetime text not null,
+                et_datetime text not null
+            )
+        """)
+        conn.execute("""
+            insert into candles_1d
+            (ts, open, high, low, close, volume, utc_datetime, et_datetime)
+            values (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (1, 10, 11, 9, 10.0, 100, "2020-01-02 05:00:00",
+              "2020-01-02 00:00:00"))
+        conn.commit()
+
+        dm.ensure_table_and_columns(conn, "candles_1d")
+        columns = {row[1] for row in conn.execute("pragma table_info(candles_1d);")}
+        row = conn.execute("select close, adj_close from candles_1d where ts=1;").fetchone()
+    finally:
+        conn.close()
+
+    assert "adj_close" in columns
+    assert row == (10.0, None)
+
+
+def test_fmp_downloader_parses_adj_close(monkeypatch):
+    dm = _load_root_fmp_downloader()
+
+    def fake_get_json(url):
+        return {
+            "historical": [
+                {
+                    "date": "2020-01-02",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 10,
+                    "adjClose": 9.5,
+                    "volume": 100,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(dm, "http_get_json", fake_get_json)
+    df = dm.fetch_daily_range("A", date(2020, 1, 2), date(2020, 1, 2), "key")
+
+    assert list(df.columns) == dm.DAILY_COLUMNS
+    assert df.loc[0, "adj_close"] == 9.5
+
+
+def test_fmp_downloader_upserts_adj_close_without_losing_ohlcv(tmp_path):
+    dm = _load_root_fmp_downloader()
+    conn = dm.sqlite_connect(str(tmp_path / "DB_A_historical_data.db"))
+    try:
+        dm.ensure_table_and_columns(conn, "candles_1d")
+        conn.execute("""
+            insert into candles_1d
+            (ts, open, high, low, close, volume, utc_datetime, et_datetime)
+            values (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (1, 10, 11, 9, 10.0, 100, "2020-01-02 05:00:00",
+              "2020-01-02 00:00:00"))
+        conn.commit()
+
+        df = pd.DataFrame([{
+            "ts": 1,
+            "open": 10,
+            "high": 11,
+            "low": 9,
+            "close": 10.0,
+            "adj_close": 9.5,
+            "volume": 100,
+            "utc_datetime": "2020-01-02 05:00:00",
+            "et_datetime": "2020-01-02 00:00:00",
+        }])
+        dm.upsert_df(conn, "candles_1d", df)
+        df_missing_adj = df.copy()
+        df_missing_adj["close"] = 10.5
+        df_missing_adj["adj_close"] = None
+        dm.upsert_df(conn, "candles_1d", df_missing_adj)
+        row = conn.execute(
+            "select open, high, low, close, adj_close, volume from candles_1d where ts=1;"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row == (10.0, 11.0, 9.0, 10.5, 9.5, 100.0)
+
+
+def test_compute_calendar_year_metrics_includes_pnl():
+    idx = pd.to_datetime(["2020-01-31", "2020-12-31", "2021-12-31"])
+    backtest = pd.DataFrame({
+        "All Weather Value": [10_000.0, 11_000.0, 9_900.0],
+        "S&P 500 Value": [10_000.0, 12_000.0, 13_200.0],
+    }, index=idx)
+
+    annual = compute_calendar_year_metrics(backtest)
+    row = annual[(annual["Year"] == 2021) &
+                 (annual["Strategy"] == "All Weather Value")].iloc[0]
+
+    assert row["Start Value ($)"] == 11_000.0
+    assert row["End Value ($)"] == 9_900.0
+    assert row["PnL ($)"] == -1_100.0
+    assert row["Return (%)"] == -10.0

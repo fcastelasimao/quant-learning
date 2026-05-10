@@ -37,7 +37,7 @@ Minimise: Var(RC)   where RC_i = w_i × (Σw)_i / (wᵀΣw)
 Subject to: Σ_i w_i = 1, w_i ≥ 0.02
 ```
 
-Solved via scipy's SLSQP (Sequential Least Squares Programming). The covariance matrix Σ is estimated from 5 years of daily log returns. Weights are computed independently for three OOS windows ending at 2018, 2020, 2022, and averaged.
+Solved via scipy's SLSQP (Sequential Least Squares Programming). The covariance matrix Σ is estimated from 5 years of daily log returns. Production weights are averaged across the 2018, 2020, and 2022 stress-window derivations. These windows overlap, so they are useful robustness checks, not fully independent samples.
 
 ### Production Allocation
 
@@ -52,7 +52,7 @@ Solved via scipy's SLSQP (Sequential Least Squares Programming). The covariance 
 
 ### IS/OOS Validation
 
-All optimisation uses data from 2006–2020 only. Results are validated on held-out data the model never saw during training:
+All optimisation uses data before the applicable stress-window boundary. Results are validated on held-out data the model did not see during that derivation:
 
 | OOS Window | Manual Calmar | RP Calmar | Improvement |
 |-----------|--------------|----------|-------------|
@@ -60,21 +60,20 @@ All optimisation uses data from 2006–2020 only. Results are validated on held-
 | 2018–2026 | 0.417 | **0.462** | +11% |
 | 2022–2026 | 0.345 | **0.385** | +12% |
 
-RP beats manual allocation on all three independent windows.
+RP beats manual allocation on all three stress windows.
 
----
+### Data-source rerun (2026-05-10)
 
-## What We Tried and Rejected
+After fixing the rebalancing code and adding local FMP `adj_close` support, the RP averaging workflow was rerun across the same 2018, 2020, and 2022 OOS windows. The important comparison is `yfinance_total_return` vs `fmp_adj_close`; they are effectively identical, confirming the production conclusion is not a yfinance artifact.
 
-| Approach | Experiments | Result | Status |
-|----------|------------|--------|--------|
-| Differential Evolution (return-based optimisation) | 26 | All failed OOS — IS period is a single falling-rate regime | Closed |
-| SPY momentum overlay (derivative-based exit/re-entry) | 126 parameter combos | +1.3% on 2/3 splits, -5.3% on hardest | Closed |
-| Rolling RP (quarterly recompute) | 3 OOS splits | Converges to same weights as static | Closed |
-| Weekly rebalancing | 3 OOS splits with costs | No improvement after transaction costs | Closed |
-| 100-ETF universe scan (8–12 asset subsets) | 50k random subsets | 6-asset universe confirmed optimal | Closed |
-| 8-asset universe (CPER, DBA, IEF, IJR added) | 3 OOS splits | 6-asset beats on all Calmar windows | Closed |
-| Bond leverage (1.0x–2.5x on TLT+TIP) | 7 levels × 3 splits | Every 0.25x adds ~3% drawdown, destroys Calmar | Closed |
+| Data Basis | 2018 OOS Calmar | 2020 OOS Calmar | 2022 OOS Calmar | Interpretation |
+|-----------|----------------:|----------------:|----------------:|----------------|
+| yfinance total return | 0.487 | 0.503 | 0.452 | Canonical production basis |
+| FMP adjusted close | 0.488 | 0.504 | 0.453 | Confirms yfinance total-return result |
+| yfinance price return | 0.334 | 0.343 | 0.284 | Missing distributions materially understates results |
+| FMP close | 0.334 | 0.343 | 0.284 | Matches yfinance price-return diagnostic |
+
+The corrected FMP adjusted-close averaged RP weights are close to production: SPY 13.34%, QQQ 10.76%, TLT 18.65%, TIP 33.48%, GLD 13.59%, GSG 10.19%. The drift is modest, so production weights remain unchanged for now.
 
 ---
 
@@ -89,55 +88,175 @@ conda activate allweather
 pip install -r requirements.txt
 ```
 
-## Quick Start
+For reproducible review, prefer the pinned environment:
 
 ```bash
-# Run a full backtest with production RP weights
-python3 main.py
-
-# Compare against Bridgewater's ALLW ETF
-python3 compare_allw.py
-
-# Generate LinkedIn comparison plot
-python3 plot_linkedin.py
-
-# Paper trade via Alpaca
-python3 alpaca_monthly_rebalance.py --preview
-python3 alpaca_monthly_rebalance.py --execute
-
-# Run tests
-python3 -m pytest tests/ -v
+conda env create -f environment.yml
+conda run -n allweather python -m pytest
 ```
+
+---
+
+## Quick Start
+
+All commands must be run from `projects/all-weather/`. Use `conda run -n allweather` to stay inside the environment without activating it interactively.
+
+### Run a backtest
+
+```bash
+conda run -n allweather python main.py
+```
+
+Runs the full backtest with the production `6asset_tip_gsg_rpavg` RP weights. Output goes to `results/<timestamp>/`, including `annual_metrics.csv` for year-by-year PnL, returns, and drawdowns.
+
+### Run tests
+
+```bash
+conda run -n allweather python -m pytest tests/ -v
+# or via Make:
+make test
+```
+
+The default pytest configuration excludes network-dependent integration tests.
+Run vendor/data tests explicitly when online:
+
+```bash
+conda run -n allweather python -m pytest -m integration
+```
+
+### Compare against Bridgewater's ALLW ETF
+
+```bash
+conda run -n allweather python -m research.compare_allw
+# or:
+make compare-allw
+```
+
+### Recompute RP weights from local FMP SQLite data
+
+```bash
+conda run -n allweather python -m research.compare_fmp_rp
+# or:
+make compare-fmp-rp
+```
+
+Writes `results/fmp_rp_boundary_weights.csv` and `results/fmp_rp_weight_comparison.csv`.
+
+### Rerun RP validation across yfinance and FMP
+
+```bash
+conda run -n allweather python -m research.rerun_rp_validation
+```
+
+Runs the full 4-scenario matrix (`yfinance_total_return`, `yfinance_price_return`, `fmp_close`, `fmp_adj_close`) across the 2018/2020/2022 OOS windows. Each split writes the standard results folder and appends to `results/master_log.xlsx`; batch summaries are saved under `results/rp_rerun_<timestamp>/`.
+
+### Build the bank/customer validation bundle
+
+```bash
+conda run -n allweather python -m research.production_validation
+conda run -n allweather python -m research.sensitivity
+```
+
+The customer and bank-facing docs live in `docs/customer_pack.md`,
+`docs/bank_pack.md`, and `docs/claim_register.md`.
+
+### Generate LinkedIn comparison plot
+
+```bash
+conda run -n allweather python -m research.plot_linkedin
+```
+
+### Review validation and data quality in marimo
+
+```bash
+make notebook-comparison
+make notebook-data
+```
+
+The active notebooks live in `notebooks/strategy_comparison.py` and
+`notebooks/data_explorer.py`. The legacy annual metrics browser is archived
+under `archive/notebooks/` because the production validation bundle now covers
+that review surface.
+
+### Paper trading via Alpaca
+
+```bash
+# Preview what trades would be made (no orders placed)
+conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER
+
+# Execute the rebalance
+conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER --execute
+
+# or via Make:
+make rebalance-preview ACCOUNT=PAPER
+make rebalance-execute ACCOUNT=PAPER
+```
+
+Live execution requires explicit `--live`. Rejected, canceled, expired, or
+timed-out orders fail the run, and final positions are checked against target
+weights before the run is marked successful.
+
+---
 
 ## Project Structure
 
 ```
-├── main.py                      Entry point — orchestrates a single backtest run
-├── config.py                    All parameters — loads allocation from strategies.json
-├── strategies.json              Validated strategy registry
-├── data.py                      Price fetching via yfinance with data quality checks
-├── backtest.py                  Simulation engine, performance metrics, rolling RP
-├── optimiser.py                 Risk parity (SLSQP), random search, weight projection
-├── portfolio.py                 Live holdings management and rebalancing
-├── validation.py                Walk-forward and Pareto frontier analysis
-├── plotting.py                  Dark-theme backtest charts
-├── export.py                    Excel master log, CSV export, terminal formatting
-├── compare_allw.py              Head-to-head ALLW ETF comparison
-├── plot_linkedin.py             Two-panel LinkedIn comparison figure
-├── alpaca_monthly_rebalance.py  Paper trading via Alpaca (multi-account)
-├── run_rolling_rp.py            Rolling RP vs static RP experiment
+projects/all-weather/
+├── main.py                   entry point — orchestrates a single backtest run
+├── strategies.json           production strategy registry (allocations + OOS results)
+├── Makefile                  shortcuts: make test / backtest / compare-allw / rebalance-*
+│
+├── engine/                   pure backtest math — no live IO
+│   ├── config.py             all parameters; loads allocation from strategies.json
+│   ├── data.py               yfinance/FMP fetch + data quality checks
+│   ├── stats.py              CAGR, MDD, Sharpe, Sortino, Calmar, Ulcer, compute_stats
+│   ├── backtest.py           run_backtest (monthly rebalance simulation)
+│   ├── optimiser.py          compute_risk_parity_weights (SLSQP) + random search
+│   └── plotting.py           dark-theme matplotlib charts
+│
+├── live/                     Alpaca + holdings
+│   ├── portfolio.py          load/save holdings + rebalancing instructions
+│   └── alpaca_rebalance.py   paper/live trading (multi-account, preview + execute)
+│
+├── research/                 analyses that run periodically but are not production
+│   ├── compare_allw.py       ALLW ETF head-to-head (charts + Excel + metrics)
+│   ├── compare_fmp_rp.py     local FMP SQLite RP-weight comparison
+│   ├── rerun_rp_validation.py  4-scenario yfinance/FMP RP rerun matrix
+│   ├── plot_linkedin.py      two-panel LinkedIn figure
+│   ├── validation.py         walk-forward + Pareto frontier analysis
+│   └── export.py             Excel master log + results formatting
+│
+├── notebooks/                marimo notebooks
+│   ├── strategy_comparison.py review production validation artifacts
+│   └── data_explorer.py      inspect FMP ETF data and return distributions
+│
+├── failed_strategies/        closed investigations — reproducible but off-prod
+│   ├── README.md             one-line summary + conclusion for every closed experiment
+│   ├── strategies_archive.json  demoted strategies removed from strategies.json
+│   ├── rolling_rp/           quarterly RP recompute (converges to same weights)
+│   ├── momentum_overlay/     SPY exit/re-entry overlay (re-entry timing not learnable)
+│   ├── weekly_rebalance/     threshold rebalancing (no improvement after costs)
+│   ├── differential_evolution/  return-based global optimiser (regime mismatch)
+│   ├── eight_asset_universe/ 8-asset validation (6-asset wins)
+│   ├── bond_leverage/        TLT/TIP leverage sweep (destroys Calmar post-2022)
+│   └── universe_scan/        100-ETF random scan (6-asset confirmed optimal)
+│
 ├── tests/
-│   ├── conftest.py
-│   ├── test_stats.py
-│   ├── test_data.py
-│   └── test_rolling_rp.py
-├── archive/                     Completed experiments and dead code
-└── results/                     Generated output (.gitignore'd)
+│   ├── test_stats.py         unit tests for all performance metrics
+│   ├── test_data.py          data fetch + quality check tests
+│   └── test_rolling_rp.py    rolling RP backtest + weight-history tests
+│
+├── archive/                  historical scripts — for reference only
+├── docs/                     customer pack, bank pack, claim register
+├── learning/                 guided engine rewrite (6-session curriculum)
+└── logs/                     untracked — private paper/live audit logs
 ```
+
+---
 
 ## Configuration
 
-All parameters live in `config.py`. The default strategy is loaded from `strategies.json`:
+All parameters live in `engine/config.py`. The default strategy is loaded from `strategies.json`:
 
 ```python
 DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"  # production RP-averaged weights
@@ -149,24 +268,53 @@ Key settings:
 |-----------|---------|-------|
 | `BACKTEST_START` | 2006-01-01 | Limited by GSG inception |
 | `OOS_START` | 2022-01-01 | IS/OOS boundary |
+| `DATA_SOURCE` | "yfinance" | `"yfinance"` or `"fmp"` |
+| `FMP_PRICE_COLUMN` | "close" | Use `"adj_close"` for FMP total-return-equivalent reruns |
 | `DATA_FREQUENCY` | "ME" | Monthly rebalancing |
 | `TRANSACTION_COST_PCT` | 0.001 | 0.1% per trade |
 | `RISK_FREE_RATE` | 0.035 | Fed funds rate as of March 2026 |
 
+`main.py` also accepts runtime overrides such as `--run-mode`,
+`--strategy-id`, `--data-source`, `--fmp-price-column`, `--backtest-start`,
+`--backtest-end`, `--transaction-cost-pct`, and `--tax-drag-pct`.
+
+---
+
 ## Live ETF Mapping
 
-For actual implementation, use lower-cost ETF equivalents:
+One substitution is clearly worth making; the others are not supported by the backtest:
 
-| Backtest ETF | Live ETF | Annual Saving |
-|-------------|---------|---------------|
-| SPY → | IVV | 0.03% |
-| GLD → | GLDM | 0.30% |
-| GSG → | PDBC | 0.16% |
-| QQQ → | QQQM | 0.05% |
+| Backtest ETF | Live ETF | ER Saving | Notes |
+|-------------|---------|-----------|-------|
+| GLD → | **GLDM** | **0.30%** | Same LBMA physical gold. 0.998 correlation over 7.8 years. Substitute. |
+| SPY | SPY | — | IVV saves 6.45bp at 13.4% weight = <1bp portfolio impact. Not material. |
+| QQQ | QQQ | — | QQQM saves 5bp at 10.3% weight = <1bp portfolio impact. Not material. |
+| GSG | GSG | — | PDBC tracks a different index (active roll, 35% sector cap vs ~60% energy). Live ETF portfolio backtest (Oct 2020–today) underperformed by 35bp/yr — 5× the total fee saving. Do not substitute without re-running RP optimisation on PDBC's covariance. |
+
+Portfolio-weighted saving from the GLD→GLDM substitution alone: ~4.3 bp/yr (~$43/yr on $100k).
+
+---
+
+## What We Tried and Rejected
+
+Full code and reproduction steps in `failed_strategies/`. Short summary:
+
+| Approach | Experiments | Result |
+|----------|------------|--------|
+| Differential Evolution | 26 | All failed OOS — IS is a single falling-rate regime |
+| SPY momentum overlay | 126 parameter combos | +1.3% on 2/3 splits, -5.3% on the hardest split |
+| Rolling RP (quarterly recompute) | 3 OOS splits | Converges to same weights as static RP |
+| Weekly/threshold rebalancing | 3 OOS splits with costs | No improvement after transaction costs |
+| 100-ETF universe scan | 50k random subsets | 6-asset universe confirmed optimal |
+| 8-asset universe (CPER, DBA, IEF, IJR) | 3 OOS splits | 6-asset beats on all Calmar windows |
+| Bond leverage (1.0x–2.5x on TLT+TIP) | 7 levels × 3 splits | Every 0.25x adds ~3% drawdown |
+
+---
 
 ## Known Limitations
 
-- ALLW comparison covers ~1 year only (March 2025 launch)
+- ALLW comparison covers a short history only (March 2025 launch)
+- The 2018/2020/2022 OOS windows overlap; call them stress windows, not independent samples
 - No currency adjustment for non-US investors (GBP, EUR)
 - Paper trading started April 2026 via Alpaca (two accounts: backtest ETFs and live ETFs)
 - Sortino uses downside std, not standard semi-deviation
