@@ -28,6 +28,7 @@ with app.setup:
         maybe_filter_benchmark,
         portfolio_view_strategies,
         presentation_table,
+        scale_overlay_leverage,
         slice_dates,
         strategy_label,
         visible_strategies,
@@ -169,11 +170,13 @@ def controls(daily, manifest, threshold_grid):
         value=True,
         label="Include SPY benchmark in Portfolio View",
     )
-    date_range = mo.ui.date_range(
-        start=daily["Date"].min().date(),
-        stop=daily["Date"].max().date(),
-        value=(daily["Date"].min().date(), daily["Date"].max().date()),
-        label="Date range",
+    start_date = mo.ui.date(
+        value=daily["Date"].min().date(),
+        label="Initial date",
+    )
+    end_date = mo.ui.date(
+        value=daily["Date"].max().date(),
+        label="Final date",
     )
     _entries = [float(x) for x in sorted(threshold_grid["Entry Threshold"].dropna().unique())]
     _exits = [float(x) for x in sorted(threshold_grid["Exit Threshold"].dropna().unique())]
@@ -204,11 +207,12 @@ def controls(daily, manifest, threshold_grid):
         """
     )
     return (
-        date_range,
+        end_date,
         include_spy_benchmark,
         portfolio_entry,
         portfolio_exit,
         portfolio_leverage,
+        start_date,
         strategy_selector,
     )
 
@@ -303,18 +307,23 @@ def methodology(allocation, overlay_specs):
 @app.cell
 def filtered_data(
     daily,
-    date_range,
     dd_events,
     diagnostics,
+    end_date,
     include_spy_benchmark,
+    manifest,
     portfolio_entry,
     portfolio_exit,
     portfolio_leverage,
+    start_date,
     strategy_selector,
     threshold_grid,
 ):
-    _start, _end = date_range.value
-    filtered_daily = slice_dates(daily, _start, _end)
+    _start, _end = start_date.value, end_date.value
+    filtered_daily = slice_dates(
+        scale_overlay_leverage(daily, manifest, float(portfolio_leverage.value)),
+        _start, _end,
+    )
     filtered_diagnostics = slice_dates(diagnostics, _start, _end)
     selected_portfolio_strategies = portfolio_view_strategies(
         strategy_selector.value,
@@ -356,9 +365,10 @@ def filtered_data(
 
 @app.cell
 def plot_growth_and_drawdown(
-    date_range,
+    end_date,
     filtered_daily,
     include_spy_benchmark,
+    manifest,
     portfolio_entry,
     portfolio_exit,
     portfolio_leverage,
@@ -366,6 +376,7 @@ def plot_growth_and_drawdown(
     selected_grid_rows,
     selected_metrics,
     selected_portfolio_strategies,
+    start_date,
     strategy_selector,
 ):
     _fig = plot_growth_and_drawdown_figure(filtered_daily, selected_portfolio_strategies)
@@ -375,27 +386,26 @@ def plot_growth_and_drawdown(
         f"Leverage {portfolio_leverage.value:.0f}%  "
         f"(full-period grid metrics, not date-filtered)"
     )
+    _default_lev = float(
+        manifest["overlay_specs"][0].get("overlay_weight", 0.20) * 100
+        if manifest.get("overlay_specs") else 20.0
+    )
+    _lev_note = (
+        f"\n\n> **Leverage scaled to {portfolio_leverage.value:.0f}%** "
+        f"(bundle default {_default_lev:.0f}%). "
+        "Entry/exit signal days are unchanged — only overlay size is adjusted. "
+        "Regenerate the bundle to explore different entry/exit thresholds."
+        if abs(portfolio_leverage.value - _default_lev) > 0.5 else ""
+    )
     mo.vstack([
         mo.md("## 3. Portfolio View"),
-        mo.hstack(
-            [date_range, strategy_selector, include_spy_benchmark],
-            gap=2,
-        ),
-        mo.hstack(
-            [portfolio_entry, portfolio_exit, portfolio_leverage],
-            gap=2,
-        ),
+        mo.hstack([start_date, end_date, strategy_selector, include_spy_benchmark], gap=2),
+        mo.hstack([portfolio_entry, portfolio_exit, portfolio_leverage], gap=2),
         mo.md(
-            """
-            The top chart shows cumulative growth for the base portfolio and the
-            main overlay candidates (using default rule parameters, filtered by
-            the date range above). The bottom chart shows whether the extra return
-            came with deeper drawdowns.
-
-            The **Rule Metrics** table below reflects full-period backtest results
-            from the threshold grid for the selected Entry RSI / Exit RSI /
-            Leverage combination — one row per ETF.
-            """
+            "The top chart shows cumulative growth for the base portfolio and the "
+            "main overlay candidates, filtered to the selected window. "
+            "The bottom chart shows whether the extra return came with deeper drawdowns."
+            + _lev_note
         ),
         mo.as_html(_fig),
         mo.ui.table(selected_grid_rows, label=_grid_label),
@@ -712,8 +722,8 @@ def spy_deep_dive(
 
 
 @app.cell
-def plot_all_etf_rsi_small_multiples(date_range, diagnostics, signals):
-    _start, _end = date_range.value
+def plot_all_etf_rsi_small_multiples(end_date, diagnostics, signals, start_date):
+    _start, _end = start_date.value, end_date.value
     _sig = slice_dates(signals, _start, _end)
     _diag = slice_dates(diagnostics, _start, _end)
     _fig = plot_all_etf_rsi_figure(_sig, _diag)
@@ -733,10 +743,9 @@ def plot_all_etf_rsi_small_multiples(date_range, diagnostics, signals):
 
 
 @app.cell
-def plot_yearly(date_range, strategy_selector, yearly_overlay):
-    _start, _end = date_range.value
-    _start_year = pd.Timestamp(_start).year
-    _end_year = pd.Timestamp(_end).year
+def plot_yearly(end_date, start_date, strategy_selector, yearly_overlay):
+    _start_year = pd.Timestamp(start_date.value).year
+    _end_year = pd.Timestamp(end_date.value).year
     _data = yearly_overlay[
         (yearly_overlay["Year"] >= _start_year)
         & (yearly_overlay["Year"] <= _end_year)

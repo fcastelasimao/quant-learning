@@ -151,6 +151,53 @@ def compute_heatmap_pivot(
         return pivot, "Entry threshold", "Exit threshold", f"leverage {leverage:g}%"
 
 
+def scale_overlay_leverage(
+    daily: pd.DataFrame,
+    manifest: dict,
+    new_leverage_pct: float,
+) -> pd.DataFrame:
+    """Return daily with overlay-strategy returns scaled to new_leverage_pct.
+
+    Scales each overlay strategy's excess return (overlay minus base) by
+    new_leverage_pct / old_leverage_pct. Entry/exit signal days are unchanged;
+    only the size of the exposure is adjusted. When new_leverage_pct equals the
+    bundle default the original series is returned unchanged.
+    """
+    specs = manifest.get("overlay_specs", [])
+    if not specs or daily.empty:
+        return daily
+
+    wide = daily.pivot(index="Date", columns="Strategy", values="Value")
+    base_col = next((c for c in wide.columns if "(Base)" in c), None)
+    if base_col is None:
+        return daily
+
+    base_ret = wide[base_col].pct_change().fillna(0.0)
+    result = wide.copy()
+
+    for spec in specs:
+        old_lev_pct = float(spec.get("overlay_weight", 0.20)) * 100.0
+        if abs(old_lev_pct) < 1e-9:
+            continue
+        scale = new_leverage_pct / old_lev_pct
+        if abs(scale - 1.0) < 1e-9:
+            continue
+
+        ticker = spec.get("ticker", "")
+        overlay_col = next((c for c in wide.columns if f"+ {ticker} RSI" in c), None)
+        if overlay_col is None:
+            continue
+
+        overlay_ret = wide[overlay_col].pct_change().fillna(0.0)
+        new_ret = base_ret + scale * (overlay_ret - base_ret)
+        initial = wide[overlay_col].iloc[0]
+        result[overlay_col] = initial * (1.0 + new_ret).cumprod()
+
+    stacked = result.stack().reset_index()
+    stacked.columns = ["Date", "Strategy", "Value"]
+    return stacked
+
+
 def derive_leverage_tables(
     manifest: dict,
     overlay_summary: pd.DataFrame,
