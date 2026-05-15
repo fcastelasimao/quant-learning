@@ -157,7 +157,7 @@ def load_oos_bundle(oos_bundle_path):
 
 
 @app.cell
-def controls(daily, manifest):
+def controls(daily, manifest, threshold_grid):
     _strategies = visible_strategies(daily["Strategy"].dropna().unique())
     strategy_selector = mo.ui.multiselect(
         options=_strategies,
@@ -175,6 +175,26 @@ def controls(daily, manifest):
         value=(daily["Date"].min().date(), daily["Date"].max().date()),
         label="Date range",
     )
+    _entries = [float(x) for x in sorted(threshold_grid["Entry Threshold"].dropna().unique())]
+    _exits = [float(x) for x in sorted(threshold_grid["Exit Threshold"].dropna().unique())]
+    _leverages = [float(x) for x in sorted(threshold_grid["Overlay Weight (%)"].dropna().unique())]
+    portfolio_entry = mo.ui.dropdown(
+        options=_entries,
+        value=30.0 if 30.0 in _entries else _entries[0],
+        label="Entry RSI",
+    )
+    portfolio_exit = mo.ui.dropdown(
+        options=_exits,
+        value=50.0 if 50.0 in _exits else _exits[0],
+        label="Exit RSI",
+    )
+    portfolio_leverage = mo.ui.slider(
+        steps=_leverages,
+        value=20.0 if 20.0 in _leverages else _leverages[0],
+        show_value=True,
+        include_input=True,
+        label="Overlay leverage %",
+    )
     mo.vstack([
         mo.md(
             f"""
@@ -186,7 +206,14 @@ def controls(daily, manifest):
         ),
         mo.hstack([date_range, strategy_selector, include_spy_benchmark], gap=2),
     ])
-    return date_range, include_spy_benchmark, strategy_selector
+    return (
+        date_range,
+        include_spy_benchmark,
+        portfolio_entry,
+        portfolio_exit,
+        portfolio_leverage,
+        strategy_selector,
+    )
 
 
 @app.cell
@@ -283,7 +310,11 @@ def filtered_data(
     dd_events,
     diagnostics,
     include_spy_benchmark,
+    portfolio_entry,
+    portfolio_exit,
+    portfolio_leverage,
     strategy_selector,
+    threshold_grid,
 ):
     _start, _end = date_range.value
     filtered_daily = slice_dates(daily, _start, _end)
@@ -300,9 +331,27 @@ def filtered_data(
     selected_drawdown_events = dd_events[
         dd_events["Strategy"].isin(selected_portfolio_strategies)
     ].copy()
+
+    _grid_cols = [
+        "Ticker", "Entry Threshold", "Exit Threshold", "Overlay Weight (%)",
+        "Calmar", "CAGR (%)", "Max Drawdown (%)", "Sharpe",
+        "Active Days (%)", "RF Opportunity Cost CAGR (%)",
+        "Incremental CAGR (%)", "Incremental Calmar", "Incremental MaxDD (%)",
+    ]
+    _mask = (
+        np.isclose(threshold_grid["Entry Threshold"], float(portfolio_entry.value), atol=1e-9)
+        & np.isclose(threshold_grid["Exit Threshold"], float(portfolio_exit.value), atol=1e-9)
+        & np.isclose(threshold_grid["Overlay Weight (%)"], float(portfolio_leverage.value), atol=1e-9)
+    )
+    selected_grid_rows = (
+        threshold_grid[_mask][[c for c in _grid_cols if c in threshold_grid.columns]]
+        .sort_values("Calmar", ascending=False)
+        .reset_index(drop=True)
+    )
     return (
         filtered_daily,
         selected_drawdown_events,
+        selected_grid_rows,
         selected_metrics,
         selected_portfolio_strategies,
     )
@@ -310,23 +359,43 @@ def filtered_data(
 
 @app.cell
 def plot_growth_and_drawdown(
+    date_range,
     filtered_daily,
+    portfolio_entry,
+    portfolio_exit,
+    portfolio_leverage,
     selected_drawdown_events,
+    selected_grid_rows,
     selected_metrics,
     selected_portfolio_strategies,
 ):
     _fig = plot_growth_and_drawdown_figure(filtered_daily, selected_portfolio_strategies)
+    _grid_label = (
+        f"Rule Metrics — Entry RSI {portfolio_entry.value:.0f}, "
+        f"Exit RSI {portfolio_exit.value:.0f}, "
+        f"Leverage {portfolio_leverage.value:.0f}%  "
+        f"(full-period grid metrics, not date-filtered)"
+    )
     mo.vstack([
+        mo.md("## 3. Portfolio View"),
+        mo.hstack(
+            [date_range, portfolio_entry, portfolio_exit, portfolio_leverage],
+            gap=2,
+        ),
         mo.md(
             """
-            ## 3. Portfolio View
-
             The top chart shows cumulative growth for the base portfolio and the
-            main overlay candidates. The bottom chart shows whether the extra
-            return came with deeper drawdowns.
+            main overlay candidates (using default rule parameters, filtered by
+            the date range above). The bottom chart shows whether the extra return
+            came with deeper drawdowns.
+
+            The **Rule Metrics** table below reflects full-period backtest results
+            from the threshold grid for the selected Entry RSI / Exit RSI /
+            Leverage combination — one row per ETF.
             """
         ),
         mo.as_html(_fig),
+        mo.ui.table(selected_grid_rows, label=_grid_label),
         mo.ui.table(selected_metrics, label="Selected-Window Ranking"),
         mo.ui.table(selected_drawdown_events, label="Worst Drawdown Events"),
     ])
