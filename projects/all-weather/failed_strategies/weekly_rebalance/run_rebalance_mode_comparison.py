@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from engine import config
+from engine.calendar import pandas_resample_frequency
 from engine.data import fetch_prices
 from engine.stats import compute_cagr, compute_max_drawdown, compute_sharpe, compute_calmar
 
@@ -221,7 +222,7 @@ def main() -> None:
         (port_prices.index >= args.start) & (port_prices.index < args.end)
     ]
 
-    monthly = port_prices.resample(config.DATA_FREQUENCY).last().dropna()
+    monthly = port_prices.resample(pandas_resample_frequency(config.DATA_FREQUENCY)).last().dropna()
     print(f"Period: {monthly.index[0].date()} → {monthly.index[-1].date()} "
           f"({len(monthly)} months)")
     print(f"Threshold: {args.threshold:.1%}  |  Transaction cost: {args.cost:.3%}\n")

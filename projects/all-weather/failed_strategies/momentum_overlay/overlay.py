@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from engine import config
+from engine.calendar import pandas_resample_frequency
 
 SIXTY_FORTY_EQUITY = 0.60
 SIXTY_FORTY_BOND   = 0.40
@@ -174,7 +175,7 @@ def run_backtest_with_overlay(prices: pd.DataFrame,
             ).reindex(common, method="ffill").fillna(1.0)
 
     # Month-end dates used as rebalance triggers
-    month_ends = set(daily.resample(config.DATA_FREQUENCY).last().dropna().index)
+    month_ends = set(daily.resample(pandas_resample_frequency(config.DATA_FREQUENCY)).last().dropna().index)
 
     # --- Initialise holdings ---
     first = daily.iloc[0]

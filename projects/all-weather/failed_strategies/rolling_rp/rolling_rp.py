@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from engine import config
+from engine.calendar import pandas_resample_frequency
 
 SIXTY_FORTY_EQUITY = 0.60
 SIXTY_FORTY_BOND   = 0.40
@@ -57,9 +58,10 @@ def run_backtest_rolling_rp(prices: pd.DataFrame,
         portfolio_value = config.INITIAL_PORTFOLIO_VALUE
 
     # Resample to DATA_FREQUENCY for the backtest
-    monthly = prices[tickers].resample(config.DATA_FREQUENCY).last().dropna()
-    bench = benchmark_prices.resample(config.DATA_FREQUENCY).last().dropna()
-    tlt_monthly = (tlt_prices.resample(config.DATA_FREQUENCY).last().dropna()
+    resample_freq = pandas_resample_frequency(config.DATA_FREQUENCY)
+    monthly = prices[tickers].resample(resample_freq).last().dropna()
+    bench = benchmark_prices.resample(resample_freq).last().dropna()
+    tlt_monthly = (tlt_prices.resample(resample_freq).last().dropna()
                    if tlt_prices is not None else None)
 
     common = monthly.index.intersection(bench.index)

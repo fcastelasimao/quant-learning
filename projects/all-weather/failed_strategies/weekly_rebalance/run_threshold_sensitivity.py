@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 from engine import config
+from engine.calendar import pandas_resample_frequency
 from engine.data import fetch_prices
 from run_rebalance_mode_comparison import _simulate, _stats_row
 
@@ -69,7 +70,7 @@ def _build_monthly(prices: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
     tickers = list(config.TARGET_ALLOCATION.keys())
     port = prices[tickers]
     port = port[(port.index >= start) & (port.index < end)]
-    return port.resample(config.DATA_FREQUENCY).last().dropna()
+    return port.resample(pandas_resample_frequency(config.DATA_FREQUENCY)).last().dropna()
 
 
 def _run_sweep(

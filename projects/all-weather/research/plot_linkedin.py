@@ -3,14 +3,14 @@ plot_linkedin.py
 ================
 Generate a two-panel LinkedIn figure comparing DIY Risk Parity vs ALLW.
 
-Top panel:  Full equity curves (RP, ALLW, SPY, 60/40) with metrics table inset.
-Bottom panel: Zoomed into the worst drawdown period to emphasise the DD difference.
+Top panel:  Full equity curves (prototype, ALLW, SPY) with metrics table inset.
+Bottom panel: Zoomed into the current max-drawdown window.
 
 Usage:
-    conda run -n allweather python3 plot_linkedin.py
+    conda run -n allweather python -m research.plot_linkedin
 
 Output:
-    results/linkedin_comparison.png
+    research/results/linkedin_comparison.png
 """
 from __future__ import annotations
 
@@ -47,14 +47,21 @@ os.makedirs(_RESULTS_DIR, exist_ok=True)
 DATE_START = "2025-03-06"  # ALLW launch
 DATE_END = date.today().strftime("%Y-%m-%d")
 
-# Load DIY allocation from strategies.json
-def _load_allocation() -> dict[str, float]:
+# Load live-ticker DIY allocation from strategies.json
+def _load_live_allocation() -> dict[str, float]:
     path = os.path.join(_PROJECT_ROOT, "strategies.json")
     with open(path, "r") as f:
         data = json.load(f)
-    return dict(data["strategies"]["6asset_tip_gsg_rpavg"]["allocation"])
+    strategy = data["strategies"]["6asset_tip_gsg_rpavg"]
+    allocation = strategy["allocation"]
+    live_tickers = strategy.get("live_tickers", {})
+    live_allocation: dict[str, float] = {}
+    for backtest_ticker, weight in allocation.items():
+        live_ticker = live_tickers.get(backtest_ticker, backtest_ticker)
+        live_allocation[live_ticker] = live_allocation.get(live_ticker, 0.0) + weight
+    return live_allocation
 
-ALLOCATION = _load_allocation()
+ALLOCATION = _load_live_allocation()
 DIY_FEE = 0.0012
 ALLW_FEE = 0.0085
 
@@ -65,21 +72,14 @@ GRID_COL = "#30363d"
 TEXT_COL = "#c9d1d9"
 BORDER_COL = "#30363d"
 
-COL_DIY_MONTHLY = "#58a6ff"   # blue  – monthly rebalance
-COL_DIY_PA      = "#1f6feb"   # dark blue – per_asset
-COL_DIY_FOB     = "#79c0ff"   # light blue – full_on_breach
-COL_DIY         = COL_DIY_MONTHLY  # kept for any existing references
+COL_DIY  = "#58a6ff"  # blue
 COL_ALLW = "#f0b429"  # amber
 COL_SPY  = "#f78166"  # coral
-COL_6040 = "#3fb950"  # green
 
 PLOT_SPECS = {
-    "diy_monthly": ("DIY RP - monthly", COL_DIY_MONTHLY, 1.5, "--"),
-    "diy_pa":      ("DIY RP - per asset 5%", COL_DIY_PA, 1.5, "-."),
-    "diy_fob":     ("DIY RP - drift rebalance", COL_DIY_FOB, 2.8, "-"),
-    "allw":        ("ALLW", COL_ALLW, 2.3, "-"),
-    "spy":         ("S&P 500", COL_SPY, 1.5, ":"),
-    "6040":        ("60/40", COL_6040, 1.5, "-."),
+    "diy":  ("DIY unlevered ETF prototype", COL_DIY, 2.8, "-"),
+    "allw": ("ALLW", COL_ALLW, 2.3, "-"),
+    "spy":  ("S&P 500 B&H", COL_SPY, 1.6, ":"),
 }
 
 WATERMARK = "github.com/fcastelasimao/quant-learning"
@@ -135,8 +135,6 @@ def build_monthly_rebalanced(prices: pd.DataFrame,
     total_w = sum(alloc.values())
     alloc = {t: w / total_w for t, w in alloc.items()}
 
-    daily_rets = prices[tickers].pct_change().fillna(0.0)
-
     value = start_val
     values = [value]
     shares = {t: value * alloc[t] / float(prices[t].iloc[0]) for t in tickers}
@@ -152,77 +150,6 @@ def build_monthly_rebalanced(prices: pd.DataFrame,
 
         value = sum(shares[t] * float(prices[t].iloc[i]) for t in tickers)
         values.append(value)
-
-    return pd.Series(values, index=prices.index)
-
-
-def build_drift_rebalanced(
-    prices: pd.DataFrame,
-    allocation: dict[str, float],
-    drift_threshold: float,
-    rebalance_mode: str,
-    start_val: float = 10_000.0,
-) -> pd.Series:
-    """
-    Daily portfolio series with drift-threshold rebalancing.
-
-    rebalance_mode:
-        "per_asset"      — only trade assets that individually exceed drift_threshold;
-                           proceeds from sells sit as uninvested cash
-        "full_on_breach" — if any asset exceeds drift_threshold, rebalance all assets;
-                           otherwise no trades
-    """
-    tickers = [t for t in allocation if t in prices.columns]
-    alloc = {t: allocation[t] for t in tickers}
-    total_w = sum(alloc.values())
-    alloc = {t: w / total_w for t, w in alloc.items()}
-
-    shares = {t: start_val * alloc[t] / float(prices[t].iloc[0]) for t in tickers}
-    cash = 0.0
-    values = []
-    last_month = prices.index[0].month
-
-    for i in range(len(prices)):
-        row = prices.iloc[i]
-        px = {t: float(row[t]) for t in tickers}
-        invested = sum(shares[t] * px[t] for t in tickers)
-        total = invested + cash
-        current_month = prices.index[i].month
-
-        if i > 0 and current_month != last_month:
-            current_weights = {t: shares[t] * px[t] / total for t in tickers}
-            drifts = {t: abs(current_weights[t] - alloc[t]) for t in tickers}
-
-            if rebalance_mode == "per_asset":
-                to_rebalance = {t for t in tickers if drifts[t] > drift_threshold}
-            else:  # full_on_breach
-                to_rebalance = set(tickers) if any(drifts[t] > drift_threshold for t in tickers) else set()
-
-            if to_rebalance:
-                for t in to_rebalance:
-                    target_val = total * alloc[t]
-                    current_val = shares[t] * px[t]
-                    if current_val > target_val:
-                        sell_val = current_val - target_val
-                        shares[t] -= sell_val / px[t]
-                        cash += sell_val
-
-                invested = sum(shares[t] * px[t] for t in tickers)
-                total = invested + cash
-
-                for t in to_rebalance:
-                    target_val = total * alloc[t]
-                    current_val = shares[t] * px[t]
-                    if current_val < target_val:
-                        buy_val = min(target_val - current_val, cash)
-                        if buy_val > 0:
-                            shares[t] += buy_val / px[t]
-                            cash -= buy_val
-
-            last_month = current_month
-
-        invested = sum(shares[t] * px[t] for t in tickers)
-        values.append(invested + cash)
 
     return pd.Series(values, index=prices.index)
 
@@ -256,11 +183,11 @@ def compute_metrics(series: pd.Series) -> dict:
     vol = monthly.std() * np.sqrt(12)
 
     return {
+        "total_ret": total_ret,
         "cagr": cagr,
         "max_dd": max_dd,
         "calmar": calmar,
-        "vol": vol,
-        "total_ret": total_ret,
+        "vol": vol
     }
 
 
@@ -332,7 +259,7 @@ def plot_linkedin(all_series: dict[str, pd.Series],
     # ── Top panel: full equity curves ──────────────────────────────────────
     plot_order = [
         (key, *PLOT_SPECS[key])
-        for key in ["diy_fob", "allw", "spy", "6040", "diy_monthly", "diy_pa"]
+        for key in ["diy", "allw", "spy"]
         if key in all_series
     ]
 
@@ -341,19 +268,17 @@ def plot_linkedin(all_series: dict[str, pd.Series],
         ax_top.plot(s.index, s.values, color=color, lw=lw, linestyle=ls,
                     label=label, alpha=0.92)
 
-        # Final value annotation (only for the two prominent series to avoid clutter)
-        if key in {"diy_fob", "allw", "spy", "6040"}:
-            final_val = s.iloc[-1]
-            ax_top.annotate(
-                f"${final_val:,.0f}",
-                xy=(s.index[-1], final_val),
-                xytext=(8, 0),
-                textcoords="offset points",
-                color=color, fontsize=9, fontweight="bold", va="center",
-            )
+        final_val = s.iloc[-1]
+        ax_top.annotate(
+            f"${final_val:,.0f}",
+            xy=(s.index[-1], final_val),
+            xytext=(8, 0),
+            textcoords="offset points",
+            color=color, fontsize=9, fontweight="bold", va="center",
+        )
 
     ax_top.set_title(
-        "$10,000 invested at ALLW launch",
+        "$10,000 invested at DIY portfolio vs ALLW launch vs S&P 500 B&H",
         fontsize=13, pad=12, color="white", fontweight="bold",
     )
     ax_top.set_ylabel("Portfolio Value ($)", fontsize=10)
@@ -370,20 +295,20 @@ def plot_linkedin(all_series: dict[str, pd.Series],
 
     # ── Metrics table inset (lower right of top panel) ─────────────────────
     m = metrics
-    table_keys = [key for key in ["diy_fob", "allw", "spy", "6040"] if key in all_series]
+    table_keys = [key for key in ["diy", "allw", "spy"] if key in all_series]
     short_labels = {
-        "diy_fob": "DIY RP",
+        "diy": "DIY prototype",
         "allw": "ALLW",
-        "spy": "SPY",
-        "6040": "60/40",
+        "spy": "SPY B&H",
     }
     header = [""] + [short_labels[key] for key in table_keys]
     table_data = [header]
     for label, metric, fmt in [
+        ("Total return", "total_ret", ".1%"),
         ("CAGR", "cagr", ".1%"),
         ("Max DD", "max_dd", ".1%"),
         ("Calmar", "calmar", ".2f"),
-        ("Return", "total_ret", ".1%"),
+        ("Vol", "vol", ".1%"),
     ]:
         table_data.append([label] + [format(m[key][metric], fmt) for key in table_keys])
 
@@ -393,7 +318,7 @@ def plot_linkedin(all_series: dict[str, pd.Series],
         cellText=table_data,
         cellLoc="center",
         loc="lower right",
-        bbox=[0.47, 0.03, 0.51, 0.30],
+        bbox=[0.43, 0.03, 0.55, 0.35],
     )
     table.auto_set_font_size(False)
     table.set_fontsize(8)
@@ -416,66 +341,70 @@ def plot_linkedin(all_series: dict[str, pd.Series],
             cell.set_facecolor("#21262d" if row == 0 else "#1c2128")
 
     # ── Bottom panel: drawdown zoom ───────────────────────────────────────
-    diy_fob_s = all_series["diy_fob"]
-    allw_s    = all_series["allw"]
+    diy_s = all_series["diy"]
+    allw_s = all_series["allw"]
 
-    zoom_start, zoom_end, _, _ = find_drawdown_window(allw_s, pad_days=15)
-    diy_start, _, _, _         = find_drawdown_window(diy_fob_s, pad_days=15)
-    zoom_start = min(zoom_start, diy_start)
-    zoom_end = pd.Timestamp("2025-05-31")
+    diy_start, diy_end, _, _ = find_drawdown_window(diy_s, pad_days=15)
+    allw_start, allw_end, _, _ = find_drawdown_window(allw_s, pad_days=15)
+    zoom_start = min(diy_start, allw_start)
+    zoom_end = max(diy_end, allw_end)
 
-    zoom_plot_order = [row for row in plot_order if row[0] in {"diy_fob", "allw"}]
+    zoom_plot_order = [row for row in plot_order if row[0] in {"diy", "allw"}]
     for key, label, color, lw, ls in zoom_plot_order:
         s = all_series[key]
         zoomed = s.loc[zoom_start:zoom_end]
         if len(zoomed) == 0:
             continue
-        normed = zoomed / zoomed.iloc[0] * 100
-        ax_bot.plot(normed.index, normed.values, color=color, lw=lw,
+        drawdown = (zoomed / zoomed.cummax() - 1.0) * 100
+        ax_bot.plot(drawdown.index, drawdown.values, color=color, lw=lw,
                     linestyle=ls, label=label, alpha=0.92)
 
-    ax_bot.axhline(100, color=GRID_COL, lw=0.8, alpha=0.5)
+    ax_bot.axhline(0, color=GRID_COL, lw=0.8, alpha=0.5)
 
-    # Annotate max drawdowns for the most prominent DIY variant and ALLW
     annot_offsets = {
-        "diy_fob": (-35, 65),
-        "allw":    (-150, 35),
+        "diy": (-130, 30),
+        "allw": (-130, 30),
     }
     for key, label_short, color in [
-        ("diy_fob", "DIY (breach)", COL_DIY_FOB),
-        ("allw",    "ALLW",         COL_ALLW),
+        ("diy", "Prototype", COL_DIY),
+        ("allw", "ALLW", COL_ALLW),
     ]:
         s = all_series[key]
         zoomed = s.loc[zoom_start:zoom_end]
         if len(zoomed) == 0:
             continue
-        normed = zoomed / zoomed.iloc[0] * 100
-        trough_val  = normed.min()
-        trough_date = normed.idxmin()
-        dd_pct = trough_val - 100
+        drawdown = (zoomed / zoomed.cummax() - 1.0) * 100
+        trough_val = drawdown.min()
+        trough_date = drawdown.idxmin()
 
         ox, oy = annot_offsets[key]
         ax_bot.annotate(
-            f"{label_short}: {dd_pct:+.1f}%",
+            f"{label_short}: {trough_val:.1f}%",
             xy=(trough_date, trough_val),
             xytext=(ox, oy),
             textcoords="offset points",
             color=color, fontsize=10, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.25", facecolor=PANEL_BG, edgecolor="none", alpha=0.85),
             arrowprops=dict(arrowstyle="->", color=color, lw=1.5),
         )
 
     ax_bot.set_title(
-        "Drawdown zoom",
+        "Largest drawdown episode in the public overlap",
         fontsize=12, pad=10, color="white", fontweight="bold",
     )
-    ax_bot.set_ylabel("Indexed Value (start = 100)", fontsize=10)
+    ax_bot.set_ylabel("Drawdown from prior high (%)", fontsize=10)
     ax_bot.xaxis.set_major_formatter(mdates.DateFormatter("%d %b '%y"))
     ax_bot.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
     plt.setp(ax_bot.xaxis.get_majorticklabels(), rotation=25, ha="right")
 
     ax_bot.legend().remove()
 
-    #_add_watermark(ax_bot)
+    fig.text(
+        0.5, 0.012,
+        "Mar 2025-May 2026 | total-return data | fee-adjusted where applicable | research only, not investment advice",
+        ha="center", va="bottom", fontsize=8, color="#8b949e",
+    )
+    _add_watermark(ax_bot)
 
     # Save
     out_path = os.path.join(_RESULTS_DIR, "linkedin_comparison.png")
@@ -497,30 +426,18 @@ def main() -> None:
     prices = prices.loc[allw_start:]
 
     # Build series (all starting at $10k)
-    diy_monthly_gross  = build_monthly_rebalanced(prices, ALLOCATION, 10_000)
-    diy_pa_gross       = build_drift_rebalanced(prices, ALLOCATION, 0.05, "per_asset",       10_000)
-    diy_fob_gross      = build_drift_rebalanced(prices, ALLOCATION, 0.05, "full_on_breach",  10_000)
-
-    diy_monthly = apply_fee(diy_monthly_gross, DIY_FEE)
-    diy_pa      = apply_fee(diy_pa_gross,      DIY_FEE)
-    diy_fob     = apply_fee(diy_fob_gross,     DIY_FEE)
+    diy_gross = build_monthly_rebalanced(prices, ALLOCATION, 10_000)
+    diy = apply_fee(diy_gross, DIY_FEE)
 
     allw_raw = prices["ALLW"] / prices["ALLW"].iloc[0] * 10_000
     allw = apply_fee(allw_raw, ALLW_FEE)
 
     spy = prices["SPY"] / prices["SPY"].iloc[0] * 10_000
 
-    # 60/40
-    spy_sh = 0.60 / float(prices["SPY"].iloc[0])
-    tlt_sh = 0.40 / float(prices["TLT"].iloc[0])
-    s_6040 = (spy_sh * prices["SPY"] + tlt_sh * prices["TLT"]) * 10_000
-    s_6040 = s_6040 / s_6040.iloc[0] * 10_000
-
     all_series = {
-        "diy_fob":     diy_fob,
-        "allw":        allw,
-        "spy":         spy,
-        "6040":        s_6040,
+        "diy": diy,
+        "allw": allw,
+        "spy": spy,
     }
 
     # Compute metrics
@@ -531,10 +448,8 @@ def main() -> None:
     print(f"{'':>20} {'CAGR':>8} {'MaxDD':>8} {'Calmar':>8}")
     print(f"{'-'*20} {'-'*8} {'-'*8} {'-'*8}")
     labels = {
-        "diy_monthly": "DIY (monthly)",
-        "diy_pa":      "DIY (per_asset)",
-        "diy_fob":     "DIY (full_on_breach)",
-        "allw": "ALLW", "spy": "SPY", "6040": "60/40",
+        "diy": "Prototype",
+        "allw": "ALLW", "spy": "SPY",
     }
     for key, m in metrics.items():
         print(f"{labels[key]:>20} {m['cagr']:>7.1%} {m['max_dd']:>7.1%} {m['calmar']:>8.2f}")

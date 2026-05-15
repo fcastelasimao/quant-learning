@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from engine import config
+from engine.calendar import pandas_resample_frequency
 from engine.data import fetch_prices
 from engine.stats import (compute_cagr, compute_max_drawdown, compute_sharpe,
                            compute_calmar, compute_ulcer_index, compute_sortino)
@@ -70,7 +71,7 @@ def run_leveraged_backtest(
     Monthly rebalancing with transaction costs.
     """
     tickers = list(allocation.keys())
-    monthly = prices[tickers].resample("ME").last().dropna()
+    monthly = prices[tickers].resample(pandas_resample_frequency("ME")).last().dropna()
     monthly = monthly[(monthly.index >= start_date) & (monthly.index < end_date)]
 
     if monthly.empty:
