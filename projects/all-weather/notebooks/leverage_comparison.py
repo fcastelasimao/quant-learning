@@ -195,17 +195,14 @@ def controls(daily, manifest, threshold_grid):
         include_input=True,
         label="Overlay leverage %",
     )
-    mo.vstack([
-        mo.md(
-            f"""
-            **Research bundle:** `{manifest['strategy_id']}` |
-            **Generated:** {manifest['generated_at']} |
-            **Range:** {manifest['date_range']['actual_start']} to {manifest['date_range']['actual_end']} |
-            **Default overlay cap:** {manifest['global_overlay_cap']:.0%}
-            """
-        ),
-        mo.hstack([date_range, strategy_selector, include_spy_benchmark], gap=2),
-    ])
+    mo.md(
+        f"""
+        **Research bundle:** `{manifest['strategy_id']}` |
+        **Generated:** {manifest['generated_at']} |
+        **Range:** {manifest['date_range']['actual_start']} to {manifest['date_range']['actual_end']} |
+        **Default overlay cap:** {manifest['global_overlay_cap']:.0%}
+        """
+    )
     return (
         date_range,
         include_spy_benchmark,
@@ -361,6 +358,7 @@ def filtered_data(
 def plot_growth_and_drawdown(
     date_range,
     filtered_daily,
+    include_spy_benchmark,
     portfolio_entry,
     portfolio_exit,
     portfolio_leverage,
@@ -368,6 +366,7 @@ def plot_growth_and_drawdown(
     selected_grid_rows,
     selected_metrics,
     selected_portfolio_strategies,
+    strategy_selector,
 ):
     _fig = plot_growth_and_drawdown_figure(filtered_daily, selected_portfolio_strategies)
     _grid_label = (
@@ -379,7 +378,11 @@ def plot_growth_and_drawdown(
     mo.vstack([
         mo.md("## 3. Portfolio View"),
         mo.hstack(
-            [date_range, portfolio_entry, portfolio_exit, portfolio_leverage],
+            [date_range, strategy_selector, include_spy_benchmark],
+            gap=2,
+        ),
+        mo.hstack(
+            [portfolio_entry, portfolio_exit, portfolio_leverage],
             gap=2,
         ),
         mo.md(
@@ -450,32 +453,91 @@ def oos_validation_view(oos_summary, pass_table):
 
 
 @app.cell
-def gld_deep_dive(oos_summary, selected_rules, threshold_grid):
+def gld_heatmap_controls(threshold_grid):
+    _gld = threshold_grid[threshold_grid["Ticker"] == "GLD"]
+    _g_entries = [float(x) for x in sorted(_gld["Entry Threshold"].dropna().unique())]
+    _g_exits = [float(x) for x in sorted(_gld["Exit Threshold"].dropna().unique())]
+    _g_leverages = [float(x) for x in sorted(_gld["Overlay Weight (%)"].dropna().unique())]
+    _metric_opts = [
+        "Calmar", "CAGR (%)", "Sharpe", "Max Drawdown (%)",
+        "Worst Month (%)", "Active Days (%)", "Average Overlay Weight (%)",
+        "RF Opportunity Cost CAGR (%)", "Incremental CAGR (%)",
+        "Incremental Calmar", "Incremental MaxDD (%)",
+        "Incremental CAGR per Avg Overlay",
+    ]
+    gld_metric = mo.ui.dropdown(options=_metric_opts, value="Calmar", label="Metric")
+    gld_heatmap_mode = mo.ui.dropdown(
+        options=["Leverage x Exit", "Leverage x Entry", "Exit x Entry"],
+        value="Leverage x Exit",
+        label="Heatmap axes",
+    )
+    gld_entry = mo.ui.dropdown(
+        options=_g_entries,
+        value=22.0 if 22.0 in _g_entries else _g_entries[0],
+        label="Entry RSI (fixed axis)",
+    )
+    gld_exit = mo.ui.dropdown(
+        options=_g_exits,
+        value=46.0 if 46.0 in _g_exits else _g_exits[0],
+        label="Exit RSI (fixed axis)",
+    )
+    gld_leverage = mo.ui.slider(
+        steps=_g_leverages,
+        value=20.0 if 20.0 in _g_leverages else _g_leverages[0],
+        show_value=True,
+        include_input=True,
+        label="Leverage % (fixed axis)",
+    )
+    return gld_entry, gld_exit, gld_heatmap_mode, gld_leverage, gld_metric
+
+
+@app.cell
+def gld_deep_dive(
+    gld_entry,
+    gld_exit,
+    gld_heatmap_mode,
+    gld_leverage,
+    gld_metric,
+    oos_summary,
+    selected_rules,
+    threshold_grid,
+):
     if oos_summary.empty:
         _view = mo.md("## 6. GLD Deep Dive\n\nNo OOS validation bundle loaded yet.")
     else:
-        _gld = oos_summary[
+        _gld_oos = oos_summary[
             (oos_summary["Ticker"] == "GLD")
             & (oos_summary["Selector"].isin(["default_30_50_20", "robust_calmar_region"]))
         ].copy()
-        _gld["Rule"] = _gld["Selector"].map(label_selector)
-        _fig = plot_etf_oos_bars_figure(_gld, "GLD", [
+        _gld_oos["Rule"] = _gld_oos["Selector"].map(label_selector)
+        _fig = plot_etf_oos_bars_figure(_gld_oos, "GLD", [
             ("OOS CAGR Delta (%)", "GLD OOS CAGR delta"),
             ("OOS Calmar Delta", "GLD OOS Calmar delta"),
         ])
-        _fig2 = plot_grid_heatmaps_figure(threshold_grid, "GLD", [
-            ("Calmar", 22.0, None),
-            ("Calmar", None, 46.0),
-        ])
+        _gld_grid = threshold_grid[threshold_grid["Ticker"] == "GLD"]
+        _pivot, _xlabel, _ylabel, _title_suffix = compute_heatmap_pivot(
+            _gld_grid,
+            gld_heatmap_mode.value,
+            float(gld_entry.value),
+            float(gld_exit.value),
+            float(gld_leverage.value),
+            gld_metric.value,
+        )
+        _fig_heatmap = plot_threshold_heatmap_figure(
+            _pivot, "GLD", gld_metric.value, _xlabel, _ylabel, _title_suffix,
+        )
         _high_gld = selected_rules[
             (selected_rules["Ticker"] == "GLD") & (selected_rules["Overlay Weight"] > 0.50)
         ].sort_values(["Split", "Selector Label"])
         _low_gld = selected_rules[
             (selected_rules["Ticker"] == "GLD") & (selected_rules["Overlay Weight"] <= 0.50)
         ].sort_values(["Split", "Selector Label"])
-        _top_gld = threshold_grid[threshold_grid["Ticker"] == "GLD"].sort_values(
+        _top_gld = _gld_grid.sort_values(
             ["Calmar", "CAGR (%)"], ascending=[False, False]
         ).head(25)
+        _heatmap_controls = mo.vstack([
+            gld_metric, gld_heatmap_mode, gld_entry, gld_exit, gld_leverage,
+        ])
         _view = mo.vstack([
             mo.md(
                 """
@@ -485,15 +547,15 @@ def gld_deep_dive(oos_summary, selected_rules, threshold_grid):
                 robust GLD rule is interesting, but it carries a low-trade-count
                 warning and should stay in research.
 
-                The heatmaps and top-row table below come directly from
-                `threshold_grid.csv`, where each row is one ETF x entry RSI x
-                exit RSI x leverage percentage test.
+                Use the controls beside the heatmap to explore the threshold grid
+                interactively. The fixed-axis control is ignored when the heatmap
+                mode does not use it.
                 """
             ),
             mo.as_html(_fig),
-            mo.as_html(_fig2),
+            mo.hstack([_heatmap_controls, mo.as_html(_fig_heatmap)]),
             mo.ui.table(
-                presentation_table(_gld, [
+                presentation_table(_gld_oos, [
                     "Split", "Rule", "Entry Threshold", "Exit Threshold",
                     "Overlay Weight (%)", "OOS CAGR Delta (%)",
                     "OOS Calmar Delta", "OOS MaxDD Delta (%)",
@@ -532,26 +594,84 @@ def gld_deep_dive(oos_summary, selected_rules, threshold_grid):
 
 
 @app.cell
-def spy_deep_dive(oos_summary, threshold_grid):
+def spy_heatmap_controls(threshold_grid):
+    _spy = threshold_grid[threshold_grid["Ticker"] == "SPY"]
+    _s_entries = [float(x) for x in sorted(_spy["Entry Threshold"].dropna().unique())]
+    _s_exits = [float(x) for x in sorted(_spy["Exit Threshold"].dropna().unique())]
+    _s_leverages = [float(x) for x in sorted(_spy["Overlay Weight (%)"].dropna().unique())]
+    _s_metric_opts = [
+        "Calmar", "CAGR (%)", "Sharpe", "Max Drawdown (%)",
+        "Worst Month (%)", "Active Days (%)", "Average Overlay Weight (%)",
+        "RF Opportunity Cost CAGR (%)", "Incremental CAGR (%)",
+        "Incremental Calmar", "Incremental MaxDD (%)",
+        "Incremental CAGR per Avg Overlay",
+    ]
+    spy_metric = mo.ui.dropdown(options=_s_metric_opts, value="Calmar", label="Metric")
+    spy_heatmap_mode = mo.ui.dropdown(
+        options=["Leverage x Exit", "Leverage x Entry", "Exit x Entry"],
+        value="Leverage x Exit",
+        label="Heatmap axes",
+    )
+    spy_entry = mo.ui.dropdown(
+        options=_s_entries,
+        value=22.0 if 22.0 in _s_entries else _s_entries[0],
+        label="Entry RSI (fixed axis)",
+    )
+    spy_exit = mo.ui.dropdown(
+        options=_s_exits,
+        value=42.0 if 42.0 in _s_exits else _s_exits[0],
+        label="Exit RSI (fixed axis)",
+    )
+    spy_leverage = mo.ui.slider(
+        steps=_s_leverages,
+        value=20.0 if 20.0 in _s_leverages else _s_leverages[0],
+        show_value=True,
+        include_input=True,
+        label="Leverage % (fixed axis)",
+    )
+    return spy_entry, spy_exit, spy_heatmap_mode, spy_leverage, spy_metric
+
+
+@app.cell
+def spy_deep_dive(
+    oos_summary,
+    spy_entry,
+    spy_exit,
+    spy_heatmap_mode,
+    spy_leverage,
+    spy_metric,
+    threshold_grid,
+):
     if oos_summary.empty:
         _view = mo.md("## 7. SPY Deep Dive\n\nNo OOS validation bundle loaded yet.")
     else:
-        _spy = oos_summary[
+        _spy_oos = oos_summary[
             (oos_summary["Ticker"] == "SPY")
             & (oos_summary["Selector"].isin(["default_30_50_20", "best_maxdd_preservation"]))
         ].copy()
-        _spy["Rule"] = _spy["Selector"].map(label_selector)
-        _fig = plot_etf_oos_bars_figure(_spy, "SPY", [
+        _spy_oos["Rule"] = _spy_oos["Selector"].map(label_selector)
+        _fig = plot_etf_oos_bars_figure(_spy_oos, "SPY", [
             ("OOS CAGR Delta (%)", "SPY OOS CAGR delta"),
             ("OOS Calmar Delta", "SPY OOS Calmar delta"),
         ])
-        _fig2 = plot_grid_heatmaps_figure(threshold_grid, "SPY", [
-            ("Calmar", 22.0, None),
-            ("Calmar", None, 42.0),
-        ])
-        _top_spy = threshold_grid[threshold_grid["Ticker"] == "SPY"].sort_values(
+        _spy_grid = threshold_grid[threshold_grid["Ticker"] == "SPY"]
+        _pivot, _xlabel, _ylabel, _title_suffix = compute_heatmap_pivot(
+            _spy_grid,
+            spy_heatmap_mode.value,
+            float(spy_entry.value),
+            float(spy_exit.value),
+            float(spy_leverage.value),
+            spy_metric.value,
+        )
+        _fig_heatmap = plot_threshold_heatmap_figure(
+            _pivot, "SPY", spy_metric.value, _xlabel, _ylabel, _title_suffix,
+        )
+        _top_spy = _spy_grid.sort_values(
             ["Calmar", "CAGR (%)"], ascending=[False, False]
         ).head(25)
+        _heatmap_controls = mo.vstack([
+            spy_metric, spy_heatmap_mode, spy_entry, spy_exit, spy_leverage,
+        ])
         _view = mo.vstack([
             mo.md(
                 """
@@ -561,15 +681,15 @@ def spy_deep_dive(oos_summary, threshold_grid):
                 as GLD. The default rule passes OOS, while the in-sample optimized
                 rules can add return at the cost of deeper drawdowns.
 
-                The heatmaps and top-row table below come directly from
-                `threshold_grid.csv`, where each row is one ETF x entry RSI x
-                exit RSI x leverage percentage test.
+                Use the controls beside the heatmap to explore the threshold grid
+                interactively. The fixed-axis control is ignored when the heatmap
+                mode does not use it.
                 """
             ),
             mo.as_html(_fig),
-            mo.as_html(_fig2),
+            mo.hstack([_heatmap_controls, mo.as_html(_fig_heatmap)]),
             mo.ui.table(
-                presentation_table(_spy, [
+                presentation_table(_spy_oos, [
                     "Split", "Rule", "Entry Threshold", "Exit Threshold",
                     "Overlay Weight (%)", "OOS CAGR Delta (%)",
                     "OOS Calmar Delta", "OOS MaxDD Delta (%)",
