@@ -412,7 +412,7 @@ Phase 10B-D: Risk parity → TLT overweighted, RP OOS +27%
 Phase 11:    Validation sweep:
              → RP multi-window: beats manual on all 3 splits ✓
              → Universe scan: confirms 6-asset choice ✓
-             → Overlay grid: does not add value ✗ → CLOSED
+             → SPY momentum overlay grid: does not add value ✗ → CLOSED
              → ALLW comparison: Calmar 2.78 vs 1.78 ✓
              → Data integrity: all claims verified ✓
 

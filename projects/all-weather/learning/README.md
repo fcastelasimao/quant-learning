@@ -1,5 +1,7 @@
 # Learning: Guided Engine Rewrite
 
+> **For the full session-by-session walkthrough — including theory, exact verification numbers, and common pitfalls — see [CURRICULUM.md](CURRICULUM.md).**
+
 Six sessions to internalise the production engine. Each session produces a standalone Python module that you write yourself, then diff against the production `engine/` code to confirm your understanding.
 
 | Session | Topic | File to write | Cross-check against |
