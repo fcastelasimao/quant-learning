@@ -7,33 +7,33 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import json
-    import os
     import sys
     from datetime import date
     from pathlib import Path
 
-    import matplotlib.pyplot as plt
+    import marimo as mo
     import pandas as pd
 
-    import marimo as mo
-
     PROJECT_ROOT = Path(__file__).resolve().parents[1]
-    REPO_ROOT = PROJECT_ROOT.parents[1]
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
     from engine import config
     from engine.data import fetch_prices_from_fmp_db, get_price_provenance
+    from engine.explorers import data_quality_report
+    from engine.plotting import plot_normalised_prices
 
     return (
         PROJECT_ROOT,
+        config,
+        data_quality_report,
         date,
         fetch_prices_from_fmp_db,
         get_price_provenance,
         json,
         mo,
         pd,
-        plt,
+        plot_normalised_prices,
     )
 
 
@@ -125,11 +125,8 @@ def _(allocation, mo, pd):
 
 
 @app.cell
-def _(mo, prices):
-    quality = prices.isna().sum().rename("Missing Values").to_frame()
-    quality["First Date"] = prices.apply(lambda s: s.first_valid_index().date() if s.first_valid_index() is not None else None)
-    quality["Last Date"] = prices.apply(lambda s: s.last_valid_index().date() if s.last_valid_index() is not None else None)
-    mo.ui.table(quality.reset_index(names="Ticker"), label="Data quality")
+def _(data_quality_report, mo, prices):
+    mo.ui.table(data_quality_report(prices).reset_index(names="Ticker"), label="Data quality")
     return
 
 
@@ -147,15 +144,11 @@ def _(mo, pd, provenance):
 
 
 @app.cell
-def _(plt, prices, provenance):
-    normalised = prices / prices.iloc[0] * 100
-    fig, ax = plt.subplots(figsize=(10, 5))
-    normalised.plot(ax=ax, linewidth=1.4)
-    ax.set_title(f"FMP {provenance.get('price_column', 'prices')} prices, indexed to 100")
-    ax.set_ylabel("Indexed value")
-    ax.grid(True, alpha=0.25)
-    ax.legend(ncol=3, fontsize=8)
-    fig
+def _(plot_normalised_prices, prices, provenance):
+    plot_normalised_prices(
+        prices,
+        f"FMP {provenance.get('price_column', 'prices')} prices, indexed to 100",
+    )
     return
 
 
