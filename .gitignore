@@ -6,6 +6,8 @@ __pycache__/
 # Data files you don't need on GitHub
 portfolio_holdings.json
 results/
+data/*.db
+data/*.db-*
 
 # Python environments
 .env

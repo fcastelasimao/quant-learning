@@ -77,6 +77,56 @@ The corrected FMP adjusted-close averaged RP weights are close to production: SP
 
 ---
 
+## RSI Leverage Overlay Research
+
+This is research-only and is not part of the production allocation. The base
+portfolio remains unchanged; each overlay test adds one tactical ETF exposure on
+top of the base portfolio, using that ETF's own RSI-14 signal.
+
+Latest bundle reviewed:
+`results/leverage_comparison/2026-05-11_12-15-40_6asset_tip_gsg_rpavg`
+
+Default rule: RSI-14 entry below 30, exit above 50, +20% overlay, one-day
+execution lag, one ETF overlay at a time.
+
+| Strategy | CAGR | Sharpe | Calmar | Max DD | Active Days | Research read |
+|---|---:|---:|---:|---:|---:|---|
+| Base | 6.96% | 0.471 | 0.306 | -22.74% | 0.00% | Production reference |
+| GLD RSI overlay | 7.27% | 0.489 | 0.324 | -22.45% | 10.92% | Best default risk-adjusted result |
+| SPY RSI overlay | 7.64% | 0.503 | 0.323 | -23.62% | 6.46% | Best default return boost, more equity crash risk |
+| TLT RSI overlay | 7.02% | 0.463 | 0.309 | -22.74% | 10.38% | Small benefit |
+| TIP RSI overlay | 6.94% | 0.459 | 0.291 | -23.86% | 7.97% | Worse than base |
+| QQQ RSI overlay | 7.34% | 0.461 | 0.245 | -29.93% | 7.35% | Return up, drawdown too high |
+| GSG RSI overlay | 6.06% | 0.323 | 0.225 | -26.93% | 16.68% | Reject default rule |
+
+The expanded grid tests entry RSI 20-36 in steps of 2, exit RSI 40-70 in steps
+of 2, and overlay weights from 15% to 50% in 5% steps. Best in-sample candidates:
+
+| Purpose | ETF | Entry | Exit | Overlay | CAGR | Calmar | Max DD | Caveat |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| Best risk-adjusted | GLD | 22 | 46 | 50% | 8.07% | 0.429 | -18.83% | Needs OOS validation |
+| Best drawdown preservation | GLD | 22 | 64 | 40% | 7.73% | 0.419 | -18.46% | Supports further gold research |
+| Best selective equity overlay | SPY | 22 | 42 | 50% | 8.20% | 0.426 | -19.27% | Active only 0.56% of days |
+| Reasonable bond candidate | TLT | 36 | 40 | 50% | 7.97% | 0.355 | -22.45% | Rate-regime sensitive |
+| Aggressive return candidate | QQQ | 36 | 40 | 25% | 8.66% | 0.337 | -25.71% | Changes portfolio risk profile |
+
+Do not treat these grid winners as production conclusions. The grid contains
+6,912 in-sample tests, so threshold and leverage overfitting is the central
+risk. Next validation should use the same 2018, 2020, and 2022 stress-window
+discipline used for RP, plus walk-forward or train/test splits.
+
+OOS validation is implemented as a separate research runner:
+
+```bash
+make leverage-oos-validation
+```
+
+It selects RSI overlay rules only on pre-split data, then evaluates them on the
+2018, 2020, and 2022 OOS windows. GLD receives an extended leverage sweep up to
+100%; the other ETFs retain the 15%-50% research grid.
+
+---
+
 ## Installation
 
 ```bash
