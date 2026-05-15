@@ -22,6 +22,11 @@ import pandas as pd
 from .stats import StrategyStats
 from . import config
 
+DARK_BG = "#0d1117"
+PANEL_BG = "#161b22"
+TEXT_COL = "#c9d1d9"
+GRID_COL = "#30363d"
+
 
 def style_ax(ax: plt.Axes) -> None:
     """Apply consistent dark theme to a matplotlib axes object."""
@@ -199,3 +204,23 @@ def plot_backtest(backtest: pd.DataFrame,
     plt.savefig(save_path, dpi=150, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     print(f"  Plot saved -> {save_path}")
+
+
+def order_strategies(items, order: list | None = None) -> list:
+    """Return items sorted by order, with unknowns appended alphabetically."""
+    if order is None:
+        return sorted(items)
+    return [s for s in order if s in set(items)] + sorted(set(items) - set(order))
+
+
+def plot_normalised_prices(prices: pd.DataFrame, title: str = "Prices indexed to 100") -> plt.Figure:
+    """Plot each column normalised to 100 at the first observation."""
+    normalised = prices / prices.iloc[0] * 100
+    fig, ax = plt.subplots(figsize=(10, 5))
+    normalised.plot(ax=ax, linewidth=1.4)
+    ax.set_title(title)
+    ax.set_ylabel("Indexed value")
+    ax.grid(True, alpha=0.25)
+    ax.legend(ncol=3, fontsize=8)
+    ax.set_yscale("log")
+    return fig
