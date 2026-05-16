@@ -27,6 +27,7 @@ SELECTOR_LABELS: dict[str, str] = {
     "best_maxdd_preservation": "Best Drawdown Preservation",
     "best_calmar": "Best Calmar",
     "best_cagr_with_maxdd_guard": "Best CAGR With MaxDD Guard",
+    "simple_stable_region": "Simple Stable Region",
     "base": "Base",
 }
 
@@ -314,3 +315,28 @@ def derive_leverage_tables(
         "verdict_table": verdict_table,
         "cards": cards,
     }
+
+
+def build_is_vs_oos_comparison(
+    oos_df: pd.DataFrame,
+    name_col: str,
+) -> pd.DataFrame:
+    """Build a tidy IS-vs-OOS Calmar table for mixed overlay candidates."""
+    if oos_df.empty or name_col not in oos_df.columns:
+        return pd.DataFrame()
+    rows = []
+    for _, row in oos_df.iterrows():
+        name = str(row[name_col])
+        is_calmar = float(row["IS Calmar"])
+        oos_calmar = float(row["OOS Overlay Calmar"])
+        delta = oos_calmar - is_calmar
+        rows.append({
+            name_col: name,
+            "Label": SELECTOR_LABELS.get(name, name),
+            "Split": row["Split"],
+            "IS Calmar": round(is_calmar, 4),
+            "OOS Calmar": round(oos_calmar, 4),
+            "Delta": round(delta, 4),
+            "Overfitting Signal": delta < -0.05,
+        })
+    return pd.DataFrame(rows)

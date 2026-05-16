@@ -4,6 +4,7 @@
 
 yfinance==1.2.0
 pandas==3.0.1
+pyarrow
 matplotlib==3.10.8
 scipy==1.17.1
 numpy==2.4.3

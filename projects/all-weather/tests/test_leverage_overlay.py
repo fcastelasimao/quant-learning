@@ -237,6 +237,12 @@ def test_leverage_notebook_is_presentation_only():
     assert "leverage_summary.csv" in source
     assert "yearly_overlay_metrics.csv" in source
     assert "pass_fail_summary.csv" in source
+    assert "mixed_leverage_sweep" in source
+    assert "Disciplined SPY+GLD Sweep" in source
+    assert "is_sweep_grid.parquet" in source
+    assert "walk_forward_summary.csv" in source
+    assert "parameter_stability.csv" in source
+    assert "sweep_heatmap_tables.csv" in source
     assert 'BENCHMARK = "S&P 500 (SPY)"' in source
     assert "PLOT_EXCLUDED = {BENCHMARK}" in source
     assert "Signal ETF" not in source

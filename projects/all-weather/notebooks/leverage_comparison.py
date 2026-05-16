@@ -20,6 +20,7 @@ with app.setup:
     from research.leverage_analysis import (
         BASE,
         SELECTOR_LABELS,
+        build_is_vs_oos_comparison,
         compute_heatmap_pivot,
         default_focus_strategies,
         derive_leverage_tables,
@@ -41,6 +42,9 @@ with app.setup:
         plot_grid_heatmap,
         plot_grid_heatmaps_figure,
         plot_growth_and_drawdown_figure,
+        plot_mixed_growth_figure,
+        plot_mixed_is_vs_oos_figure,
+        plot_mixed_oos_delta_bars_figure,
         plot_oos_validation_figure,
         plot_threshold_heatmap_figure,
         plot_yearly_figure,
@@ -48,6 +52,8 @@ with app.setup:
 
     BUNDLE_ROOT = ROOT / "results" / "leverage_comparison"
     OOS_BUNDLE_ROOT = ROOT / "results" / "leverage_oos_validation"
+    MIXED_OOS_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_oos_validation"
+    MIXED_SWEEP_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_sweep"
 
     # These constants must remain here for the presentation-only regression test.
     BENCHMARK = "S&P 500 (SPY)"
@@ -97,8 +103,8 @@ def load_bundle(bundle_path):
     if not bundle.exists() or not _manifest_path.exists():
         mo.stop(True, mo.md(f"Could not find a valid result bundle at `{bundle}`."))
 
-    with open(_manifest_path, "r", encoding="utf-8") as handle:
-        manifest = json.load(handle)
+    with open(_manifest_path, "r", encoding="utf-8") as _handle:
+        manifest = json.load(_handle)
 
     daily = pd.read_csv(bundle / "daily_series.csv", parse_dates=["Date"])
     summary = pd.read_csv(bundle / "summary_metrics.csv")
@@ -722,7 +728,12 @@ def spy_deep_dive(
 
 
 @app.cell
-def plot_all_etf_rsi_small_multiples(end_date, diagnostics, signals, start_date):
+def plot_all_etf_rsi_small_multiples(
+    diagnostics,
+    end_date,
+    signals,
+    start_date,
+):
     _start, _end = start_date.value, end_date.value
     _sig = slice_dates(signals, _start, _end)
     _diag = slice_dates(diagnostics, _start, _end)
@@ -880,6 +891,385 @@ def show_threshold_grid(
             "Default 20% 30/50": mo.ui.table(_default[_cols]),
         }),
     ])
+    return
+
+
+@app.cell
+def choose_mixed_oos_bundle():
+    mixed_bundle_path = mo.ui.text(
+        value=latest_bundle(MIXED_OOS_BUNDLE_ROOT),
+        label="Mixed leverage OOS bundle",
+        full_width=True,
+    )
+    return (mixed_bundle_path,)
+
+
+@app.cell
+def load_mixed_oos_bundle(mixed_bundle_path):
+    from pathlib import Path as _Path
+
+    _raw = mixed_bundle_path.value.strip().strip("'\"")
+    _empty = (pd.DataFrame(),) * 5
+    if not _raw:
+        mixed_fixed, mixed_selectors, mixed_pass_fail, mixed_selected, mixed_daily = _empty
+    else:
+        _bundle = _Path(_raw).expanduser()
+        if not _bundle.is_absolute():
+            _bundle = ROOT / _bundle
+        if not _bundle.exists() or not (_bundle / "manifest.json").exists():
+            mixed_fixed, mixed_selectors, mixed_pass_fail, mixed_selected, mixed_daily = _empty
+        else:
+            mixed_fixed = pd.read_csv(_bundle / "fixed_candidates_oos.csv")
+            mixed_selectors = pd.read_csv(_bundle / "oos_summary.csv")
+            mixed_pass_fail = pd.read_csv(_bundle / "pass_fail_summary.csv")
+            mixed_selected = pd.read_csv(_bundle / "selected_rules.csv")
+            mixed_daily = pd.read_csv(_bundle / "oos_daily_series.csv")
+    return (
+        mixed_daily,
+        mixed_fixed,
+        mixed_pass_fail,
+        mixed_selected,
+        mixed_selectors,
+    )
+
+
+@app.cell
+def choose_mixed_oos_split(mixed_daily):
+    _splits = sorted(mixed_daily["Split"].dropna().unique()) if not mixed_daily.empty else []
+    split_picker = mo.ui.dropdown(
+        options=[str(s) for s in _splits],
+        value=str(_splits[-1]) if _splits else None,
+        label="OOS split for growth chart",
+    )
+    return (split_picker,)
+
+
+@app.cell
+def mixed_oos_results(
+    mixed_daily,
+    mixed_fixed,
+    mixed_pass_fail,
+    mixed_selected,
+    mixed_selectors,
+    split_picker,
+):
+    if mixed_pass_fail.empty:
+        _output = mo.vstack([
+            mo.md("## Mixed SPY+GLD OOS Validation\n\n_No mixed leverage OOS bundle loaded._"),
+        ])
+    else:
+        _pf_cols = [
+            "Source", "Name", "Splits Tested", "Splits Passed",
+            "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)",
+            "Average OOS CAGR Delta (%)", "Overall Pass", "MaxDD Breach >3pp",
+        ]
+
+        _fig_fixed = plot_mixed_oos_delta_bars_figure(
+            mixed_fixed, name_col="Candidate Name", title_prefix="Fixed Candidates",
+        )
+        _fig_selectors = plot_mixed_oos_delta_bars_figure(
+            mixed_selectors, name_col="Selector", title_prefix="Grid Selectors",
+        )
+
+        _fig_growth = (
+            plot_mixed_growth_figure(mixed_daily, split=str(split_picker.value))
+            if split_picker.value and not mixed_daily.empty
+            else None
+        )
+
+        _fig_is_oos = plot_mixed_is_vs_oos_figure(mixed_selectors, name_col="Selector")
+
+        _is_oos_fixed = build_is_vs_oos_comparison(mixed_fixed, "Candidate Name")
+        _is_oos_selectors = build_is_vs_oos_comparison(mixed_selectors, "Selector")
+        _is_oos = pd.concat([_is_oos_fixed, _is_oos_selectors], ignore_index=True)
+
+        _fixed_cols = [
+            "Split", "Candidate Name", "Global Cap",
+            "SPY Entry", "SPY Exit", "SPY Weight",
+            "GLD Entry", "GLD Exit", "GLD Weight",
+            "OOS Overlay Calmar", "OOS Calmar Delta",
+            "OOS Overlay Max Drawdown (%)", "OOS MaxDD Delta (%)",
+            "OOS CAGR Delta (%)", "OOS Active Days (%)",
+            "OOS Trade Episodes", "Pass Split",
+        ]
+        _sel_cols = [
+            "Split", "Selector", "Global Cap",
+            "SPY Entry", "SPY Exit", "SPY Weight",
+            "GLD Entry", "GLD Exit", "GLD Weight",
+            "OOS Overlay Calmar", "OOS Calmar Delta",
+            "OOS Overlay Max Drawdown (%)", "OOS MaxDD Delta (%)",
+            "OOS CAGR Delta (%)", "OOS Active Days (%)",
+            "OOS Trade Episodes", "Pass Split",
+        ]
+
+        _growth_section = (
+            [split_picker, mo.as_html(_fig_growth)] if _fig_growth else [split_picker]
+        )
+
+        _output = mo.vstack([
+            mo.md(
+                """
+                ## Mixed SPY+GLD OOS Validation
+
+                Out-of-sample results for capped multi-ETF (SPY+GLD) leverage overlays.
+                Fixed candidates use pre-set parameters without re-selection; grid selectors
+                pick the best IS-only config per split, then evaluate OOS.
+                """
+            ),
+            mo.md("### Pass/Fail Summary"),
+            mo.ui.table(presentation_table(mixed_pass_fail, _pf_cols)),
+            mo.md("### Fixed Candidates: OOS Deltas by Split"),
+            mo.as_html(_fig_fixed),
+            mo.md("### Grid Selectors: OOS Deltas by Split"),
+            mo.as_html(_fig_selectors),
+            mo.md("### OOS Growth & Drawdown"),
+            *_growth_section,
+            mo.md("### IS vs OOS Calmar: Overfitting Check"),
+            mo.as_html(_fig_is_oos),
+            mo.ui.table(_is_oos, label="IS vs OOS Calmar Comparison"),
+            mo.md("### Detailed Tables"),
+            mo.accordion({
+                "Fixed candidates per split": mo.ui.table(presentation_table(mixed_fixed, _fixed_cols)),
+                "Selector winners per split": mo.ui.table(presentation_table(mixed_selectors, _sel_cols)),
+                "Selected rules (IS picks)": mo.ui.table(mixed_selected),
+            }),
+        ])
+    _output
+    return
+
+
+@app.cell
+def choose_mixed_sweep_bundle():
+    mixed_sweep_bundle_path = mo.ui.text(
+        value=latest_bundle(MIXED_SWEEP_BUNDLE_ROOT),
+        label="Disciplined SPY+GLD sweep bundle",
+        full_width=True,
+    )
+    return (mixed_sweep_bundle_path,)
+
+
+@app.cell
+def load_mixed_sweep_bundle(mixed_sweep_bundle_path):
+    from pathlib import Path as _Path
+
+    _raw = mixed_sweep_bundle_path.value.strip().strip("'\"")
+    _empty_manifest = {}
+    _empty_df = pd.DataFrame()
+    if not _raw:
+        mixed_sweep_manifest = _empty_manifest
+        mixed_sweep_oos = _empty_df
+        mixed_sweep_pass_fail = _empty_df
+        mixed_sweep_selected = _empty_df
+        mixed_sweep_stability = _empty_df
+        mixed_sweep_walk_forward = _empty_df
+        mixed_sweep_heatmaps = _empty_df
+    else:
+        _bundle = _Path(_raw).expanduser()
+        if not _bundle.is_absolute():
+            _bundle = ROOT / _bundle
+        _manifest_path = _bundle / "manifest.json"
+        if not _bundle.exists() or not _manifest_path.exists():
+            mixed_sweep_manifest = _empty_manifest
+            mixed_sweep_oos = _empty_df
+            mixed_sweep_pass_fail = _empty_df
+            mixed_sweep_selected = _empty_df
+            mixed_sweep_stability = _empty_df
+            mixed_sweep_walk_forward = _empty_df
+            mixed_sweep_heatmaps = _empty_df
+        else:
+            with open(_manifest_path, "r", encoding="utf-8") as _handle:
+                mixed_sweep_manifest = json.load(_handle)
+
+            def _read_csv(name):
+                _path = _bundle / name
+                return pd.read_csv(_path) if _path.exists() else pd.DataFrame()
+
+            mixed_sweep_oos = _read_csv("oos_summary.csv")
+            mixed_sweep_pass_fail = _read_csv("pass_fail_summary.csv")
+            mixed_sweep_selected = _read_csv("selected_rules.csv")
+            mixed_sweep_stability = _read_csv("parameter_stability.csv")
+            mixed_sweep_walk_forward = _read_csv("walk_forward_summary.csv")
+            mixed_sweep_heatmaps = _read_csv("sweep_heatmap_tables.csv")
+    return (
+        mixed_sweep_heatmaps,
+        mixed_sweep_manifest,
+        mixed_sweep_oos,
+        mixed_sweep_pass_fail,
+        mixed_sweep_selected,
+        mixed_sweep_stability,
+        mixed_sweep_walk_forward,
+    )
+
+
+@app.cell
+def choose_mixed_sweep_heatmap(mixed_sweep_heatmaps):
+    _dims = (
+        sorted(mixed_sweep_heatmaps["Dimension"].dropna().unique())
+        if not mixed_sweep_heatmaps.empty and "Dimension" in mixed_sweep_heatmaps
+        else []
+    )
+    _splits = (
+        sorted(str(s) for s in mixed_sweep_heatmaps["Split"].dropna().unique())
+        if not mixed_sweep_heatmaps.empty and "Split" in mixed_sweep_heatmaps
+        else []
+    )
+    mixed_sweep_dimension = mo.ui.dropdown(
+        options=_dims,
+        value=_dims[0] if _dims else None,
+        label="Sweep heatmap",
+    )
+    mixed_sweep_split = mo.ui.dropdown(
+        options=_splits,
+        value=_splits[-1] if _splits else None,
+        label="Structural split",
+    )
+    mixed_sweep_metric = mo.ui.dropdown(
+        options=["Max_Calmar", "Avg_Calmar", "Avg_CAGR", "Avg_MaxDD"],
+        value="Max_Calmar",
+        label="Heatmap metric",
+    )
+    return mixed_sweep_dimension, mixed_sweep_metric, mixed_sweep_split
+
+
+@app.cell
+def mixed_sweep_results(
+    mixed_sweep_dimension,
+    mixed_sweep_heatmaps,
+    mixed_sweep_manifest,
+    mixed_sweep_metric,
+    mixed_sweep_oos,
+    mixed_sweep_pass_fail,
+    mixed_sweep_selected,
+    mixed_sweep_split,
+    mixed_sweep_stability,
+    mixed_sweep_walk_forward,
+):
+    if mixed_sweep_pass_fail.empty:
+        _output = mo.vstack([
+            mo.md("## Disciplined SPY+GLD Sweep\n\n_No disciplined mixed sweep bundle loaded._"),
+        ])
+    else:
+        _pf_cols = [
+            "Selector", "Structural Splits Tested", "Structural Splits Passed",
+            "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)",
+            "Average OOS CAGR Delta (%)", "Min OOS Trade Episodes",
+            "Annual Years Tested", "Annual Calmar Improvement Years",
+            "Stable Neighborhood Pass", "Aggressive Cap >30%", "Promotion Tier",
+            "Overall Pass",
+        ]
+        _selected_cols = [
+            "Split", "Selector", "Global Cap",
+            "SPY Entry", "SPY Exit", "SPY Weight",
+            "GLD Entry", "GLD Exit", "GLD Weight",
+            "Calmar", "CAGR (%)", "Max Drawdown (%)",
+            "Average Overlay Exposure (%)", "Robust Avg Calmar",
+            "Robust Neighborhood Size",
+        ]
+        _oos_cols = [
+            "Split", "Selector", "Global Cap",
+            "SPY Entry", "SPY Exit", "SPY Weight",
+            "GLD Entry", "GLD Exit", "GLD Weight",
+            "OOS Overlay Calmar", "OOS Calmar Delta",
+            "OOS Overlay Max Drawdown (%)", "OOS MaxDD Delta (%)",
+            "OOS CAGR Delta (%)", "OOS Trade Episodes", "Pass Split",
+        ]
+        _stability_cols = [
+            "Selector", "Structural Selections", "Unique Configs",
+            "Most Common Config Count", "Most Common Config Share",
+            "Average Robust Neighborhood Size", "Stable Neighborhood Pass",
+            "Annual Years Tested", "Annual Calmar Improvement Years",
+            "Most Common Config",
+        ]
+
+        if not mixed_sweep_walk_forward.empty:
+            _walk_forward = mixed_sweep_walk_forward.copy()
+            if "Calmar Improvement" in _walk_forward:
+                _walk_forward["Calmar Improvement"] = (
+                    _walk_forward["Calmar Improvement"].astype(str).str.lower().isin(["true", "1"])
+                )
+            _wf_rollup = (
+                _walk_forward
+                .groupby("Selector", as_index=False)
+                .agg(
+                    Years=("Year", "nunique"),
+                    Calmar_Improvement_Years=("Calmar Improvement", "sum"),
+                    Avg_OOS_Calmar_Delta=("OOS Calmar Delta", "mean"),
+                    Worst_OOS_MaxDD_Delta=("OOS MaxDD Delta (%)", "min"),
+                    Avg_OOS_CAGR_Delta=("OOS CAGR Delta (%)", "mean"),
+                    Min_Trade_Episodes=("OOS Trade Episodes", "min"),
+                )
+            )
+            _wf_rollup["Calmar Improvement Rate (%)"] = (
+                _wf_rollup["Calmar_Improvement_Years"] / _wf_rollup["Years"] * 100
+            ).round(2)
+        else:
+            _wf_rollup = pd.DataFrame()
+
+        _fig_heatmap = None
+        _heatmap_table = pd.DataFrame()
+        if (
+            not mixed_sweep_heatmaps.empty
+            and mixed_sweep_dimension.value
+            and mixed_sweep_split.value
+            and mixed_sweep_metric.value in mixed_sweep_heatmaps.columns
+        ):
+            _heatmap_table = mixed_sweep_heatmaps[
+                (mixed_sweep_heatmaps["Dimension"] == mixed_sweep_dimension.value)
+                & (mixed_sweep_heatmaps["Split"].astype(str) == str(mixed_sweep_split.value))
+            ].copy()
+            if not _heatmap_table.empty:
+                _pivot = _heatmap_table.pivot_table(
+                    index="Y", columns="X", values=mixed_sweep_metric.value, aggfunc="mean"
+                ).sort_index(ascending=True)
+                _fig_heatmap = plot_threshold_heatmap_figure(
+                    _pivot,
+                    str(mixed_sweep_dimension.value),
+                    str(mixed_sweep_metric.value).replace("_", " "),
+                    "X parameter",
+                    "Y parameter",
+                    f"split {mixed_sweep_split.value}",
+                )
+
+        _manifest_table = pd.DataFrame([
+            {"Field": "Strategy", "Value": mixed_sweep_manifest.get("strategy_id", "")},
+            {"Field": "Generated at", "Value": mixed_sweep_manifest.get("generated_at", "")},
+            {"Field": "IS grid rows", "Value": "Stored in is_sweep_grid.parquet"},
+            {"Field": "Walk-forward years", "Value": ", ".join(map(str, mixed_sweep_manifest.get("walk_forward_years", [])))},
+        ])
+
+        _heatmap_section = (
+            [mo.hstack([mixed_sweep_dimension, mixed_sweep_split, mixed_sweep_metric]), mo.as_html(_fig_heatmap)]
+            if _fig_heatmap is not None
+            else [mo.hstack([mixed_sweep_dimension, mixed_sweep_split, mixed_sweep_metric])]
+        )
+
+        _output = mo.vstack([
+            mo.md(
+                """
+                ## Disciplined SPY+GLD Sweep
+
+                Second-stage mixed leverage surface map for SPY and GLD. The notebook
+                reads compact CSV summaries for review; the full IS grid is kept in
+                `is_sweep_grid.parquet` inside the selected bundle.
+                """
+            ),
+            mo.ui.table(_manifest_table, label="Sweep bundle"),
+            mo.md("### Acceptance Gate"),
+            mo.ui.table(presentation_table(mixed_sweep_pass_fail, _pf_cols)),
+            mo.md("### Selector Stability"),
+            mo.ui.table(presentation_table(mixed_sweep_stability, _stability_cols)),
+            mo.md("### Annual Walk-Forward Rollup"),
+            mo.ui.table(_wf_rollup),
+            mo.md("### Parameter Surface"),
+            *_heatmap_section,
+            mo.accordion({
+                "Structural OOS selector results": mo.ui.table(presentation_table(mixed_sweep_oos, _oos_cols)),
+                "IS selected rules": mo.ui.table(presentation_table(mixed_sweep_selected, _selected_cols)),
+                "Annual walk-forward rows": mo.ui.table(mixed_sweep_walk_forward),
+                "Heatmap table rows": mo.ui.table(_heatmap_table),
+            }),
+        ])
+    _output
     return
 
 

@@ -312,3 +312,174 @@ def plot_threshold_heatmap_figure(
     cbar.ax.tick_params(colors=TEXT_COL)
     plt.tight_layout(pad=1.0)
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Mixed SPY+GLD OOS validation figures
+# ---------------------------------------------------------------------------
+
+
+def _short_label(name: str, name_col: str, max_len: int = 24) -> str:
+    """Shorten a candidate/selector name for chart labels."""
+    from research.leverage_analysis import label_selector
+    if name_col == "Selector":
+        return label_selector(name)
+    return name if len(name) <= max_len else name[:max_len - 1] + "…"
+
+
+def plot_mixed_oos_delta_bars_figure(
+    oos_df: pd.DataFrame,
+    name_col: str,
+    title_prefix: str,
+    metrics: list[tuple[str, str]] | None = None,
+) -> plt.Figure:
+    """Grouped bar chart of OOS deltas per candidate/selector, split by OOS window."""
+    if metrics is None:
+        metrics = [
+            ("OOS Calmar Delta", "Calmar delta"),
+            ("OOS MaxDD Delta (%)", "MaxDD delta (pp)"),
+            ("OOS CAGR Delta (%)", "CAGR delta (pp)"),
+        ]
+    n = len(metrics)
+    fig, axes = plt.subplots(1, n, figsize=(14, 4.6))
+    fig.patch.set_facecolor(DARK_BG)
+    axes = np.atleast_1d(axes)
+
+    df = oos_df.copy()
+    df["_label"] = df[name_col].apply(lambda n: _short_label(n, name_col))
+
+    for ax, (metric, title) in zip(axes, metrics):
+        style_ax(ax)
+        pivot = df.pivot_table(
+            index="_label", columns="Split", values=metric, aggfunc="mean",
+        ).sort_index()
+        x = np.arange(len(pivot.index))
+        n_splits = len(pivot.columns)
+        width = 0.7 / max(n_splits, 1)
+        for i, split in enumerate(sorted(pivot.columns)):
+            offset = (i - (n_splits - 1) / 2) * width
+            ax.bar(x + offset, pivot[split], width=width, label=str(split))
+        ax.axhline(0, color="#8b949e", lw=0.8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(pivot.index, color=TEXT_COL, rotation=25, ha="right", fontsize=7)
+        ax.set_title(f"{title_prefix}: {title}", fontsize=10, pad=6)
+        ax.legend(fontsize=7, facecolor="#21262d", edgecolor=GRID_COL, labelcolor=TEXT_COL)
+    plt.tight_layout(pad=1.0)
+    return fig
+
+
+def plot_mixed_is_vs_oos_figure(
+    oos_df: pd.DataFrame,
+    name_col: str,
+    title: str = "IS vs OOS Calmar — Overfitting Check",
+) -> plt.Figure:
+    """Paired bar chart comparing IS and OOS Calmar for each name × split."""
+    fig, ax = plt.subplots(figsize=(14, 5.2))
+    fig.patch.set_facecolor(DARK_BG)
+    style_ax(ax)
+
+    df = oos_df.copy().sort_values([name_col, "Split"])
+    df["_label"] = df[name_col].apply(lambda n: _short_label(n, name_col))
+    labels = [f"{row['_label']}\n{row['Split']}" for _, row in df.iterrows()]
+    x = np.arange(len(df))
+    width = 0.35
+    is_vals = df["IS Calmar"].astype(float).values
+    oos_vals = df["OOS Overlay Calmar"].astype(float).values
+
+    ax.bar(x - width / 2, is_vals, width, label="IS Calmar", color=PALETTE[0], alpha=0.55)
+    ax.bar(x + width / 2, oos_vals, width, label="OOS Calmar", color=PALETTE[0])
+
+    if "OOS Base Calmar" in df.columns:
+        base_vals = df["OOS Base Calmar"].astype(float).values
+        for i, bv in enumerate(base_vals):
+            ax.plot(
+                [i - width, i + width], [bv, bv],
+                color="#f0b429", lw=1.0, linestyle="--",
+            )
+        ax.plot([], [], color="#f0b429", linestyle="--", label="OOS Base Calmar")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, color=TEXT_COL, fontsize=7, rotation=0, ha="center")
+    ax.set_title(title, fontsize=11, pad=8)
+    ax.set_ylabel("Calmar ratio")
+    ax.legend(fontsize=8, facecolor="#21262d", edgecolor=GRID_COL, labelcolor=TEXT_COL)
+    plt.tight_layout(pad=1.2)
+    return fig
+
+
+def plot_mixed_growth_figure(
+    daily: pd.DataFrame,
+    split: str,
+    strategies: list[str] | None = None,
+) -> plt.Figure:
+    """Growth + drawdown for mixed overlay strategies in one OOS split."""
+    _split_val = int(split) if str(split).isdigit() else split
+    data = daily[daily["Split"] == _split_val].copy()
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(13, 4))
+        fig.patch.set_facecolor(DARK_BG)
+        style_ax(ax)
+        ax.set_title(f"No daily data for split {split}", fontsize=10)
+        return fig
+
+    data["Date"] = pd.to_datetime(data["Date"])
+
+    base_rows = data[data["Selector"] == "base"]
+    base_label = base_rows["Strategy"].iloc[0] if not base_rows.empty else None
+
+    if strategies is None:
+        all_strats = data["Overlay Strategy"].dropna().unique().tolist()
+        non_base = [s for s in all_strats if s != base_label]
+        finals = {}
+        for s in non_base:
+            sub = data[data["Overlay Strategy"] == s].sort_values("Date")
+            if not sub.empty:
+                finals[s] = float(sub["Value"].iloc[-1])
+        top = sorted(finals, key=finals.get, reverse=True)[:4]
+        strategies = ([base_label] if base_label else []) + top
+
+    strat_col = "Overlay Strategy" if "Overlay Strategy" in data.columns else "Strategy"
+    data = data[data[strat_col].isin(strategies)]
+    values = data.pivot_table(index="Date", columns=strat_col, values="Value", aggfunc="first")
+    indexed = values / values.ffill().bfill().iloc[0] * 100.0
+    drawdowns = (values / values.cummax() - 1.0) * 100.0
+
+    short_labels = {s: (s[:35] + "…" if len(s) > 35 else s) for s in strategies}
+    colors = colour_map(strategies)
+
+    fig, axes = plt.subplots(2, 1, figsize=(13, 8.2), sharex=True)
+    fig.patch.set_facecolor(DARK_BG)
+
+    style_ax(axes[0])
+    for s in strategies:
+        if s not in indexed:
+            continue
+        series = indexed[s].dropna()
+        if series.empty:
+            continue
+        axes[0].plot(series.index, series.values, color=colors.get(s), lw=1.6, label=short_labels[s])
+        axes[0].annotate(
+            f"{series.iloc[-1]:.0f}",
+            xy=(series.index[-1], series.iloc[-1]),
+            xytext=(6, 0), textcoords="offset points",
+            color=colors.get(s, TEXT_COL), fontsize=8, va="center",
+        )
+    axes[0].set_yscale("log")
+    axes[0].set_title(f"Growth of $100 — OOS split {split}", fontsize=11, pad=8)
+    axes[0].set_ylabel("Indexed value")
+    axes[0].yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}"))
+    axes[0].legend(fontsize=7, facecolor="#21262d", edgecolor=GRID_COL, labelcolor=TEXT_COL)
+
+    style_ax(axes[1])
+    for s in strategies:
+        if s not in drawdowns:
+            continue
+        series = drawdowns[s].dropna()
+        if not series.empty:
+            axes[1].plot(series.index, series.values, color=colors.get(s), lw=0.8, label=short_labels[s])
+    axes[1].axhline(0, color="#8b949e", lw=0.8)
+    axes[1].set_title(f"Drawdown — OOS split {split}", fontsize=11, pad=8)
+    axes[1].set_ylabel("Drawdown (%)")
+    axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    plt.tight_layout(pad=1.2)
+    return fig

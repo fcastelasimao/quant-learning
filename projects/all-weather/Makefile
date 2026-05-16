@@ -1,6 +1,6 @@
 CONDA_RUN = conda run -n allweather python
 
-.PHONY: test backtest compare-allw compare-fmp-rp leverage-comparison leverage-oos-validation mixed-leverage notebook-data notebook-comparison notebook-leverage rebalance-preview rebalance-execute
+.PHONY: test backtest compare-allw compare-fmp-rp leverage-comparison leverage-oos-validation mixed-leverage mixed-leverage-oos-validation mixed-leverage-sweep notebook-data notebook-comparison notebook-leverage rebalance-preview rebalance-execute
 
 test:
 	$(CONDA_RUN) -m pytest tests/ -v
@@ -22,6 +22,12 @@ leverage-oos-validation:
 
 mixed-leverage:
 	$(CONDA_RUN) -m research.build_mixed_leverage_report
+
+mixed-leverage-oos-validation:
+	$(CONDA_RUN) -m research.validate_mixed_leverage_oos
+
+mixed-leverage-sweep:
+	$(CONDA_RUN) -m research.validate_mixed_leverage_oos --sweep-depth disciplined
 
 notebook-data:
 	conda run -n allweather marimo edit notebooks/data_explorer.py
