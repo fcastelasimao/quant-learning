@@ -1,0 +1,6 @@
+numpy==2.4.3
+pandas==3.0.1
+yfinance==1.2.0
+matplotlib==3.10.8
+plotly
+pytest==9.0.2

@@ -36,6 +36,7 @@ from engine.analytics import (
     turnover_costs,
 )
 from engine.data import fetch_prices, get_price_provenance
+from engine.leverage import OverlaySpec, apply_overlay_to_base
 
 
 ALLW_LAUNCH_DATE = "2025-03-06"
@@ -50,6 +51,67 @@ DISPLAY_NAMES = {
     "60/40": "60/40 (SPY/TLT)",
 }
 
+SPY_ONLY_CANDIDATE_NAME = "SPY 34/42 @ 30% cap"
+SPY_ONLY_CANDIDATE_SPECS = (
+    OverlaySpec("SPY", entry_threshold=34.0, exit_threshold=42.0, overlay_weight=0.30),
+)
+SPY_ONLY_CANDIDATE_GLOBAL_CAP = 0.30
+GLD_ONLY_CANDIDATE_NAME = "GLD 32/64 @ 30% cap"
+GLD_ONLY_CANDIDATE_SPECS = (
+    OverlaySpec("GLD", entry_threshold=32.0, exit_threshold=64.0, overlay_weight=0.30),
+)
+GLD_ONLY_CANDIDATE_GLOBAL_CAP = 0.30
+MIXED_CANDIDATE_NAME = "SPY 32/42 + GLD 36/52 @ 30% cap"
+MIXED_CANDIDATE_SPECS = (
+    OverlaySpec("SPY", entry_threshold=32.0, exit_threshold=42.0, overlay_weight=0.30),
+    OverlaySpec("GLD", entry_threshold=36.0, exit_threshold=52.0, overlay_weight=0.30),
+)
+MIXED_CANDIDATE_GLOBAL_CAP = 0.30
+LEVERAGE_CANDIDATES = (
+    {
+        "name": SPY_ONLY_CANDIDATE_NAME,
+        "global_cap": SPY_ONLY_CANDIDATE_GLOBAL_CAP,
+        "specs": SPY_ONLY_CANDIDATE_SPECS,
+        "notes": "Strongest SPY-only 30% capped row from the single-ETF leverage grid.",
+    },
+    {
+        "name": GLD_ONLY_CANDIDATE_NAME,
+        "global_cap": GLD_ONLY_CANDIDATE_GLOBAL_CAP,
+        "specs": GLD_ONLY_CANDIDATE_SPECS,
+        "notes": "Strongest GLD-only 30% capped row from the single-ETF leverage grid.",
+    },
+    {
+        "name": MIXED_CANDIDATE_NAME,
+        "global_cap": MIXED_CANDIDATE_GLOBAL_CAP,
+        "specs": MIXED_CANDIDATE_SPECS,
+        "notes": "Strongest clean full-grid mixed row: SPY 32/42 @ 30%, GLD 36/52 @ 30%, cap 30%.",
+    },
+)
+LEVERAGE_SIGNAL_HISTORY_COLUMNS = [
+    "Candidate",
+    "Date",
+    "Ticker",
+    "Indicator",
+    "Lookback",
+    "Entry Threshold",
+    "Exit Threshold",
+    "RSI",
+    "Raw Signal",
+    "Desired Overlay Weight",
+    "Capped Overlay Weight",
+    "Applied Overlay Weight",
+]
+LEVERAGE_SIGNAL_EVENT_COLUMNS = [
+    "Candidate",
+    "Date",
+    "Ticker",
+    "Event",
+    "Entry Threshold",
+    "Exit Threshold",
+    "RSI",
+    "Applied Overlay Weight",
+]
+
 STRESS_PERIODS = {
     "2018 Q4 equity selloff": ("2018-09-20", "2018-12-24"),
     "COVID crash": ("2020-02-19", "2020-03-23"),
@@ -62,19 +124,29 @@ STRESS_PERIODS = {
 
 
 def load_strategy(strategy_id: str) -> dict:
-    """Load one strategy payload from strategies.json."""
+    """Load one strategy payload from strategies.json, accepting registry aliases."""
     with open(PROJECT_ROOT / "strategies.json", "r", encoding="utf-8") as handle:
         strategies = json.load(handle)["strategies"]
-    if strategy_id not in strategies:
+    canonical_id = config.resolve_strategy_id(strategy_id)
+    if canonical_id not in strategies:
         raise KeyError(f"Unknown strategy_id '{strategy_id}'. Available: {sorted(strategies)}")
-    return strategies[strategy_id]
+    return strategies[canonical_id]
 
 
-def required_tickers(allocation: dict[str, float], include_6040: bool = True) -> list[str]:
+def required_tickers(allocation: dict[str, float],
+                     include_6040: bool = True,
+                     include_leverage_candidate: bool = True) -> list[str]:
     """Return all tickers needed for the comparison bundle."""
     tickers = set(allocation) | {"SPY", "ALLW"}
     if include_6040:
         tickers.add("TLT")
+    if include_leverage_candidate:
+        tickers.update(
+            spec.ticker
+            for candidate in LEVERAGE_CANDIDATES
+            for spec in candidate["specs"]
+            if spec.enabled
+        )
     return sorted(tickers)
 
 
@@ -86,6 +158,7 @@ def build_report_bundle(prices: pd.DataFrame,
                         end_date: str | None = None,
                         apply_fees: bool = True,
                         include_6040: bool = True,
+                        include_leverage_candidate: bool = True,
                         data_source: str = "yfinance",
                         generated_at: datetime | None = None,
                         transaction_cost_pct: float = 0.001) -> Path:
@@ -106,6 +179,34 @@ def build_report_bundle(prices: pd.DataFrame,
     values = pd.DataFrame(index=prices.index)
     diy = build_monthly_rebalanced_series(diy_prices, allocation, start_value=100.0)
     values["DIY"] = apply_annual_fee(diy, DIY_FEE) if apply_fees else diy
+    leverage_signal_history_frames: list[pd.DataFrame] = []
+
+    if include_leverage_candidate:
+        for candidate in LEVERAGE_CANDIDATES:
+            specs = tuple(candidate["specs"])
+            overlay_tickers = [spec.ticker for spec in specs if spec.enabled]
+            if not set(overlay_tickers).issubset(prices.columns):
+                continue
+            overlay_prices = prices[overlay_tickers].dropna(how="all")
+            result = apply_overlay_to_base(
+                values["DIY"],
+                overlay_prices,
+                list(specs),
+                global_cap=float(candidate["global_cap"]),
+                financing_cost_annual=config.RISK_FREE_RATE,
+                name=str(candidate["name"]),
+            )
+            values[str(candidate["name"])] = result.value_series
+            _history = result.signal_history.copy()
+            _history.insert(0, "Candidate", str(candidate["name"]))
+            leverage_signal_history_frames.append(_history)
+
+    leverage_signal_history = (
+        pd.concat(leverage_signal_history_frames, ignore_index=True)
+        if leverage_signal_history_frames
+        else pd.DataFrame(columns=LEVERAGE_SIGNAL_HISTORY_COLUMNS)
+    )
+    leverage_signal_events = _leverage_signal_events(leverage_signal_history)
 
     if "SPY" in prices:
         spy = prices["SPY"].dropna()
@@ -141,6 +242,7 @@ def build_report_bundle(prices: pd.DataFrame,
         end_date=end_date,
         apply_fees=apply_fees,
         include_6040=include_6040,
+        include_leverage_candidate=include_leverage_candidate,
         data_source=data_source,
         generated_at=generated_at,
         transaction_cost_pct=transaction_cost_pct,
@@ -174,6 +276,8 @@ def build_report_bundle(prices: pd.DataFrame,
         transaction_cost_pct=transaction_cost_pct,
         start_value=100.0,
     ).to_csv(bundle_dir / "turnover_costs.csv", index=False)
+    leverage_signal_history.to_csv(bundle_dir / "leverage_signal_history.csv", index=False)
+    leverage_signal_events.to_csv(bundle_dir / "leverage_signal_events.csv", index=False)
 
     return bundle_dir
 
@@ -183,11 +287,16 @@ def build_from_yfinance(strategy_id: str,
                         end_date: str,
                         output_root: str | Path = DEFAULT_OUTPUT_ROOT,
                         apply_fees: bool = True,
-                        include_6040: bool = True) -> Path:
+                        include_6040: bool = True,
+                        include_leverage_candidate: bool = True) -> Path:
     """Fetch prices and write a strategy comparison bundle."""
     payload = load_strategy(strategy_id)
     allocation = payload["allocation"]
-    tickers = required_tickers(allocation, include_6040=include_6040)
+    tickers = required_tickers(
+        allocation,
+        include_6040=include_6040,
+        include_leverage_candidate=include_leverage_candidate,
+    )
     prices = fetch_prices(tickers, start_date, end_date)
     return build_report_bundle(
         prices=prices,
@@ -198,6 +307,7 @@ def build_from_yfinance(strategy_id: str,
         end_date=end_date,
         apply_fees=apply_fees,
         include_6040=include_6040,
+        include_leverage_candidate=include_leverage_candidate,
         data_source="yfinance",
         transaction_cost_pct=config.TRANSACTION_COST_PCT,
     )
@@ -211,6 +321,11 @@ def main() -> None:
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--no-fees", action="store_true", help="Do not apply ETF expense ratios.")
     parser.add_argument("--no-6040", action="store_true", help="Exclude the 60/40 benchmark.")
+    parser.add_argument(
+        "--no-leverage-candidate",
+        action="store_true",
+        help="Exclude leverage overlay candidates.",
+    )
     args = parser.parse_args()
 
     bundle = build_from_yfinance(
@@ -220,6 +335,7 @@ def main() -> None:
         output_root=args.output_root,
         apply_fees=not args.no_fees,
         include_6040=not args.no_6040,
+        include_leverage_candidate=not args.no_leverage_candidate,
     )
     print(f"Strategy comparison bundle written to: {bundle}")
 
@@ -277,6 +393,35 @@ def _available_stress_periods(values: pd.DataFrame) -> dict[str, tuple[str, str]
     return periods
 
 
+def _leverage_signal_events(signal_history: pd.DataFrame) -> pd.DataFrame:
+    """Return applied overlay entry/exit events from long-form signal history."""
+    if signal_history.empty:
+        return pd.DataFrame(columns=LEVERAGE_SIGNAL_EVENT_COLUMNS)
+
+    rows = []
+    for (_, ticker), group in signal_history.groupby(["Candidate", "Ticker"], sort=False):
+        data = group.sort_values("Date").copy()
+        active = data["Applied Overlay Weight"].fillna(0.0).astype(float) > 0
+        previous = active.shift(1, fill_value=False)
+        event_labels = pd.Series(pd.NA, index=data.index, dtype="object")
+        event_labels.loc[active & ~previous] = "Entry"
+        event_labels.loc[~active & previous] = "Exit"
+        events = data.loc[event_labels.notna()].copy()
+        for idx, event in events.iterrows():
+            rows.append({
+                "Candidate": event["Candidate"],
+                "Date": event["Date"],
+                "Ticker": event["Ticker"],
+                "Event": event_labels.loc[idx],
+                "Entry Threshold": event["Entry Threshold"],
+                "Exit Threshold": event["Exit Threshold"],
+                "RSI": event["RSI"],
+                "Applied Overlay Weight": event["Applied Overlay Weight"],
+            })
+
+    return pd.DataFrame(rows, columns=LEVERAGE_SIGNAL_EVENT_COLUMNS)
+
+
 def _manifest(strategy_id: str,
               allocation: dict[str, float],
               values: pd.DataFrame,
@@ -284,9 +429,31 @@ def _manifest(strategy_id: str,
               end_date: str,
               apply_fees: bool,
               include_6040: bool,
+              include_leverage_candidate: bool,
               data_source: str,
               generated_at: datetime,
               transaction_cost_pct: float) -> dict:
+    fees = {
+        "DIY": DIY_FEE if apply_fees else 0.0,
+        "ALLW": ALLW_FEE if apply_fees else 0.0,
+        "SPY": 0.0,
+        "60/40": 0.0,
+    }
+    if include_leverage_candidate:
+        for candidate in LEVERAGE_CANDIDATES:
+            fees[str(candidate["name"])] = DIY_FEE if apply_fees else 0.0
+
+    leverage_candidates = [
+        {
+            "name": str(candidate["name"]),
+            "global_cap": float(candidate["global_cap"]),
+            "financing_cost_annual": config.RISK_FREE_RATE,
+            "notes": str(candidate["notes"]),
+            "specs": [spec.__dict__ for spec in candidate["specs"]],
+        }
+        for candidate in LEVERAGE_CANDIDATES
+    ] if include_leverage_candidate else []
+
     return {
         "generated_at": generated_at.isoformat(timespec="seconds"),
         "strategy_id": strategy_id,
@@ -300,14 +467,20 @@ def _manifest(strategy_id: str,
         "data_source": data_source,
         "pricing_model": config.PRICING_MODEL,
         "apply_fees": apply_fees,
-        "fees": {
-            "DIY": DIY_FEE if apply_fees else 0.0,
-            "ALLW": ALLW_FEE if apply_fees else 0.0,
-            "SPY": 0.0,
-            "60/40": 0.0,
-        },
+        "fees": fees,
         "transaction_cost_pct": transaction_cost_pct,
         "include_6040": include_6040,
+        "include_leverage_candidate": include_leverage_candidate,
+        "leverage_candidate": leverage_candidates[0] if leverage_candidates else None,
+        "leverage_candidates": leverage_candidates,
+        "full_grid_top_leaderboard_row": {
+            "candidate": MIXED_CANDIDATE_NAME,
+            "source": "results/mixed_leverage_full_grid_oos/*/structural_full_grid_leaderboard.csv",
+            "rank": 1,
+            "spy_rule": "32/42 @ 30%",
+            "gld_rule": "36/52 @ 30%",
+            "global_cap": MIXED_CANDIDATE_GLOBAL_CAP,
+        } if include_leverage_candidate else None,
         "allocation": allocation,
         "strategies": list(values.columns),
         "artifacts": [
@@ -321,6 +494,8 @@ def _manifest(strategy_id: str,
             "stress_period_metrics.csv",
             "risk_contribution.csv",
             "turnover_costs.csv",
+            "leverage_signal_history.csv",
+            "leverage_signal_events.csv",
             "price_provenance.json",
         ],
     }

@@ -19,6 +19,8 @@ Safety defaults
 - Refuses to trade when the regular market is closed
 - Refuses to trade with open target-symbol orders
 - Refuses duplicate executions unless explicitly allowed
+- Refuses non-production strategies unless explicitly allowed
+- Uses strategy live tickers by default (e.g. GLD -> GLDM)
 - Fails on rejected, canceled, expired, or timed-out orders
 - Verifies final portfolio weights after execution
 - Executes sells first, then refreshes the account and computes buys again
@@ -38,14 +40,14 @@ For multiple accounts, add a suffix (e.g. --account live):
 
 Examples
 --------
-Preview only (default account, backtest tickers):
+Preview only (default account, live tickers):
     conda run -n allweather python -m live.alpaca_rebalance --paper
 
-Preview with live tickers on the "live" account:
-    conda run -n allweather python -m live.alpaca_rebalance --paper --account live --use-live-tickers
+Preview on the "live" account without executing:
+    conda run -n allweather python -m live.alpaca_rebalance --live --account live
 
 Execute on the last trading day:
-    conda run -n allweather python -m live.alpaca_rebalance --paper --execute
+    conda run -n allweather python -m live.alpaca_rebalance --paper --strategy-id 6_asset_rp_baseline --execute
 """
 
 from __future__ import annotations
@@ -336,11 +338,36 @@ def _load_strategy_payload(strategy_id: str) -> dict[str, Any]:
         data = json.load(handle)
 
     strategies = data["strategies"]
-    if strategy_id not in strategies:
+    canonical_id = config.resolve_strategy_id(strategy_id)
+    if canonical_id not in strategies:
         raise KeyError(
             f"Strategy '{strategy_id}' not found. Available: {list(strategies.keys())}"
         )
-    return strategies[strategy_id]
+    payload = dict(strategies[canonical_id])
+    payload["_strategy_id"] = canonical_id
+    return payload
+
+
+def _assert_strategy_live_allowed(
+    strategy_id: str,
+    payload: dict[str, Any],
+    allow_non_production: bool,
+) -> None:
+    """Block accidental trading of research or archived strategy definitions."""
+    if allow_non_production:
+        return
+
+    is_allowed = bool(payload.get("allow_live_trading")) or (
+        payload.get("tier") == "Production" and bool(payload.get("is_production"))
+    )
+    if is_allowed:
+        return
+
+    display = payload.get("display_name") or payload.get("description") or strategy_id
+    raise SystemExit(
+        f"Refusing to trade non-production strategy '{strategy_id}' ({display}). "
+        "Use --allow-non-production-strategy only after manual review."
+    )
 
 
 def _resolve_target_allocation(
@@ -951,10 +978,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Sell positions that are not part of the selected strategy.",
     )
-    parser.add_argument(
+    ticker_mode = parser.add_mutually_exclusive_group()
+    ticker_mode.add_argument(
         "--use-live-tickers",
         action="store_true",
-        help="Translate backtest tickers via strategy live_tickers when available.",
+        dest="use_live_tickers",
+        help="Translate backtest tickers via strategy live_tickers when available. This is the default.",
+    )
+    ticker_mode.add_argument(
+        "--use-backtest-tickers",
+        action="store_false",
+        dest="use_live_tickers",
+        help="Trade the backtest tickers directly instead of strategy live_tickers.",
+    )
+    parser.set_defaults(use_live_tickers=True)
+    parser.add_argument(
+        "--allow-non-production-strategy",
+        action="store_true",
+        help="Allow preview/execution for a strategy not marked for live trading.",
     )
     parser.add_argument(
         "--account",
@@ -1034,10 +1075,18 @@ def main() -> None:
 
     try:
         logger.info(f"Loading strategy: {args.strategy_id}")
+        payload = _load_strategy_payload(args.strategy_id)
+        _assert_strategy_live_allowed(
+            strategy_id=args.strategy_id,
+            payload=payload,
+            allow_non_production=args.allow_non_production_strategy,
+        )
         allocation, mapping = _resolve_target_allocation(
             strategy_id=args.strategy_id,
             use_live_tickers=args.use_live_tickers,
         )
+        display_name = payload.get("display_name") or payload.get("description") or args.strategy_id
+        logger.info(f"Strategy loaded: {display_name} ({payload.get('_strategy_id')})")
         logger.info(f"Strategy loaded with {len(allocation)} assets")
         
         logger.info(f"Connecting to Alpaca {trading_mode} trading...")

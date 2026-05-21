@@ -6,8 +6,11 @@ from live.alpaca_rebalance import (
     OrderExecutionError,
     PositionSnapshot,
     RebalanceRow,
+    _assert_strategy_live_allowed,
     _load_strategy_payload,
     _performance_headers,
+    _resolve_target_allocation,
+    parse_args,
     record_performance_snapshot,
     validate_order_guardrails,
     verify_post_trade_drift,
@@ -35,10 +38,47 @@ class _OrderClient:
 
 
 def test_live_strategy_loader_reads_project_root_strategy_file():
-    payload = _load_strategy_payload("6asset_tip_gsg_rpavg")
+    payload = _load_strategy_payload("6_asset_rp_baseline")
 
+    assert payload["_strategy_id"] == "6asset_tip_gsg_rpavg"
+    assert payload["display_name"] == "6 Asset RP Baseline"
     assert payload["allocation"]["SPY"] == 0.134
     assert payload["live_tickers"]["GLD"] == "GLDM"
+
+
+def test_live_target_allocation_uses_live_tickers_by_default(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["alpaca_rebalance.py", "--paper"])
+    args = parse_args()
+
+    allocation, mapping = _resolve_target_allocation(args.strategy_id, args.use_live_tickers)
+
+    assert args.use_live_tickers is True
+    assert "GLDM" in allocation
+    assert "GLD" not in allocation
+    assert mapping["GLD"] == "GLDM"
+
+
+def test_live_target_allocation_can_opt_out_to_backtest_tickers(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["alpaca_rebalance.py", "--paper", "--use-backtest-tickers"])
+    args = parse_args()
+
+    allocation, mapping = _resolve_target_allocation(args.strategy_id, args.use_live_tickers)
+
+    assert args.use_live_tickers is False
+    assert "GLD" in allocation
+    assert "GLDM" not in allocation
+    assert mapping["GLD"] == "GLD"
+
+
+def test_live_strategy_guard_blocks_non_production_by_default():
+    payload = _load_strategy_payload("6asset_tip_gsg")
+
+    with pytest.raises(SystemExit, match="non-production"):
+        _assert_strategy_live_allowed(
+            strategy_id="6asset_tip_gsg",
+            payload=payload,
+            allow_non_production=False,
+        )
 
 
 def test_wait_for_orders_raises_on_rejected_order():

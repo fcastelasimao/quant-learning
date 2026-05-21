@@ -20,13 +20,20 @@ with app.setup:
     from research.leverage_analysis import (
         BASE,
         SELECTOR_LABELS,
+        broker_filter_impact,
+        broker_profile_options,
+        build_candidate_funnel,
         build_is_vs_oos_comparison,
         compute_heatmap_pivot,
         default_focus_strategies,
         derive_leverage_tables,
+        filter_broker_limits,
+        is_control_candidate,
         label_selector,
         latest_bundle,
+        latest_bundle_for_profile,
         maybe_filter_benchmark,
+        max_allowed_leverage_pct,
         portfolio_view_strategies,
         presentation_table,
         scale_overlay_leverage,
@@ -37,8 +44,10 @@ with app.setup:
     from research.leverage_plotting import (
         colour_map,
         plot_all_etf_rsi_figure,
+        plot_calmar_maxdd_scatter_figure,
         plot_default_overlay_figure,
         plot_etf_oos_bars_figure,
+        plot_exposure_timeline_figure,
         plot_grid_heatmap,
         plot_grid_heatmaps_figure,
         plot_growth_and_drawdown_figure,
@@ -47,6 +56,8 @@ with app.setup:
         plot_mixed_oos_delta_bars_figure,
         plot_oos_validation_figure,
         plot_threshold_heatmap_figure,
+        plot_trade_episode_distribution_figure,
+        plot_walk_forward_heatmap_figure,
         plot_yearly_figure,
     )
 
@@ -54,10 +65,12 @@ with app.setup:
     OOS_BUNDLE_ROOT = ROOT / "results" / "leverage_oos_validation"
     MIXED_OOS_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_oos_validation"
     MIXED_SWEEP_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_sweep"
+    MIXED_FULL_GRID_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_full_grid_oos"
 
     # These constants must remain here for the presentation-only regression test.
     BENCHMARK = "S&P 500 (SPY)"
     PLOT_EXCLUDED = {BENCHMARK}
+    BROKER_LIMIT_PROFILE_LABELS = ["IBKR Safe", "Strict Pilot", "Research Unrestricted"]
 
 
 @app.cell
@@ -164,7 +177,55 @@ def load_oos_bundle(oos_bundle_path):
 
 
 @app.cell
-def controls(daily, manifest, threshold_grid):
+def broker_limit_profile_control():
+    broker_profile = mo.ui.dropdown(
+        options=BROKER_LIMIT_PROFILE_LABELS,
+        value="IBKR Safe",
+        label="Broker limit profile",
+    )
+    return (broker_profile,)
+
+
+@app.cell
+def choose_full_grid_bundle():
+    full_grid_bundle_path = mo.ui.text(
+        value=latest_bundle(MIXED_FULL_GRID_BUNDLE_ROOT),
+        label="Full-grid SPY+GLD OOS + walk-forward bundle",
+        full_width=True,
+    )
+    return (full_grid_bundle_path,)
+
+
+@app.cell
+def load_full_grid_bundle(full_grid_bundle_path):
+    from pathlib import Path as _Path
+
+    _raw = full_grid_bundle_path.value.strip().strip("'\"")
+    full_grid_manifest = {}
+    full_grid_leaderboard = pd.DataFrame()
+    full_grid_annual_leaderboard = pd.DataFrame()
+    full_grid_summary = pd.DataFrame()
+    if _raw:
+        _bundle = _Path(_raw).expanduser()
+        if not _bundle.is_absolute():
+            _bundle = ROOT / _bundle
+        _manifest_path = _bundle / "manifest.json"
+        if _manifest_path.exists():
+            with open(_manifest_path, "r", encoding="utf-8") as _handle:
+                full_grid_manifest = json.load(_handle)
+
+            def _read_csv(name):
+                _path = _bundle / name
+                return pd.read_csv(_path) if _path.exists() else pd.DataFrame()
+
+            full_grid_leaderboard = _read_csv("structural_full_grid_leaderboard.csv")
+            full_grid_annual_leaderboard = _read_csv("annual_full_grid_leaderboard.csv")
+            full_grid_summary = _read_csv("structural_full_grid_summary.csv")
+    return full_grid_leaderboard, full_grid_manifest
+
+
+@app.cell
+def controls(broker_profile, daily, manifest, threshold_grid):
     _strategies = visible_strategies(daily["Strategy"].dropna().unique())
     strategy_selector = mo.ui.multiselect(
         options=_strategies,
@@ -186,7 +247,10 @@ def controls(daily, manifest, threshold_grid):
     )
     _entries = [float(x) for x in sorted(threshold_grid["Entry Threshold"].dropna().unique())]
     _exits = [float(x) for x in sorted(threshold_grid["Exit Threshold"].dropna().unique())]
-    _leverages = [float(x) for x in sorted(threshold_grid["Overlay Weight (%)"].dropna().unique())]
+    _profiled_grid = filter_broker_limits(threshold_grid, broker_profile.value)
+    _leverages = [float(x) for x in sorted(_profiled_grid["Overlay Weight (%)"].dropna().unique())]
+    if not _leverages:
+        _leverages = [float(x) for x in sorted(threshold_grid["Overlay Weight (%)"].dropna().unique())]
     portfolio_entry = mo.ui.dropdown(
         options=_entries,
         value=30.0 if 30.0 in _entries else _entries[0],
@@ -199,7 +263,7 @@ def controls(daily, manifest, threshold_grid):
     )
     portfolio_leverage = mo.ui.slider(
         steps=_leverages,
-        value=20.0 if 20.0 in _leverages else _leverages[0],
+        value=max_allowed_leverage_pct(_leverages, broker_profile.value),
         show_value=True,
         include_input=True,
         label="Overlay leverage %",
@@ -243,18 +307,89 @@ def derived_tables(manifest, overlay_summary, pass_fail):
 
 
 @app.cell
-def executive_summary(cards, default_rank, pass_table, verdict_table):
+def executive_summary(
+    broker_profile,
+    cards,
+    default_rank,
+    full_grid_leaderboard,
+    full_grid_manifest,
+    manifest,
+    mixed_pass_fail,
+    mixed_sweep_pass_fail,
+    mixed_sweep_stability,
+    pass_table,
+    threshold_grid,
+    verdict_table,
+):
+    _candidate_funnel = build_candidate_funnel(
+        mixed_pass_fail,
+        mixed_sweep_pass_fail,
+        mixed_sweep_stability,
+        broker_profile.value,
+    )
+    _full_grid_filtered = filter_broker_limits(full_grid_leaderboard, broker_profile.value)
+    _full_grid_top = _full_grid_filtered.head(1).copy()
+    _impact = pd.concat([
+        broker_filter_impact(threshold_grid, broker_profile.value, label="Single-ETF threshold grid"),
+        broker_filter_impact(mixed_sweep_pass_fail, broker_profile.value, label="Disciplined sweep candidates"),
+        broker_filter_impact(full_grid_leaderboard, broker_profile.value, label="Full-grid brute-force leaderboard"),
+    ], ignore_index=True)
+    _generated = manifest.get("generated_at", "n/a")
+    _end = manifest.get("date_range", {}).get("actual_end", "n/a")
+    _full_grid_generated = full_grid_manifest.get("generated_at", "n/a")
+    _full_grid_grid = full_grid_manifest.get("mixed_grid", {})
+    _entry_values = [float(x) for x in _full_grid_grid.get("entry_thresholds", [])]
+    _exit_values = [float(x) for x in _full_grid_grid.get("exit_thresholds", [])]
+    _valid_rules = sum(1 for _entry in _entry_values for _exit in _exit_values if _exit > _entry)
+    _full_grid_rows = (
+        _valid_rules
+        * _valid_rules
+        * len(_full_grid_grid.get("spy_weight_grid", []))
+        * len(_full_grid_grid.get("gld_weight_grid", []))
+        * len(_full_grid_grid.get("cap_grid", []))
+    )
+    _leader_cols = [
+        "Source", "Candidate", "Benchmark", "Global Cap", "SPY Rule", "GLD Rule",
+        "Average OOS Calmar", "Average OOS Calmar Delta", "Worst OOS Calmar Delta",
+        "Worst OOS MaxDD Delta (%)", "Min OOS Trade Episodes",
+        "Average OOS Exposure (%)", "RF Cost Pass Splits", "Overall Pass", "Caveat", "Promotion Tier",
+    ]
+    _best = _candidate_funnel.head(1)
+    _best_name = _best["Candidate"].iloc[0] if not _best.empty else "No promoted candidate loaded"
+    _best_calmar = _best["Average OOS Calmar"].iloc[0] if not _best.empty and "Average OOS Calmar" in _best else "n/a"
+    _full_grid_cols = [
+        "Rank", "Overall Pass", "Broker Profile", "SPY Rule", "GLD Rule",
+        "Global Cap", "Average OOS Calmar", "Average OOS Calmar Delta",
+        "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)",
+        "Average OOS CAGR Delta (%)", "RF Cost Pass Splits",
+        "Min OOS Trade Episodes", "Average OOS Exposure (%)",
+        "Annual Calmar Improvement Years", "Annual Years Tested",
+    ]
+    _fig_frontier = plot_calmar_maxdd_scatter_figure(_candidate_funnel)
     mo.vstack([
         mo.md(
-            """
-            ## 1. Executive Summary
+            f"""
+            ## 1. Audit Summary / Executive Summary
 
-            **Main conclusion:** GLD is the cleanest leverage overlay candidate.
-            The default GLD rule improves CAGR, Calmar, and drawdown across the
-            OOS windows. SPY and QQQ defaults also pass, but they add equity/growth
-            risk. TLT and GSG are not priorities under the current gates.
+            **Best Calmar Candidate vs Base:** `{_best_name}`.
+            Average OOS Calmar: `{_best_calmar}`.
+
+            The SPY+GLD mixed research is reviewed through the active broker
+            limit profile: **{broker_profile.value}**. Rows above the selected
+            cap/sleeve limit are filtered from promotion views; the unrestricted
+            profile keeps them visible and tags aggressive research. Default
+            SPY+GLD 30/50/20 is **control only** and excluded from promotion.
+
+            **Data freshness:** main bundle generated `{_generated}` through `{_end}`.
+            Full-grid brute-force validation generated `{_full_grid_generated}` across
+            `{_full_grid_rows:,}` configs per period.
             """
         ),
+        broker_profile,
+        mo.ui.table(presentation_table(_candidate_funnel, _leader_cols), label="Calmar-First Candidate Leaderboard"),
+        mo.ui.table(presentation_table(_full_grid_top, _full_grid_cols), label="Full-Grid Top Calmar Row"),
+        mo.as_html(_fig_frontier),
+        mo.ui.table(_impact, label="Broker Filter Impact"),
         mo.ui.table(cards, label="Headline Cards"),
         mo.hstack([
             mo.ui.table(
@@ -312,6 +447,7 @@ def methodology(allocation, overlay_specs):
 
 @app.cell
 def filtered_data(
+    broker_profile,
     daily,
     dd_events,
     diagnostics,
@@ -344,19 +480,21 @@ def filtered_data(
         dd_events["Strategy"].isin(selected_portfolio_strategies)
     ].copy()
 
+    _profiled_grid = filter_broker_limits(threshold_grid, broker_profile.value)
     _grid_cols = [
         "Ticker", "Entry Threshold", "Exit Threshold", "Overlay Weight (%)",
         "Calmar", "CAGR (%)", "Max Drawdown (%)", "Sharpe",
         "Active Days (%)", "RF Opportunity Cost CAGR (%)",
         "Incremental CAGR (%)", "Incremental Calmar", "Incremental MaxDD (%)",
+        "Broker Profile", "Broker Allowed", "Promotion Tier",
     ]
     _mask = (
-        np.isclose(threshold_grid["Entry Threshold"], float(portfolio_entry.value), atol=1e-9)
-        & np.isclose(threshold_grid["Exit Threshold"], float(portfolio_exit.value), atol=1e-9)
-        & np.isclose(threshold_grid["Overlay Weight (%)"], float(portfolio_leverage.value), atol=1e-9)
+        np.isclose(_profiled_grid["Entry Threshold"], float(portfolio_entry.value), atol=1e-9)
+        & np.isclose(_profiled_grid["Exit Threshold"], float(portfolio_exit.value), atol=1e-9)
+        & np.isclose(_profiled_grid["Overlay Weight (%)"], float(portfolio_leverage.value), atol=1e-9)
     )
     selected_grid_rows = (
-        threshold_grid[_mask][[c for c in _grid_cols if c in threshold_grid.columns]]
+        _profiled_grid[_mask][[c for c in _grid_cols if c in _profiled_grid.columns]]
         .sort_values("Calmar", ascending=False)
         .reset_index(drop=True)
     )
@@ -371,6 +509,7 @@ def filtered_data(
 
 @app.cell
 def plot_growth_and_drawdown(
+    broker_profile,
     end_date,
     filtered_daily,
     include_spy_benchmark,
@@ -405,7 +544,7 @@ def plot_growth_and_drawdown(
     )
     mo.vstack([
         mo.md("## 3. Portfolio View"),
-        mo.hstack([start_date, end_date, strategy_selector, include_spy_benchmark], gap=2),
+        mo.hstack([broker_profile, start_date, end_date, strategy_selector, include_spy_benchmark], gap=2),
         mo.hstack([portfolio_entry, portfolio_exit, portfolio_leverage], gap=2),
         mo.md(
             "The top chart shows cumulative growth for the base portfolio and the "
@@ -469,8 +608,10 @@ def oos_validation_view(oos_summary, pass_table):
 
 
 @app.cell
-def gld_heatmap_controls(threshold_grid):
-    _gld = threshold_grid[threshold_grid["Ticker"] == "GLD"]
+def gld_heatmap_controls(broker_profile, threshold_grid):
+    _gld = filter_broker_limits(threshold_grid[threshold_grid["Ticker"] == "GLD"], broker_profile.value)
+    if _gld.empty:
+        _gld = threshold_grid[threshold_grid["Ticker"] == "GLD"]
     _g_entries = [float(x) for x in sorted(_gld["Entry Threshold"].dropna().unique())]
     _g_exits = [float(x) for x in sorted(_gld["Exit Threshold"].dropna().unique())]
     _g_leverages = [float(x) for x in sorted(_gld["Overlay Weight (%)"].dropna().unique())]
@@ -484,7 +625,7 @@ def gld_heatmap_controls(threshold_grid):
     gld_metric = mo.ui.dropdown(options=_metric_opts, value="Calmar", label="Metric")
     gld_heatmap_mode = mo.ui.dropdown(
         options=["Leverage x Exit", "Leverage x Entry", "Exit x Entry"],
-        value="Leverage x Exit",
+        value="Exit x Entry",
         label="Heatmap axes",
     )
     gld_entry = mo.ui.dropdown(
@@ -499,7 +640,7 @@ def gld_heatmap_controls(threshold_grid):
     )
     gld_leverage = mo.ui.slider(
         steps=_g_leverages,
-        value=20.0 if 20.0 in _g_leverages else _g_leverages[0],
+        value=max_allowed_leverage_pct(_g_leverages, broker_profile.value),
         show_value=True,
         include_input=True,
         label="Leverage % (fixed axis)",
@@ -509,6 +650,7 @@ def gld_heatmap_controls(threshold_grid):
 
 @app.cell
 def gld_deep_dive(
+    broker_profile,
     gld_entry,
     gld_exit,
     gld_heatmap_mode,
@@ -530,7 +672,9 @@ def gld_deep_dive(
             ("OOS CAGR Delta (%)", "GLD OOS CAGR delta"),
             ("OOS Calmar Delta", "GLD OOS Calmar delta"),
         ])
-        _gld_grid = threshold_grid[threshold_grid["Ticker"] == "GLD"]
+        _gld_grid = filter_broker_limits(threshold_grid[threshold_grid["Ticker"] == "GLD"], broker_profile.value)
+        if _gld_grid.empty:
+            _gld_grid = threshold_grid[threshold_grid["Ticker"] == "GLD"]
         _pivot, _xlabel, _ylabel, _title_suffix = compute_heatmap_pivot(
             _gld_grid,
             gld_heatmap_mode.value,
@@ -610,8 +754,10 @@ def gld_deep_dive(
 
 
 @app.cell
-def spy_heatmap_controls(threshold_grid):
-    _spy = threshold_grid[threshold_grid["Ticker"] == "SPY"]
+def spy_heatmap_controls(broker_profile, threshold_grid):
+    _spy = filter_broker_limits(threshold_grid[threshold_grid["Ticker"] == "SPY"], broker_profile.value)
+    if _spy.empty:
+        _spy = threshold_grid[threshold_grid["Ticker"] == "SPY"]
     _s_entries = [float(x) for x in sorted(_spy["Entry Threshold"].dropna().unique())]
     _s_exits = [float(x) for x in sorted(_spy["Exit Threshold"].dropna().unique())]
     _s_leverages = [float(x) for x in sorted(_spy["Overlay Weight (%)"].dropna().unique())]
@@ -625,7 +771,7 @@ def spy_heatmap_controls(threshold_grid):
     spy_metric = mo.ui.dropdown(options=_s_metric_opts, value="Calmar", label="Metric")
     spy_heatmap_mode = mo.ui.dropdown(
         options=["Leverage x Exit", "Leverage x Entry", "Exit x Entry"],
-        value="Leverage x Exit",
+        value="Exit x Entry",
         label="Heatmap axes",
     )
     spy_entry = mo.ui.dropdown(
@@ -640,7 +786,7 @@ def spy_heatmap_controls(threshold_grid):
     )
     spy_leverage = mo.ui.slider(
         steps=_s_leverages,
-        value=20.0 if 20.0 in _s_leverages else _s_leverages[0],
+        value=max_allowed_leverage_pct(_s_leverages, broker_profile.value),
         show_value=True,
         include_input=True,
         label="Leverage % (fixed axis)",
@@ -650,6 +796,7 @@ def spy_heatmap_controls(threshold_grid):
 
 @app.cell
 def spy_deep_dive(
+    broker_profile,
     oos_summary,
     spy_entry,
     spy_exit,
@@ -670,7 +817,9 @@ def spy_deep_dive(
             ("OOS CAGR Delta (%)", "SPY OOS CAGR delta"),
             ("OOS Calmar Delta", "SPY OOS Calmar delta"),
         ])
-        _spy_grid = threshold_grid[threshold_grid["Ticker"] == "SPY"]
+        _spy_grid = filter_broker_limits(threshold_grid[threshold_grid["Ticker"] == "SPY"], broker_profile.value)
+        if _spy_grid.empty:
+            _spy_grid = threshold_grid[threshold_grid["Ticker"] == "SPY"]
         _pivot, _xlabel, _ylabel, _title_suffix = compute_heatmap_pivot(
             _spy_grid,
             spy_heatmap_mode.value,
@@ -778,8 +927,11 @@ def plot_yearly(end_date, start_date, strategy_selector, yearly_overlay):
 
 
 @app.cell
-def appendix_threshold_controls(threshold_grid):
-    _ticker_options = sorted(threshold_grid["Ticker"].dropna().unique())
+def appendix_threshold_controls(broker_profile, threshold_grid):
+    _profiled_grid = filter_broker_limits(threshold_grid, broker_profile.value)
+    if _profiled_grid.empty:
+        _profiled_grid = threshold_grid.copy()
+    _ticker_options = sorted(_profiled_grid["Ticker"].dropna().unique())
     inspect_etf = mo.ui.dropdown(
         options=_ticker_options,
         value="GLD" if "GLD" in _ticker_options else _ticker_options[0],
@@ -796,9 +948,9 @@ def appendix_threshold_controls(threshold_grid):
         value="Calmar",
         label="Grid metric",
     )
-    _entries = [float(x) for x in sorted(threshold_grid["Entry Threshold"].dropna().unique())]
-    _exits = [float(x) for x in sorted(threshold_grid["Exit Threshold"].dropna().unique())]
-    _leverages = [float(x) for x in sorted(threshold_grid["Overlay Weight (%)"].dropna().unique())]
+    _entries = [float(x) for x in sorted(_profiled_grid["Entry Threshold"].dropna().unique())]
+    _exits = [float(x) for x in sorted(_profiled_grid["Exit Threshold"].dropna().unique())]
+    _leverages = [float(x) for x in sorted(_profiled_grid["Overlay Weight (%)"].dropna().unique())]
     entry_selector = mo.ui.dropdown(
         options=_entries, value=30.0 if 30.0 in _entries else _entries[0], label="Entry"
     )
@@ -807,14 +959,14 @@ def appendix_threshold_controls(threshold_grid):
     )
     leverage_selector = mo.ui.slider(
         steps=_leverages,
-        value=20.0 if 20.0 in _leverages else _leverages[0],
+        value=max_allowed_leverage_pct(_leverages, broker_profile.value),
         show_value=True,
         include_input=True,
         label="Leverage %",
     )
     heatmap_mode = mo.ui.dropdown(
         options=["Leverage x Exit", "Leverage x Entry", "Exit x Entry"],
-        value="Leverage x Exit",
+        value="Exit x Entry",
         label="Heatmap",
     )
     return (
@@ -829,6 +981,7 @@ def appendix_threshold_controls(threshold_grid):
 
 @app.cell
 def show_threshold_grid(
+    broker_profile,
     entry_selector,
     exit_selector,
     heatmap_mode,
@@ -837,7 +990,10 @@ def show_threshold_grid(
     metric,
     threshold_grid,
 ):
-    _data = threshold_grid[threshold_grid["Ticker"] == inspect_etf.value]
+    _filtered = filter_broker_limits(threshold_grid, broker_profile.value)
+    if _filtered.empty:
+        _filtered = threshold_grid.copy()
+    _data = _filtered[_filtered["Ticker"] == inspect_etf.value]
     _pivot, _xlabel, _ylabel, _title_suffix = compute_heatmap_pivot(
         _data,
         heatmap_mode.value,
@@ -855,6 +1011,7 @@ def show_threshold_grid(
         "CAGR (%)", "Sharpe", "Max Drawdown (%)", "Worst Month (%)",
         "Active Days (%)", "Incremental CAGR (%)", "Incremental Calmar",
         "Incremental MaxDD (%)", "Incremental CAGR per Avg Overlay", "Turnover",
+        "Broker Profile", "Broker Allowed", "Aggressive Research", "Promotion Tier",
     ]
     _best_calmar = _data.sort_values(["Calmar", "CAGR (%)"], ascending=[False, False]).head(20)
     _best_cagr = _data.sort_values(["CAGR (%)", "Calmar"], ascending=[False, False]).head(20)
@@ -884,6 +1041,7 @@ def show_threshold_grid(
             """
         ),
         mo.hstack([_controls, mo.as_html(_fig)]),
+        mo.ui.table(broker_filter_impact(threshold_grid, broker_profile.value, label="Threshold grid")),
         mo.accordion({
             "Best by Calmar": mo.ui.table(_best_calmar[_cols]),
             "Best by CAGR": mo.ui.table(_best_cagr[_cols]),
@@ -895,9 +1053,9 @@ def show_threshold_grid(
 
 
 @app.cell
-def choose_mixed_oos_bundle():
+def choose_mixed_oos_bundle(broker_profile):
     mixed_bundle_path = mo.ui.text(
-        value=latest_bundle(MIXED_OOS_BUNDLE_ROOT),
+        value=latest_bundle_for_profile(MIXED_OOS_BUNDLE_ROOT, broker_profile.value),
         label="Mixed leverage OOS bundle",
         full_width=True,
     )
@@ -909,24 +1067,34 @@ def load_mixed_oos_bundle(mixed_bundle_path):
     from pathlib import Path as _Path
 
     _raw = mixed_bundle_path.value.strip().strip("'\"")
-    _empty = (pd.DataFrame(),) * 5
+    _empty = (pd.DataFrame(),) * 8
     if not _raw:
-        mixed_fixed, mixed_selectors, mixed_pass_fail, mixed_selected, mixed_daily = _empty
+        mixed_fixed, mixed_selectors, mixed_pass_fail, mixed_selected, mixed_daily, mixed_diagnostics, mixed_episodes, mixed_fixed_walk_forward = _empty
     else:
         _bundle = _Path(_raw).expanduser()
         if not _bundle.is_absolute():
             _bundle = ROOT / _bundle
         if not _bundle.exists() or not (_bundle / "manifest.json").exists():
-            mixed_fixed, mixed_selectors, mixed_pass_fail, mixed_selected, mixed_daily = _empty
+            mixed_fixed, mixed_selectors, mixed_pass_fail, mixed_selected, mixed_daily, mixed_diagnostics, mixed_episodes, mixed_fixed_walk_forward = _empty
         else:
+            def _read_csv(name):
+                _path = _bundle / name
+                return pd.read_csv(_path) if _path.exists() else pd.DataFrame()
+
             mixed_fixed = pd.read_csv(_bundle / "fixed_candidates_oos.csv")
             mixed_selectors = pd.read_csv(_bundle / "oos_summary.csv")
             mixed_pass_fail = pd.read_csv(_bundle / "pass_fail_summary.csv")
             mixed_selected = pd.read_csv(_bundle / "selected_rules.csv")
             mixed_daily = pd.read_csv(_bundle / "oos_daily_series.csv")
+            mixed_diagnostics = pd.read_csv(_bundle / "oos_overlay_diagnostics.csv")
+            mixed_episodes = pd.read_csv(_bundle / "oos_trade_episodes.csv")
+            mixed_fixed_walk_forward = _read_csv("fixed_candidate_walk_forward_summary.csv")
     return (
         mixed_daily,
+        mixed_diagnostics,
+        mixed_episodes,
         mixed_fixed,
+        mixed_fixed_walk_forward,
         mixed_pass_fail,
         mixed_selected,
         mixed_selectors,
@@ -945,9 +1113,29 @@ def choose_mixed_oos_split(mixed_daily):
 
 
 @app.cell
+def choose_mixed_exposure_strategy(mixed_diagnostics):
+    _strategies = (
+        sorted(mixed_diagnostics["Overlay Strategy"].dropna().unique())
+        if not mixed_diagnostics.empty and "Overlay Strategy" in mixed_diagnostics
+        else []
+    )
+    mixed_exposure_strategy = mo.ui.dropdown(
+        options=_strategies,
+        value=_strategies[0] if _strategies else None,
+        label="Exposure candidate",
+    )
+    return (mixed_exposure_strategy,)
+
+
+@app.cell
 def mixed_oos_results(
+    broker_profile,
     mixed_daily,
+    mixed_diagnostics,
+    mixed_episodes,
+    mixed_exposure_strategy,
     mixed_fixed,
+    mixed_fixed_walk_forward,
     mixed_pass_fail,
     mixed_selected,
     mixed_selectors,
@@ -958,17 +1146,37 @@ def mixed_oos_results(
             mo.md("## Mixed SPY+GLD OOS Validation\n\n_No mixed leverage OOS bundle loaded._"),
         ])
     else:
+        _mixed_fixed = filter_broker_limits(mixed_fixed, broker_profile.value)
+        _mixed_fixed["Control Only"] = _mixed_fixed.get("Control Only", _mixed_fixed["Candidate Name"].map(is_control_candidate))
+        _main_mixed_fixed = _mixed_fixed[~_mixed_fixed["Control Only"].fillna(False).astype(bool)].copy()
+        _control_mixed_fixed = _mixed_fixed[_mixed_fixed["Control Only"].fillna(False).astype(bool)].copy()
+        _mixed_selectors = filter_broker_limits(mixed_selectors, broker_profile.value)
+        if "Selector" in _mixed_selectors:
+            _mixed_selectors = _mixed_selectors[~_mixed_selectors["Selector"].map(is_control_candidate)].copy()
+        _mixed_selected = filter_broker_limits(mixed_selected, broker_profile.value)
+        if "Selector" in _mixed_selected:
+            _mixed_selected = _mixed_selected[~_mixed_selected["Selector"].map(is_control_candidate)].copy()
+        _mixed_pass_fail = filter_broker_limits(mixed_pass_fail, broker_profile.value)
+        if "Name" in _mixed_pass_fail:
+            _mixed_pass_fail = _mixed_pass_fail[~_mixed_pass_fail["Name"].map(is_control_candidate)].copy()
+        _fixed_walk_forward = filter_broker_limits(mixed_fixed_walk_forward, broker_profile.value)
+        if not _fixed_walk_forward.empty and "Candidate Name" in _fixed_walk_forward:
+            _fixed_walk_forward = _fixed_walk_forward[~_fixed_walk_forward["Candidate Name"].map(is_control_candidate)].copy()
         _pf_cols = [
-            "Source", "Name", "Splits Tested", "Splits Passed",
-            "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)",
-            "Average OOS CAGR Delta (%)", "Overall Pass", "MaxDD Breach >3pp",
+            "Source", "Name", "Benchmark", "Global Cap", "SPY Rule", "GLD Rule",
+            "Splits Tested", "Splits Passed", "Average OOS Calmar",
+            "Average OOS Calmar Delta", "Worst OOS Calmar Delta",
+            "Worst OOS MaxDD Delta (%)", "Min OOS Trade Episodes",
+            "Average OOS Exposure (%)", "RF Cost Pass Splits", "Average OOS CAGR Delta (%)",
+            "Overall Pass", "MaxDD Breach >3pp",
+            "Broker Profile", "Broker Allowed", "Aggressive Research", "Promotion Tier",
         ]
 
         _fig_fixed = plot_mixed_oos_delta_bars_figure(
-            mixed_fixed, name_col="Candidate Name", title_prefix="Fixed Candidates",
+            _main_mixed_fixed, name_col="Candidate Name", title_prefix="Fixed Candidates",
         )
         _fig_selectors = plot_mixed_oos_delta_bars_figure(
-            mixed_selectors, name_col="Selector", title_prefix="Grid Selectors",
+            _mixed_selectors, name_col="Selector", title_prefix="Grid Selectors",
         )
 
         _fig_growth = (
@@ -977,10 +1185,14 @@ def mixed_oos_results(
             else None
         )
 
-        _fig_is_oos = plot_mixed_is_vs_oos_figure(mixed_selectors, name_col="Selector")
+        _fig_is_oos = plot_mixed_is_vs_oos_figure(_mixed_selectors, name_col="Selector")
+        _fig_exposure = plot_exposure_timeline_figure(
+            mixed_diagnostics, strategy=mixed_exposure_strategy.value,
+        )
+        _fig_episodes = plot_trade_episode_distribution_figure(mixed_episodes)
 
-        _is_oos_fixed = build_is_vs_oos_comparison(mixed_fixed, "Candidate Name")
-        _is_oos_selectors = build_is_vs_oos_comparison(mixed_selectors, "Selector")
+        _is_oos_fixed = build_is_vs_oos_comparison(_main_mixed_fixed, "Candidate Name")
+        _is_oos_selectors = build_is_vs_oos_comparison(_mixed_selectors, "Selector")
         _is_oos = pd.concat([_is_oos_fixed, _is_oos_selectors], ignore_index=True)
 
         _fixed_cols = [
@@ -991,6 +1203,7 @@ def mixed_oos_results(
             "OOS Overlay Max Drawdown (%)", "OOS MaxDD Delta (%)",
             "OOS CAGR Delta (%)", "OOS Active Days (%)",
             "OOS Trade Episodes", "Pass Split",
+            "Broker Profile", "Broker Allowed", "Aggressive Research", "Promotion Tier",
         ]
         _sel_cols = [
             "Split", "Selector", "Global Cap",
@@ -1000,6 +1213,7 @@ def mixed_oos_results(
             "OOS Overlay Max Drawdown (%)", "OOS MaxDD Delta (%)",
             "OOS CAGR Delta (%)", "OOS Active Days (%)",
             "OOS Trade Episodes", "Pass Split",
+            "Broker Profile", "Broker Allowed", "Aggressive Research", "Promotion Tier",
         ]
 
         _growth_section = (
@@ -1011,13 +1225,17 @@ def mixed_oos_results(
                 """
                 ## Mixed SPY+GLD OOS Validation
 
-                Out-of-sample results for capped multi-ETF (SPY+GLD) leverage overlays.
+                Out-of-sample results for capped multi-ETF (SPY+GLD) leverage overlays,
+                compared against the base strategy. Default SPY+GLD 30/50/20 is
+                kept as a **control only** row in the appendix, not as a promoted
+                candidate.
                 Fixed candidates use pre-set parameters without re-selection; grid selectors
                 pick the best IS-only config per split, then evaluate OOS.
                 """
             ),
             mo.md("### Pass/Fail Summary"),
-            mo.ui.table(presentation_table(mixed_pass_fail, _pf_cols)),
+            mo.ui.table(broker_filter_impact(mixed_fixed, broker_profile.value, label="Mixed fixed candidates")),
+            mo.ui.table(presentation_table(_mixed_pass_fail, _pf_cols)),
             mo.md("### Fixed Candidates: OOS Deltas by Split"),
             mo.as_html(_fig_fixed),
             mo.md("### Grid Selectors: OOS Deltas by Split"),
@@ -1027,11 +1245,17 @@ def mixed_oos_results(
             mo.md("### IS vs OOS Calmar: Overfitting Check"),
             mo.as_html(_fig_is_oos),
             mo.ui.table(_is_oos, label="IS vs OOS Calmar Comparison"),
+            mo.md("### Daily Exposure and Trade Episodes"),
+            mixed_exposure_strategy,
+            mo.as_html(_fig_exposure),
+            mo.as_html(_fig_episodes),
             mo.md("### Detailed Tables"),
             mo.accordion({
-                "Fixed candidates per split": mo.ui.table(presentation_table(mixed_fixed, _fixed_cols)),
-                "Selector winners per split": mo.ui.table(presentation_table(mixed_selectors, _sel_cols)),
-                "Selected rules (IS picks)": mo.ui.table(mixed_selected),
+                "Fixed candidates per split": mo.ui.table(presentation_table(_main_mixed_fixed, _fixed_cols)),
+                "Control only: default SPY+GLD 30/50/20": mo.ui.table(presentation_table(_control_mixed_fixed, _fixed_cols)),
+                "Fixed candidate walk-forward": mo.ui.table(_fixed_walk_forward),
+                "Selector winners per split": mo.ui.table(presentation_table(_mixed_selectors, _sel_cols)),
+                "Selected rules (IS picks)": mo.ui.table(_mixed_selected),
             }),
         ])
     _output
@@ -1039,9 +1263,9 @@ def mixed_oos_results(
 
 
 @app.cell
-def choose_mixed_sweep_bundle():
+def choose_mixed_sweep_bundle(broker_profile):
     mixed_sweep_bundle_path = mo.ui.text(
-        value=latest_bundle(MIXED_SWEEP_BUNDLE_ROOT),
+        value=latest_bundle_for_profile(MIXED_SWEEP_BUNDLE_ROOT, broker_profile.value),
         label="Disciplined SPY+GLD sweep bundle",
         full_width=True,
     )
@@ -1115,7 +1339,7 @@ def choose_mixed_sweep_heatmap(mixed_sweep_heatmaps):
     )
     mixed_sweep_dimension = mo.ui.dropdown(
         options=_dims,
-        value=_dims[0] if _dims else None,
+        value="SPY Threshold" if "SPY Threshold" in _dims else (_dims[0] if _dims else None),
         label="Sweep heatmap",
     )
     mixed_sweep_split = mo.ui.dropdown(
@@ -1133,6 +1357,8 @@ def choose_mixed_sweep_heatmap(mixed_sweep_heatmaps):
 
 @app.cell
 def mixed_sweep_results(
+    broker_profile,
+    mixed_pass_fail,
     mixed_sweep_dimension,
     mixed_sweep_heatmaps,
     mixed_sweep_manifest,
@@ -1149,10 +1375,33 @@ def mixed_sweep_results(
             mo.md("## Disciplined SPY+GLD Sweep\n\n_No disciplined mixed sweep bundle loaded._"),
         ])
     else:
+        _sweep_pass_fail = filter_broker_limits(mixed_sweep_pass_fail, broker_profile.value)
+        if "Selector" in _sweep_pass_fail:
+            _sweep_pass_fail = _sweep_pass_fail[~_sweep_pass_fail["Selector"].map(is_control_candidate)].copy()
+        _sweep_oos = filter_broker_limits(mixed_sweep_oos, broker_profile.value)
+        if "Selector" in _sweep_oos:
+            _sweep_oos = _sweep_oos[~_sweep_oos["Selector"].map(is_control_candidate)].copy()
+        _sweep_selected = filter_broker_limits(mixed_sweep_selected, broker_profile.value)
+        if "Selector" in _sweep_selected:
+            _sweep_selected = _sweep_selected[~_sweep_selected["Selector"].map(is_control_candidate)].copy()
+        _candidate_funnel = build_candidate_funnel(
+            mixed_pass_fail,
+            mixed_sweep_pass_fail,
+            mixed_sweep_stability,
+            broker_profile.value,
+        )
+        _broker_impact = pd.concat([
+            broker_filter_impact(mixed_sweep_pass_fail, broker_profile.value, label="Sweep candidate summary"),
+            broker_filter_impact(mixed_sweep_oos, broker_profile.value, label="Sweep structural OOS rows"),
+            broker_filter_impact(mixed_sweep_selected, broker_profile.value, label="Sweep selected rules"),
+        ], ignore_index=True)
         _pf_cols = [
-            "Selector", "Structural Splits Tested", "Structural Splits Passed",
+            "Selector", "Benchmark", "Global Cap", "SPY Rule", "GLD Rule",
+            "Structural Splits Tested", "Structural Splits Passed",
+            "Average OOS Calmar", "Average OOS Calmar Delta",
             "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)",
             "Average OOS CAGR Delta (%)", "Min OOS Trade Episodes",
+            "Average OOS Exposure (%)", "RF Cost Pass Splits",
             "Annual Years Tested", "Annual Calmar Improvement Years",
             "Stable Neighborhood Pass", "Aggressive Cap >30%", "Promotion Tier",
             "Overall Pass",
@@ -1164,6 +1413,7 @@ def mixed_sweep_results(
             "Calmar", "CAGR (%)", "Max Drawdown (%)",
             "Average Overlay Exposure (%)", "Robust Avg Calmar",
             "Robust Neighborhood Size",
+            "Broker Profile", "Broker Allowed", "Aggressive Research", "Promotion Tier",
         ]
         _oos_cols = [
             "Split", "Selector", "Global Cap",
@@ -1172,6 +1422,7 @@ def mixed_sweep_results(
             "OOS Overlay Calmar", "OOS Calmar Delta",
             "OOS Overlay Max Drawdown (%)", "OOS MaxDD Delta (%)",
             "OOS CAGR Delta (%)", "OOS Trade Episodes", "Pass Split",
+            "Broker Profile", "Broker Allowed", "Aggressive Research", "Promotion Tier",
         ]
         _stability_cols = [
             "Selector", "Structural Selections", "Unique Configs",
@@ -1225,8 +1476,8 @@ def mixed_sweep_results(
                     _pivot,
                     str(mixed_sweep_dimension.value),
                     str(mixed_sweep_metric.value).replace("_", " "),
-                    "X parameter",
-                    "Y parameter",
+                    "Entry RSI" if str(mixed_sweep_dimension.value) in {"SPY Threshold", "GLD Threshold"} else "X parameter",
+                    "Exit RSI" if str(mixed_sweep_dimension.value) in {"SPY Threshold", "GLD Threshold"} else "Y parameter",
                     f"split {mixed_sweep_split.value}",
                 )
 
@@ -1246,7 +1497,7 @@ def mixed_sweep_results(
         _output = mo.vstack([
             mo.md(
                 """
-                ## Disciplined SPY+GLD Sweep
+                ## 2. Candidate Funnel and Acceptance Gate Evidence
 
                 Second-stage mixed leverage surface map for SPY and GLD. The notebook
                 reads compact CSV summaries for review; the full IS grid is kept in
@@ -1254,17 +1505,23 @@ def mixed_sweep_results(
                 """
             ),
             mo.ui.table(_manifest_table, label="Sweep bundle"),
+            mo.md("### Candidate Funnel"),
+            mo.ui.table(_candidate_funnel),
+            mo.as_html(plot_calmar_maxdd_scatter_figure(_candidate_funnel)),
+            mo.md("### Broker Filter Impact"),
+            mo.ui.table(_broker_impact),
             mo.md("### Acceptance Gate"),
-            mo.ui.table(presentation_table(mixed_sweep_pass_fail, _pf_cols)),
+            mo.ui.table(presentation_table(_sweep_pass_fail, _pf_cols)),
             mo.md("### Selector Stability"),
             mo.ui.table(presentation_table(mixed_sweep_stability, _stability_cols)),
             mo.md("### Annual Walk-Forward Rollup"),
             mo.ui.table(_wf_rollup),
+            mo.as_html(plot_walk_forward_heatmap_figure(mixed_sweep_walk_forward)),
             mo.md("### Parameter Surface"),
             *_heatmap_section,
             mo.accordion({
-                "Structural OOS selector results": mo.ui.table(presentation_table(mixed_sweep_oos, _oos_cols)),
-                "IS selected rules": mo.ui.table(presentation_table(mixed_sweep_selected, _selected_cols)),
+                "Structural OOS selector results": mo.ui.table(presentation_table(_sweep_oos, _oos_cols)),
+                "IS selected rules": mo.ui.table(presentation_table(_sweep_selected, _selected_cols)),
                 "Annual walk-forward rows": mo.ui.table(mixed_sweep_walk_forward),
                 "Heatmap table rows": mo.ui.table(_heatmap_table),
             }),

@@ -1,0 +1,13 @@
+name: reducing-noise
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - numpy
+      - pandas
+      - matplotlib
+      - plotly
+      - pytest
+      - yfinance

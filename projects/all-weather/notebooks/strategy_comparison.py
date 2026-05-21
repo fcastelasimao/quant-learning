@@ -17,7 +17,11 @@ with app.setup:
 
     from research.strategy_plotting import (
         COLORS,
+        DROPPED_LEGACY_STRATEGIES,
+        LEGACY_STRATEGY_RENAMES,
         STRATEGY_ORDER,
+        TARGET_LEVERAGE_STRATEGIES,
+        clean_strategy_labels,
         latest_bundle,
         plot_calendar_profile,
         plot_drawdowns,
@@ -32,6 +36,7 @@ with app.setup:
         ROOT / "results" / "production_validation",
         ROOT / "results" / "strategy_comparison",
     ]
+    FULL_GRID_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_full_grid_oos"
 
 
 @app.cell
@@ -41,11 +46,17 @@ def choose_bundle():
         label="Result bundle path",
         full_width=True,
     )
+    full_grid_bundle_path = mo.ui.text(
+        value=latest_bundle([FULL_GRID_BUNDLE_ROOT]),
+        label="Full-grid leverage validation bundle",
+        full_width=True,
+    )
     mo.vstack([
         mo.md("# Bank-Facing Strategy Comparison"),
         bundle_path,
+        full_grid_bundle_path,
     ])
-    return (bundle_path,)
+    return bundle_path, full_grid_bundle_path
 
 
 @app.cell
@@ -76,13 +87,13 @@ def load_bundle(bundle_path):
             ),
         )
 
-    with open(_manifest_path, "r", encoding="utf-8") as handle:
-        manifest = json.load(handle)
+    with open(_manifest_path, "r", encoding="utf-8") as _handle:
+        manifest = json.load(_handle)
     _provenance_path = bundle / "price_provenance.json"
     price_provenance = {}
     if _provenance_path.exists():
-        with open(_provenance_path, "r", encoding="utf-8") as handle:
-            price_provenance = json.load(handle)
+        with open(_provenance_path, "r", encoding="utf-8") as _handle:
+            price_provenance = json.load(_handle)
 
     daily = pd.read_csv(bundle / "daily_series.csv", parse_dates=["Date"])
     monthly = pd.read_csv(bundle / "monthly_returns.csv", parse_dates=["Date"])
@@ -93,10 +104,47 @@ def load_bundle(bundle_path):
     stress = pd.read_csv(bundle / "stress_period_metrics.csv")
     risk_contrib = pd.read_csv(bundle / "risk_contribution.csv")
     turnover = pd.read_csv(bundle / "turnover_costs.csv", parse_dates=["Date"])
+    _event_path = bundle / "leverage_signal_events.csv"
+    leverage_events = (
+        pd.read_csv(_event_path, parse_dates=["Date"])
+        if _event_path.exists()
+        else pd.DataFrame()
+    )
+
+    daily = clean_strategy_labels(daily)
+    monthly = clean_strategy_labels(monthly)
+    summary = clean_strategy_labels(summary)
+    calendar = clean_strategy_labels(calendar)
+    rolling = clean_strategy_labels(rolling)
+    dd_events = clean_strategy_labels(dd_events)
+    stress = clean_strategy_labels(stress)
+    leverage_events = clean_strategy_labels(leverage_events)
+    if "fees" in manifest:
+        manifest["fees"] = {
+            LEGACY_STRATEGY_RENAMES.get(key, key): value
+            for key, value in manifest["fees"].items()
+            if key not in DROPPED_LEGACY_STRATEGIES
+        }
+    for key in ("leverage_candidate",):
+        candidate = manifest.get(key)
+        if candidate and candidate.get("name") in LEGACY_STRATEGY_RENAMES:
+            candidate["name"] = LEGACY_STRATEGY_RENAMES[candidate["name"]]
+    if manifest.get("leverage_candidates"):
+        _candidates = []
+        for candidate in manifest["leverage_candidates"]:
+            name = candidate.get("name")
+            if name in DROPPED_LEGACY_STRATEGIES:
+                continue
+            if name in LEGACY_STRATEGY_RENAMES:
+                candidate = dict(candidate)
+                candidate["name"] = LEGACY_STRATEGY_RENAMES[name]
+            _candidates.append(candidate)
+        manifest["leverage_candidates"] = _candidates
     return (
         calendar,
         daily,
         dd_events,
+        leverage_events,
         manifest,
         monthly,
         price_provenance,
@@ -106,6 +154,26 @@ def load_bundle(bundle_path):
         summary,
         turnover,
     )
+
+
+@app.cell
+def load_full_grid_leaderboard(full_grid_bundle_path):
+    from pathlib import Path as _Path
+
+    _raw = full_grid_bundle_path.value.strip().strip("'\"")
+    full_grid_manifest = {}
+    full_grid_leaderboard = pd.DataFrame()
+    if _raw:
+        _bundle = _Path(_raw).expanduser()
+        if not _bundle.is_absolute():
+            _bundle = ROOT / _bundle
+        _manifest_path = _bundle / "manifest.json"
+        _leaderboard_path = _bundle / "structural_full_grid_leaderboard.csv"
+        if _manifest_path.exists() and _leaderboard_path.exists():
+            with open(_manifest_path, "r", encoding="utf-8") as _handle:
+                full_grid_manifest = json.load(_handle)
+            full_grid_leaderboard = pd.read_csv(_leaderboard_path)
+    return full_grid_leaderboard, full_grid_manifest
 
 
 @app.cell
@@ -156,9 +224,149 @@ def show_manifest(manifest, price_provenance):
 
 
 @app.cell
-def plot_growth_cell(daily):
-    mo.md("## Overview: Growth of Money")
-    plot_growth(daily)
+def leverage_candidate_status(
+    daily,
+    full_grid_leaderboard,
+    full_grid_manifest,
+    manifest,
+    summary,
+):
+    candidate_meta = [
+        item
+        for item in (manifest.get("leverage_candidates") or [])
+        if item.get("name") in TARGET_LEVERAGE_STRATEGIES
+    ]
+    if not candidate_meta and manifest.get("leverage_candidate"):
+        _candidate = manifest["leverage_candidate"]
+        candidate_meta = [_candidate] if _candidate.get("name") in TARGET_LEVERAGE_STRATEGIES else []
+    candidate_names = list(TARGET_LEVERAGE_STRATEGIES)
+    present_names = [name for name in candidate_names if name in set(daily["Strategy"].dropna().unique())]
+    full_history_summary = summary[summary["Window"] == "Full History"].copy()
+    allw_overlap_summary = summary[summary["Window"] == "ALLW Overlap"].copy()
+    specs = pd.concat(
+        [
+            pd.DataFrame(item.get("specs", [])).assign(
+                Candidate=item.get("name"),
+                **{
+                    "Global Cap": item.get("global_cap"),
+                    "Notes": item.get("notes", ""),
+                },
+            )
+            for item in candidate_meta
+            if item.get("specs")
+        ],
+        ignore_index=True,
+    ) if candidate_meta else pd.DataFrame()
+
+    top_cols = [
+        "Rank", "Overall Pass", "Broker Profile", "SPY Rule", "GLD Rule",
+        "Global Cap", "Average OOS Calmar", "Average OOS Calmar Delta",
+        "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)",
+        "Annual Calmar Improvement Years", "Annual Years Tested",
+        "Average OOS Exposure (%)",
+    ]
+    full_grid_top = full_grid_leaderboard.head(1).copy()
+    full_grid_generated = full_grid_manifest.get("generated_at", "n/a")
+    missing_names = [name for name in candidate_names if name not in present_names]
+    warning = (
+        mo.callout(
+            mo.md(
+                "This result bundle is missing: "
+                + ", ".join(f"`{name}`" for name in missing_names)
+                + ". Regenerate the strategy comparison bundle to include every exported candidate."
+            ),
+            kind="warn",
+        )
+        if missing_names
+        else mo.md("")
+    )
+
+    mo.vstack([
+        mo.md(
+            f"""
+            ## Added Leverage Candidates
+
+            The strategy comparison now includes `SPY 34/42 @ 30% cap`,
+            `GLD 32/64 @ 30% cap`, and
+            `SPY 32/42 + GLD 36/52 @ 30% cap` as strategy series.
+            The full-grid validation bundle was generated `{full_grid_generated}`.
+            """
+        ),
+        warning,
+        mo.ui.table(full_grid_top[[col for col in top_cols if col in full_grid_top]], label="Full-Grid Top Leaderboard Row"),
+        mo.ui.table(full_history_summary, label="Full History Summary Metrics"),
+        mo.ui.table(allw_overlap_summary, label="ALLW Overlap Summary Metrics"),
+        mo.ui.table(specs, label="Candidate RSI Overlay Specs"),
+    ])
+    return
+
+
+@app.cell
+def growth_controls(daily):
+    available_strategies = [
+        strategy
+        for strategy in STRATEGY_ORDER
+        if strategy in set(daily["Strategy"].dropna().unique())
+    ]
+    available_strategies.extend(
+        strategy
+        for strategy in sorted(daily["Strategy"].dropna().unique())
+        if strategy not in available_strategies
+    )
+    growth_strategies = mo.ui.multiselect(
+        options=available_strategies,
+        value=available_strategies,
+        label="Strategies",
+        full_width=True,
+    )
+    full_history_scale = mo.ui.dropdown(
+        options=["log", "linear"],
+        value="log",
+        label="Full history y-axis",
+    )
+    overlap_scale = mo.ui.dropdown(
+        options=["linear", "log"],
+        value="linear",
+        label="ALLW overlap y-axis",
+    )
+    show_leverage_events = mo.ui.checkbox(
+        value=True,
+        label="Show SPY/GLD leverage entry and exit markers",
+    )
+    mo.vstack([
+        mo.md("## Overview: Growth of Money"),
+        mo.hstack([full_history_scale, overlap_scale], gap=2),
+        show_leverage_events,
+        growth_strategies,
+    ])
+    return (
+        available_strategies,
+        full_history_scale,
+        growth_strategies,
+        overlap_scale,
+        show_leverage_events,
+    )
+
+
+@app.cell
+def plot_growth_cell(
+    available_strategies,
+    daily,
+    full_history_scale,
+    growth_strategies,
+    leverage_events,
+    overlap_scale,
+    show_leverage_events,
+):
+    selected_strategies = growth_strategies.value or available_strategies
+    mo.as_html(plot_growth(
+        daily,
+        strategies=selected_strategies,
+        full_history_scale=full_history_scale.value,
+        leverage_events=leverage_events,
+        overlap_scale=overlap_scale.value,
+        show_leverage_events=show_leverage_events.value,
+    ))
     return
 
 

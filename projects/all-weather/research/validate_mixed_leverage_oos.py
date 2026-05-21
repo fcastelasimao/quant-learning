@@ -55,7 +55,6 @@ from research.build_leverage_comparison_report import (
     _clean_prices,
     _daily_series,
     _write_json,
-    load_strategy,
 )
 from research.build_mixed_leverage_report import (
     MixedOverlayCandidate,
@@ -65,8 +64,20 @@ from research.build_mixed_leverage_report import (
 
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "results" / "mixed_leverage_oos_validation"
 DEFAULT_SWEEP_OUTPUT_ROOT = PROJECT_ROOT / "results" / "mixed_leverage_sweep"
+DEFAULT_FULL_GRID_OUTPUT_ROOT = PROJECT_ROOT / "results" / "mixed_leverage_full_grid_oos"
 OOS_SPLITS = ("2018-01-01", "2020-01-01", "2022-01-01")
 WALK_FORWARD_YEARS = tuple(range(2014, 2026))
+CONTROL_SELECTOR = "default_30_50_20"
+CONTROL_CANDIDATE_NAME = "SPY+GLD default 20% total cap"
+CONFIG_COLS = [
+    "SPY Entry",
+    "SPY Exit",
+    "SPY Weight",
+    "GLD Entry",
+    "GLD Exit",
+    "GLD Weight",
+    "Global Cap",
+]
 
 # Coarse mixed grid (kept intentionally small — total 12,288 mixed configs per split).
 DEFAULT_MIXED_ENTRY_GRID = (22.0, 26.0, 30.0, 34.0)
@@ -82,16 +93,61 @@ DISCIPLINED_SPY_WEIGHT_GRID = (0.05, 0.10, 0.15, 0.20, 0.25)
 DISCIPLINED_GLD_WEIGHT_GRID = (0.10, 0.15, 0.20, 0.25, 0.30)
 DISCIPLINED_CAP_GRID = (0.15, 0.20, 0.25, 0.30, 0.35)
 
+FULL_GRID_ENTRY_GRID = tuple(float(x) for x in range(18, 42, 2))
+FULL_GRID_EXIT_GRID = tuple(float(x) for x in range(40, 70, 2))
+FULL_GRID_SPY_WEIGHT_GRID = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30)
+FULL_GRID_GLD_WEIGHT_GRID = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30)
+FULL_GRID_CAP_GRID = (0.15, 0.20, 0.25, 0.30)
+
 MIXED_TICKERS = ("SPY", "GLD")
 
 SELECTORS = (
-    "default_30_50_20",
+    CONTROL_SELECTOR,
     "best_calmar",
     "best_maxdd_preservation",
     "best_cagr_with_maxdd_guard",
     "robust_calmar_region",
     "simple_stable_region",
 )
+
+
+def load_strategy(strategy_id: str) -> dict:
+    """Load one strategy payload, accepting canonical ids and registry aliases."""
+    return config.load_strategy(strategy_id)
+
+
+def is_control_candidate_name(name: object) -> bool:
+    """Return True for rows kept only as controls, not promotion candidates."""
+    text = str(name)
+    return text in {CONTROL_SELECTOR, CONTROL_CANDIDATE_NAME} or "default 30/50" in text.lower()
+
+
+def _limit_tuple(values: tuple[float, ...], max_value: float | None) -> tuple[float, ...]:
+    """Return grid values not above max_value, preserving at least one value."""
+    if max_value is None:
+        return values
+    filtered = tuple(v for v in values if v <= max_value + 1e-12)
+    if filtered:
+        return filtered
+    return (min(values),)
+
+
+def _limit_fixed_candidates(
+    candidates: list[MixedOverlayCandidate],
+    max_global_cap: float | None,
+    max_sleeve_weight: float | None,
+) -> list[MixedOverlayCandidate]:
+    """Drop fixed candidates outside broker caps for constrained research runs."""
+    kept = []
+    for candidate in candidates:
+        if max_global_cap is not None and candidate.global_cap > max_global_cap + 1e-12:
+            continue
+        if max_sleeve_weight is not None and any(
+            spec.overlay_weight > max_sleeve_weight + 1e-12 for spec in candidate.specs
+        ):
+            continue
+        kept.append(candidate)
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +170,9 @@ def build_mixed_oos_validation_bundle(
     cap_grid: tuple[float, ...] = DEFAULT_MIXED_CAP_GRID,
     apply_fees: bool = True,
     fixed_only: bool = False,
+    max_global_cap: float | None = None,
+    max_sleeve_weight: float | None = None,
+    funding_spread: float = 0.0,
     generated_at: datetime | None = None,
     data_source: str = "yfinance",
 ) -> Path:
@@ -121,6 +180,9 @@ def build_mixed_oos_validation_bundle(
     generated_at = generated_at or datetime.now()
     end_date = end_date or date.today().strftime("%Y-%m-%d")
     fixed_candidates = fixed_candidates or default_mixed_candidates()
+    cap_grid = _limit_tuple(cap_grid, max_global_cap)
+    leverage_grid = _limit_tuple(leverage_grid, max_sleeve_weight)
+    fixed_candidates = _limit_fixed_candidates(fixed_candidates, max_global_cap, max_sleeve_weight)
     prices = _clean_prices(prices)
     price_provenance = get_price_provenance(prices)
 
@@ -172,6 +234,7 @@ def build_mixed_oos_validation_bundle(
                 selector="fixed_candidate",
                 base_metrics=oos_base_metrics,
                 split=split,
+                funding_spread=funding_spread,
                 extra={"Candidate Name": candidate.name, "Notes": candidate.notes},
             )
             fixed_summary_rows.append(fixed_eval["summary"])
@@ -241,6 +304,7 @@ def build_mixed_oos_validation_bundle(
                 selector=str(rule["Selector"]),
                 base_metrics=oos_base_metrics,
                 split=split,
+                funding_spread=funding_spread,
                 extra={
                     "Candidate Name": label,
                     "Notes": str(rule.get("Selection Warning", "") or ""),
@@ -269,6 +333,14 @@ def build_mixed_oos_validation_bundle(
     fixed_oos_df = pd.DataFrame(fixed_summary_rows)
     oos_summary_df = pd.DataFrame(summary_rows)
     pass_fail_df = build_pass_fail_summary(fixed_oos_df, oos_summary_df)
+    fixed_walk_forward_df = fixed_candidate_walk_forward_summary(
+        prices=prices,
+        allocation=allocation,
+        candidates=fixed_candidates,
+        years=WALK_FORWARD_YEARS,
+        apply_fees=apply_fees,
+        funding_spread=funding_spread,
+    )
 
     bundle_dir = (
         Path(output_root)
@@ -291,6 +363,9 @@ def build_mixed_oos_validation_bundle(
             cap_grid=cap_grid,
             apply_fees=apply_fees,
             fixed_only=fixed_only,
+            max_global_cap=max_global_cap,
+            max_sleeve_weight=max_sleeve_weight,
+            funding_spread=funding_spread,
             generated_at=generated_at,
             data_source=data_source,
         ),
@@ -299,6 +374,9 @@ def build_mixed_oos_validation_bundle(
     is_grid_df.to_csv(bundle_dir / "is_mixed_grid.csv", index=False)
     selected_df.to_csv(bundle_dir / "selected_rules.csv", index=False)
     fixed_oos_df.to_csv(bundle_dir / "fixed_candidates_oos.csv", index=False)
+    fixed_walk_forward_df.to_csv(
+        bundle_dir / "fixed_candidate_walk_forward_summary.csv", index=False
+    )
     oos_summary_df.to_csv(bundle_dir / "oos_summary.csv", index=False)
     _concat_or_empty(daily_frames).to_csv(
         bundle_dir / "oos_daily_series.csv", index=False
@@ -327,6 +405,9 @@ def build_from_yfinance(
     apply_fees: bool = True,
     splits: tuple[str, ...] = OOS_SPLITS,
     fixed_only: bool = False,
+    max_global_cap: float | None = None,
+    max_sleeve_weight: float | None = None,
+    funding_spread: float = 0.0,
 ) -> Path:
     """Fetch prices and write the mixed-leverage OOS validation bundle."""
     payload = load_strategy(strategy_id)
@@ -343,6 +424,9 @@ def build_from_yfinance(
         splits=splits,
         apply_fees=apply_fees,
         fixed_only=fixed_only,
+        max_global_cap=max_global_cap,
+        max_sleeve_weight=max_sleeve_weight,
+        funding_spread=funding_spread,
         data_source=config.DATA_SOURCE,
     )
 
@@ -364,12 +448,18 @@ def build_mixed_sweep_bundle(
     gld_weight_grid: tuple[float, ...] = DISCIPLINED_GLD_WEIGHT_GRID,
     cap_grid: tuple[float, ...] = DISCIPLINED_CAP_GRID,
     apply_fees: bool = True,
+    max_global_cap: float | None = None,
+    max_sleeve_weight: float | None = None,
+    funding_spread: float = 0.0,
     generated_at: datetime | None = None,
     data_source: str = "yfinance",
 ) -> Path:
     """Build the disciplined SPY/GLD parameter-surface sweep bundle."""
     generated_at = generated_at or datetime.now()
     end_date = end_date or date.today().strftime("%Y-%m-%d")
+    cap_grid = _limit_tuple(cap_grid, max_global_cap)
+    spy_weight_grid = _limit_tuple(spy_weight_grid, max_sleeve_weight)
+    gld_weight_grid = _limit_tuple(gld_weight_grid, max_sleeve_weight)
     prices = _clean_prices(prices)
 
     grid_frames: list[pd.DataFrame] = []
@@ -425,6 +515,7 @@ def build_mixed_sweep_bundle(
                 base_metrics=oos_base_metrics,
                 split=split,
                 label=f"sweep {rule['Selector']} (split {split[:4]})",
+                funding_spread=funding_spread,
             )
             oos_rows.append(eval_out["summary"])
         print(
@@ -448,9 +539,11 @@ def build_mixed_sweep_bundle(
         gld_exit_grid=gld_exit_grid,
         gld_weight_grid=gld_weight_grid,
         cap_grid=cap_grid,
+        funding_spread=funding_spread,
     )
     stability = parameter_stability_summary(selected_df, walk_forward)
     heatmaps = sweep_heatmap_tables(is_grid_df)
+    leaderboard = sweep_grid_leaderboard(is_grid_df)
     pass_fail = disciplined_pass_fail_summary(oos_summary, walk_forward, stability)
 
     bundle_dir = (
@@ -476,11 +569,15 @@ def build_mixed_sweep_bundle(
             gld_weight_grid=gld_weight_grid,
             cap_grid=cap_grid,
             apply_fees=apply_fees,
+            max_global_cap=max_global_cap,
+            max_sleeve_weight=max_sleeve_weight,
+            funding_spread=funding_spread,
             generated_at=generated_at,
             data_source=data_source,
         ),
     )
     is_grid_df.to_parquet(bundle_dir / "is_sweep_grid.parquet", index=False, compression="snappy")
+    leaderboard.to_csv(bundle_dir / "is_sweep_leaderboard.csv", index=False)
     selected_df.to_csv(bundle_dir / "selected_rules.csv", index=False)
     oos_summary.to_csv(bundle_dir / "oos_summary.csv", index=False)
     walk_forward.to_csv(bundle_dir / "walk_forward_summary.csv", index=False)
@@ -488,6 +585,68 @@ def build_mixed_sweep_bundle(
     heatmaps.to_csv(bundle_dir / "sweep_heatmap_tables.csv", index=False)
     pass_fail.to_csv(bundle_dir / "pass_fail_summary.csv", index=False)
     return bundle_dir
+
+
+def sweep_grid_leaderboard(grid: pd.DataFrame, top_n_per_split: int = 250) -> pd.DataFrame:
+    """Return a compact CSV-friendly leaderboard from the full IS sweep grid."""
+    if grid.empty:
+        return pd.DataFrame()
+
+    sort_cols = ["Split", "Calmar", "Incremental Calmar", "Max Drawdown (%)", "CAGR (%)"]
+    available_sort_cols = [col for col in sort_cols if col in grid.columns]
+    ascending = [True, False, False, False, False][:len(available_sort_cols)]
+    ranked = grid.sort_values(available_sort_cols, ascending=ascending).copy()
+    ranked["IS Calmar Rank"] = ranked.groupby("Split").cumcount() + 1
+    ranked = ranked[ranked["IS Calmar Rank"] <= top_n_per_split]
+    ranked["SPY Rule"] = ranked.apply(lambda row: _row_rule_label(row, "SPY"), axis=1)
+    ranked["GLD Rule"] = ranked.apply(lambda row: _row_rule_label(row, "GLD"), axis=1)
+    ranked["Broker Profile"] = np.select(
+        [
+            (ranked["Global Cap"] <= 0.20)
+            & (ranked["SPY Weight"] <= 0.20)
+            & (ranked["GLD Weight"] <= 0.20),
+            (ranked["Global Cap"] <= 0.30)
+            & (ranked["SPY Weight"] <= 0.30)
+            & (ranked["GLD Weight"] <= 0.30),
+        ],
+        ["Strict Pilot", "IBKR Safe"],
+        default="Research Unrestricted",
+    )
+    first_cols = [
+        "Split",
+        "IS Calmar Rank",
+        "Broker Profile",
+        "SPY Rule",
+        "GLD Rule",
+        "Global Cap",
+        "SPY Entry",
+        "SPY Exit",
+        "SPY Weight",
+        "GLD Entry",
+        "GLD Exit",
+        "GLD Weight",
+        "Calmar",
+        "Incremental Calmar",
+        "Max Drawdown (%)",
+        "Incremental MaxDD (%)",
+        "CAGR (%)",
+        "Incremental CAGR (%)",
+        "Active Days (%)",
+        "Both Active Days (%)",
+        "Average Overlay Exposure (%)",
+        "Max Overlay Exposure (%)",
+    ]
+    ordered_cols = [col for col in first_cols if col in ranked.columns]
+    return ranked[ordered_cols + [col for col in ranked.columns if col not in ordered_cols]]
+
+
+def _row_rule_label(row: pd.Series, ticker: str) -> str:
+    entry = row.get(f"{ticker} Entry")
+    exit_ = row.get(f"{ticker} Exit")
+    weight = row.get(f"{ticker} Weight")
+    if pd.isna(entry) or pd.isna(exit_) or pd.isna(weight):
+        return ""
+    return f"{float(entry):g}/{float(exit_):g} @ {float(weight) * 100:g}%"
 
 
 def build_sweep_from_yfinance(
@@ -498,6 +657,9 @@ def build_sweep_from_yfinance(
     apply_fees: bool = True,
     splits: tuple[str, ...] = OOS_SPLITS,
     walk_forward_years: tuple[int, ...] = WALK_FORWARD_YEARS,
+    max_global_cap: float | None = None,
+    max_sleeve_weight: float | None = None,
+    funding_spread: float = 0.0,
 ) -> Path:
     """Fetch prices and write the disciplined mixed-leverage sweep bundle."""
     payload = load_strategy(strategy_id)
@@ -514,13 +676,1209 @@ def build_sweep_from_yfinance(
         splits=splits,
         walk_forward_years=walk_forward_years,
         apply_fees=apply_fees,
+        max_global_cap=max_global_cap,
+        max_sleeve_weight=max_sleeve_weight,
+        funding_spread=funding_spread,
         data_source=config.DATA_SOURCE,
     )
+
+
+def build_full_grid_from_yfinance(
+    strategy_id: str,
+    start_date: str,
+    end_date: str,
+    output_root: str | Path = DEFAULT_FULL_GRID_OUTPUT_ROOT,
+    apply_fees: bool = True,
+    splits: tuple[str, ...] = OOS_SPLITS,
+    walk_forward_years: tuple[int, ...] = WALK_FORWARD_YEARS,
+    max_global_cap: float | None = None,
+    max_sleeve_weight: float | None = None,
+    funding_spread: float = 0.0,
+) -> Path:
+    """Fetch prices and write full-grid structural OOS plus annual walk-forward results."""
+    payload = load_strategy(strategy_id)
+    allocation = payload["allocation"]
+    tickers = sorted(set(allocation) | set(MIXED_TICKERS))
+    prices = fetch_prices(tickers, start_date, end_date)
+    return build_full_grid_oos_bundle(
+        prices=prices,
+        strategy_id=strategy_id,
+        allocation=allocation,
+        output_root=output_root,
+        start_date=start_date,
+        end_date=end_date,
+        splits=splits,
+        walk_forward_years=walk_forward_years,
+        apply_fees=apply_fees,
+        max_global_cap=max_global_cap,
+        max_sleeve_weight=max_sleeve_weight,
+        funding_spread=funding_spread,
+        data_source=config.DATA_SOURCE,
+    )
+
+
+def build_full_grid_oos_bundle(
+    prices: pd.DataFrame,
+    strategy_id: str,
+    allocation: dict[str, float],
+    output_root: str | Path = DEFAULT_FULL_GRID_OUTPUT_ROOT,
+    start_date: str = "2006-01-01",
+    end_date: str | None = None,
+    splits: tuple[str, ...] = OOS_SPLITS,
+    walk_forward_years: tuple[int, ...] = WALK_FORWARD_YEARS,
+    entry_grid: tuple[float, ...] = FULL_GRID_ENTRY_GRID,
+    exit_grid: tuple[float, ...] = FULL_GRID_EXIT_GRID,
+    spy_weight_grid: tuple[float, ...] = FULL_GRID_SPY_WEIGHT_GRID,
+    gld_weight_grid: tuple[float, ...] = FULL_GRID_GLD_WEIGHT_GRID,
+    cap_grid: tuple[float, ...] = FULL_GRID_CAP_GRID,
+    apply_fees: bool = True,
+    max_global_cap: float | None = None,
+    max_sleeve_weight: float | None = None,
+    funding_spread: float = 0.0,
+    generated_at: datetime | None = None,
+    data_source: str = "yfinance",
+) -> Path:
+    """Evaluate every full-grid config OOS and annual walk-forward."""
+    generated_at = generated_at or datetime.now()
+    end_date = end_date or date.today().strftime("%Y-%m-%d")
+    cap_grid = _limit_tuple(cap_grid, max_global_cap)
+    spy_weight_grid = _limit_tuple(spy_weight_grid, max_sleeve_weight)
+    gld_weight_grid = _limit_tuple(gld_weight_grid, max_sleeve_weight)
+    prices = _clean_prices(prices)
+
+    bundle_dir = (
+        Path(output_root)
+        / f"{generated_at.strftime('%Y-%m-%d_%H-%M-%S')}_{strategy_id}"
+    )
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        bundle_dir / "manifest.json",
+        _full_grid_manifest(
+            strategy_id=strategy_id,
+            allocation=allocation,
+            start_date=start_date,
+            end_date=end_date,
+            prices=prices,
+            splits=splits,
+            walk_forward_years=walk_forward_years,
+            entry_grid=entry_grid,
+            exit_grid=exit_grid,
+            spy_weight_grid=spy_weight_grid,
+            gld_weight_grid=gld_weight_grid,
+            cap_grid=cap_grid,
+            apply_fees=apply_fees,
+            max_global_cap=max_global_cap,
+            max_sleeve_weight=max_sleeve_weight,
+            funding_spread=funding_spread,
+            generated_at=generated_at,
+            data_source=data_source,
+        ),
+    )
+
+    structural = _full_grid_structural_oos(
+        prices=prices,
+        allocation=allocation,
+        splits=splits,
+        apply_fees=apply_fees,
+        entry_grid=entry_grid,
+        exit_grid=exit_grid,
+        spy_weight_grid=spy_weight_grid,
+        gld_weight_grid=gld_weight_grid,
+        cap_grid=cap_grid,
+        funding_spread=funding_spread,
+        output_path=bundle_dir / "structural_full_grid_oos.parquet",
+    )
+    annual = _full_grid_annual_walk_forward(
+        prices=prices,
+        allocation=allocation,
+        years=walk_forward_years,
+        apply_fees=apply_fees,
+        entry_grid=entry_grid,
+        exit_grid=exit_grid,
+        spy_weight_grid=spy_weight_grid,
+        gld_weight_grid=gld_weight_grid,
+        cap_grid=cap_grid,
+        funding_spread=funding_spread,
+        output_path=bundle_dir / "annual_full_grid_walk_forward.parquet",
+    )
+    structural_summary = structural
+    annual_summary = annual
+    combined = _full_grid_combined_summary(structural_summary, annual_summary)
+    structural_leaderboard = _full_grid_leaderboard(combined)
+    annual_leaderboard = _full_grid_annual_leaderboard(annual_summary)
+    compact_summary = _full_grid_compact_summary(structural_summary)
+
+    annual_summary.to_parquet(
+        bundle_dir / "annual_full_grid_summary.parquet", index=False, compression="snappy"
+    )
+    combined.to_csv(bundle_dir / "all_considered_strategies.csv", index=False)
+    compact_summary.to_csv(bundle_dir / "structural_full_grid_summary.csv", index=False)
+    structural_leaderboard.to_csv(bundle_dir / "structural_full_grid_leaderboard.csv", index=False)
+    annual_leaderboard.to_csv(bundle_dir / "annual_full_grid_leaderboard.csv", index=False)
+    return bundle_dir
+
+
+def _full_grid_structural_oos(
+    prices: pd.DataFrame,
+    allocation: dict[str, float],
+    splits: tuple[str, ...],
+    apply_fees: bool,
+    entry_grid: tuple[float, ...],
+    exit_grid: tuple[float, ...],
+    spy_weight_grid: tuple[float, ...],
+    gld_weight_grid: tuple[float, ...],
+    cap_grid: tuple[float, ...],
+    funding_spread: float,
+    output_path: Path | None = None,
+) -> pd.DataFrame:
+    output_path = Path(output_path) if output_path is not None else None
+    if output_path is not None:
+        output_path.mkdir(parents=True, exist_ok=True)
+    accumulator: dict[str, object] | None = None
+    for split in splits:
+        started = time.perf_counter()
+        split_ts = pd.Timestamp(split)
+        is_prices = prices.loc[prices.index < split_ts]
+        oos_prices = prices.loc[prices.index >= split_ts]
+        if is_prices.empty or oos_prices.empty:
+            continue
+        is_base = _base_series(is_prices, allocation, apply_fees)
+        oos_base = _base_series(oos_prices, allocation, apply_fees)
+        if is_base.empty or oos_base.empty:
+            continue
+        period = _full_grid_period(
+            is_base=is_base,
+            is_prices=is_prices,
+            eval_base=oos_base,
+            eval_prices=oos_prices,
+            entry_grid=entry_grid,
+            exit_grid=exit_grid,
+            spy_weight_grid=spy_weight_grid,
+            gld_weight_grid=gld_weight_grid,
+            cap_grid=cap_grid,
+            funding_spread=funding_spread,
+            split=split,
+            period_label="OOS",
+            include_is=False,
+        )
+        if output_path is not None:
+            period.to_parquet(
+                output_path / f"split={split[:4]}.parquet",
+                index=False,
+                compression="snappy",
+            )
+        accumulator = _update_full_grid_structural_accumulator(accumulator, period)
+        print(
+            f"[full-grid-oos] Split {split[:4]}: {len(period):,} configs in "
+            f"{time.perf_counter() - started:.1f}s",
+            flush=True,
+        )
+    return _finalize_full_grid_structural_accumulator(accumulator)
+
+
+def _full_grid_annual_walk_forward(
+    prices: pd.DataFrame,
+    allocation: dict[str, float],
+    years: tuple[int, ...],
+    apply_fees: bool,
+    entry_grid: tuple[float, ...],
+    exit_grid: tuple[float, ...],
+    spy_weight_grid: tuple[float, ...],
+    gld_weight_grid: tuple[float, ...],
+    cap_grid: tuple[float, ...],
+    funding_spread: float,
+    output_path: Path | None = None,
+) -> pd.DataFrame:
+    output_path = Path(output_path) if output_path is not None else None
+    if output_path is not None:
+        output_path.mkdir(parents=True, exist_ok=True)
+    accumulator: dict[str, object] | None = None
+    for year in years:
+        started = time.perf_counter()
+        train_end = pd.Timestamp(f"{year}-01-01")
+        eval_end = pd.Timestamp(f"{year + 1}-01-01")
+        train_prices = prices.loc[prices.index < train_end]
+        eval_prices = prices.loc[(prices.index >= train_end) & (prices.index < eval_end)]
+        if train_prices.empty or eval_prices.empty:
+            continue
+        is_base = _base_series(train_prices, allocation, apply_fees)
+        eval_base = _base_series(eval_prices, allocation, apply_fees)
+        if is_base.empty or eval_base.empty:
+            continue
+        period = _full_grid_period(
+            is_base=is_base,
+            is_prices=train_prices,
+            eval_base=eval_base,
+            eval_prices=eval_prices,
+            entry_grid=entry_grid,
+            exit_grid=exit_grid,
+            spy_weight_grid=spy_weight_grid,
+            gld_weight_grid=gld_weight_grid,
+            cap_grid=cap_grid,
+            funding_spread=funding_spread,
+            split=f"{year}-01-01",
+            period_label="Annual",
+            include_is=False,
+        )
+        period["Year"] = int(year)
+        period["Is Partial Year"] = bool(year == date.today().year)
+        period["Calmar Improvement"] = period["OOS Calmar Delta"] > 0
+        if output_path is not None:
+            period.to_parquet(
+                output_path / f"year={year}.parquet",
+                index=False,
+                compression="snappy",
+            )
+        accumulator = _update_full_grid_annual_accumulator(accumulator, period)
+        print(
+            f"[full-grid-wf] Year {year}: {len(period):,} configs in "
+            f"{time.perf_counter() - started:.1f}s",
+            flush=True,
+        )
+    return _finalize_full_grid_annual_accumulator(accumulator)
+
+
+def _full_grid_period(
+    is_base: pd.Series,
+    is_prices: pd.DataFrame,
+    eval_base: pd.Series,
+    eval_prices: pd.DataFrame,
+    entry_grid: tuple[float, ...],
+    exit_grid: tuple[float, ...],
+    spy_weight_grid: tuple[float, ...],
+    gld_weight_grid: tuple[float, ...],
+    cap_grid: tuple[float, ...],
+    funding_spread: float,
+    split: str,
+    period_label: str,
+    include_is: bool = True,
+) -> pd.DataFrame:
+    is_grid = pd.DataFrame()
+    if include_is:
+        started = time.perf_counter()
+        is_grid = _fast_mixed_grid_vectorized(
+            is_base=is_base,
+            is_prices=is_prices,
+            entry_grid=entry_grid,
+            exit_grid=exit_grid,
+            leverage_grid=DEFAULT_MIXED_LEVERAGE_GRID,
+            cap_grid=cap_grid,
+            spy_entry_grid=entry_grid,
+            spy_exit_grid=exit_grid,
+            spy_weight_grid=spy_weight_grid,
+            gld_entry_grid=entry_grid,
+            gld_exit_grid=exit_grid,
+            gld_weight_grid=gld_weight_grid,
+            sort_output=False,
+            progress_label=f"{period_label} {split[:4]} IS",
+        )
+        print(
+            f"[full-grid] {period_label} {split[:4]} IS grid: {len(is_grid):,} rows "
+            f"in {time.perf_counter() - started:.1f}s",
+            flush=True,
+        )
+    started = time.perf_counter()
+    oos_grid = _fast_mixed_grid_vectorized(
+        is_base=eval_base,
+        is_prices=eval_prices,
+        entry_grid=entry_grid,
+        exit_grid=exit_grid,
+        leverage_grid=DEFAULT_MIXED_LEVERAGE_GRID,
+        cap_grid=cap_grid,
+        spy_entry_grid=entry_grid,
+        spy_exit_grid=exit_grid,
+        spy_weight_grid=spy_weight_grid,
+        gld_entry_grid=entry_grid,
+        gld_exit_grid=exit_grid,
+        gld_weight_grid=gld_weight_grid,
+        sort_output=False,
+        progress_label=f"{period_label} {split[:4]} eval",
+    )
+    print(
+        f"[full-grid] {period_label} {split[:4]} eval grid: {len(oos_grid):,} rows "
+        f"in {time.perf_counter() - started:.1f}s",
+        flush=True,
+    )
+    if include_is:
+        out = _combine_prefixed_grids(is_grid, oos_grid)
+    else:
+        out = _prefix_grid(oos_grid, "OOS")
+    base_metrics = _strategy_metrics(eval_base, BASE_LABEL)
+    out.insert(0, "Split", split[:4])
+    out.insert(1, "OOS Start", split)
+    out.insert(2, "Period Label", period_label)
+    out["OOS Base CAGR (%)"] = base_metrics["CAGR (%)"]
+    out["OOS Base Calmar"] = base_metrics["Calmar"]
+    out["OOS Base Max Drawdown (%)"] = base_metrics["Max Drawdown (%)"]
+    out["OOS CAGR Delta (%)"] = out["OOS Incremental CAGR (%)"]
+    out["OOS Calmar Delta"] = out["OOS Incremental Calmar"]
+    out["OOS MaxDD Delta (%)"] = out["OOS Incremental MaxDD (%)"]
+    funding_cost = config.RISK_FREE_RATE + funding_spread
+    out["Estimated OOS RF Cost CAGR (%)"] = (
+        out["OOS CAGR (%)"] - funding_cost * out["OOS Average Overlay Exposure (%)"]
+    )
+    out["RF Cost Pass"] = out["Estimated OOS RF Cost CAGR (%)"] >= out["OOS Base CAGR (%)"]
+    out["Calmar Pass"] = out["OOS Calmar Delta"] > 0
+    out["CAGR Pass"] = out["OOS CAGR Delta (%)"] >= 0
+    out["MaxDD Pass"] = out["OOS MaxDD Delta (%)"] >= -1.0
+    out["Low Trade Count Flag"] = out["OOS Trade Episodes"] < 3
+    out["Pass Split"] = (
+        out["Calmar Pass"]
+        & out["CAGR Pass"]
+        & out["MaxDD Pass"]
+        & out["RF Cost Pass"]
+    )
+    out["Broker Profile"] = _broker_profile_series(out)
+    return out
+
+
+def _prefix_grid(grid: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    rename = {col: f"{prefix} {col}" for col in grid.columns if col not in CONFIG_COLS}
+    return grid.rename(columns=rename)
+
+
+def _combine_prefixed_grids(is_grid: pd.DataFrame, oos_grid: pd.DataFrame) -> pd.DataFrame:
+    if is_grid.empty or oos_grid.empty:
+        return pd.DataFrame()
+    left = is_grid.reset_index(drop=True)
+    right = oos_grid.reset_index(drop=True)
+    if len(left) == len(right) and left[CONFIG_COLS].equals(right[CONFIG_COLS]):
+        return pd.concat(
+            [
+                left[CONFIG_COLS],
+                left.drop(columns=CONFIG_COLS).add_prefix("IS "),
+                right.drop(columns=CONFIG_COLS).add_prefix("OOS "),
+            ],
+            axis=1,
+        )
+    return _prefix_grid(left, "IS").merge(
+        _prefix_grid(right, "OOS"), on=CONFIG_COLS, how="inner"
+    )
+
+
+def _full_grid_structural_summary(structural: pd.DataFrame) -> pd.DataFrame:
+    if structural.empty:
+        return pd.DataFrame()
+    group = structural.groupby(CONFIG_COLS, dropna=False)
+    out = group.agg(
+        **{
+            "Structural Splits Tested": ("Split", "nunique"),
+            "Structural Splits Passed": ("Pass Split", "sum"),
+            "Average OOS Calmar": ("OOS Calmar", "mean"),
+            "Average OOS Calmar Delta": ("OOS Calmar Delta", "mean"),
+            "Worst OOS Calmar Delta": ("OOS Calmar Delta", "min"),
+            "Worst OOS MaxDD Delta (%)": ("OOS MaxDD Delta (%)", "min"),
+            "Average OOS CAGR Delta (%)": ("OOS CAGR Delta (%)", "mean"),
+            "RF Cost Pass Splits": ("RF Cost Pass", "sum"),
+            "Average OOS Active Days": ("OOS Active Days", "mean"),
+            "Average OOS SPY Active Days": ("OOS SPY Active Days", "mean"),
+            "Average OOS GLD Active Days": ("OOS GLD Active Days", "mean"),
+            "Average OOS Both Active Days": ("OOS Both Active Days", "mean"),
+            "Average OOS Cap Binding Days": ("OOS Cap Binding Days", "mean"),
+            "Min OOS Trade Episodes": ("OOS Trade Episodes", "min"),
+            "Min OOS SPY Trade Episodes": ("OOS SPY Trade Episodes", "min"),
+            "Min OOS GLD Trade Episodes": ("OOS GLD Trade Episodes", "min"),
+            "Average OOS Active Days (%)": ("OOS Active Days (%)", "mean"),
+            "Average OOS SPY Active Days (%)": ("OOS SPY Active Days (%)", "mean"),
+            "Average OOS GLD Active Days (%)": ("OOS GLD Active Days (%)", "mean"),
+            "Average OOS Both Active Days (%)": ("OOS Both Active Days (%)", "mean"),
+            "Average OOS Cap Binding Days (%)": ("OOS Cap Binding Days (%)", "mean"),
+            "Average OOS Exposure (%)": ("OOS Average Overlay Exposure (%)", "mean"),
+            "Average OOS Max Overlay Exposure (%)": ("OOS Max Overlay Exposure (%)", "mean"),
+        }
+    ).reset_index()
+    out["MaxDD Breach >3pp"] = out["Worst OOS MaxDD Delta (%)"] < -3.0
+    out["Structural Pass"] = (
+        (out["Structural Splits Passed"] == out["Structural Splits Tested"])
+        & ~out["MaxDD Breach >3pp"]
+    )
+    out["SPY Rule"] = out.apply(lambda row: _row_rule_label(row, "SPY"), axis=1)
+    out["GLD Rule"] = out.apply(lambda row: _row_rule_label(row, "GLD"), axis=1)
+    out["Broker Profile"] = _broker_profile_series(out)
+    return _round_float_cols(out)
+
+
+def _full_grid_annual_summary(annual: pd.DataFrame) -> pd.DataFrame:
+    if annual.empty:
+        return pd.DataFrame()
+    group = annual.groupby(CONFIG_COLS, dropna=False)
+    out = group.agg(
+        **{
+            "Annual Years Tested": ("Year", "nunique"),
+            "Annual Calmar Improvement Years": ("Calmar Improvement", "sum"),
+            "Average Annual Calmar": ("OOS Calmar", "mean"),
+            "Average Annual Calmar Delta": ("OOS Calmar Delta", "mean"),
+            "Worst Annual Calmar Delta": ("OOS Calmar Delta", "min"),
+            "Worst Annual MaxDD Delta (%)": ("OOS MaxDD Delta (%)", "min"),
+            "Average Annual Exposure (%)": ("OOS Average Overlay Exposure (%)", "mean"),
+            "Average Annual Active Days": ("OOS Active Days", "mean"),
+            "Average Annual SPY Active Days": ("OOS SPY Active Days", "mean"),
+            "Average Annual GLD Active Days": ("OOS GLD Active Days", "mean"),
+            "Average Annual Both Active Days": ("OOS Both Active Days", "mean"),
+            "Average Annual Cap Binding Days": ("OOS Cap Binding Days", "mean"),
+            "Average Annual SPY Active Days (%)": ("OOS SPY Active Days (%)", "mean"),
+            "Average Annual GLD Active Days (%)": ("OOS GLD Active Days (%)", "mean"),
+            "Average Annual Both Active Days (%)": ("OOS Both Active Days (%)", "mean"),
+            "Average Annual Cap Binding Days (%)": ("OOS Cap Binding Days (%)", "mean"),
+            "Min Annual Trade Episodes": ("OOS Trade Episodes", "min"),
+            "Min Annual SPY Trade Episodes": ("OOS SPY Trade Episodes", "min"),
+            "Min Annual GLD Trade Episodes": ("OOS GLD Trade Episodes", "min"),
+        }
+    ).reset_index()
+    out["SPY Rule"] = out.apply(lambda row: _row_rule_label(row, "SPY"), axis=1)
+    out["GLD Rule"] = out.apply(lambda row: _row_rule_label(row, "GLD"), axis=1)
+    out["Broker Profile"] = _broker_profile_series(out)
+    return _round_float_cols(out)
+
+
+def _update_full_grid_structural_accumulator(
+    accumulator: dict[str, object] | None, period: pd.DataFrame
+) -> dict[str, object] | None:
+    if period.empty:
+        return accumulator
+    configs = period[CONFIG_COLS].reset_index(drop=True)
+    if accumulator is None:
+        accumulator = {
+            "configs": configs,
+            "tested": np.zeros(len(period), dtype=np.int16),
+            "passed": np.zeros(len(period), dtype=np.int16),
+            "calmar_sum": np.zeros(len(period), dtype=float),
+            "calmar_delta_sum": np.zeros(len(period), dtype=float),
+            "worst_calmar_delta": np.full(len(period), np.inf),
+            "worst_maxdd_delta": np.full(len(period), np.inf),
+            "cagr_delta_sum": np.zeros(len(period), dtype=float),
+            "rf_pass": np.zeros(len(period), dtype=np.int16),
+            "active_days_sum": np.zeros(len(period), dtype=float),
+            "spy_active_days_sum": np.zeros(len(period), dtype=float),
+            "gld_active_days_sum": np.zeros(len(period), dtype=float),
+            "both_active_days_sum": np.zeros(len(period), dtype=float),
+            "cap_binding_days_sum": np.zeros(len(period), dtype=float),
+            "active_days_pct_sum": np.zeros(len(period), dtype=float),
+            "spy_active_days_pct_sum": np.zeros(len(period), dtype=float),
+            "gld_active_days_pct_sum": np.zeros(len(period), dtype=float),
+            "both_active_days_pct_sum": np.zeros(len(period), dtype=float),
+            "cap_binding_days_pct_sum": np.zeros(len(period), dtype=float),
+            "min_trades": np.full(len(period), np.inf),
+            "min_spy_trades": np.full(len(period), np.inf),
+            "min_gld_trades": np.full(len(period), np.inf),
+            "exposure_sum": np.zeros(len(period), dtype=float),
+            "max_exposure_sum": np.zeros(len(period), dtype=float),
+        }
+    elif not configs.equals(accumulator["configs"]):
+        raise ValueError("Full-grid structural accumulator received a different config order.")
+
+    accumulator["tested"] += 1
+    accumulator["passed"] += period["Pass Split"].to_numpy(dtype=np.int16)
+    accumulator["calmar_sum"] += period["OOS Calmar"].to_numpy(dtype=float)
+    accumulator["calmar_delta_sum"] += period["OOS Calmar Delta"].to_numpy(dtype=float)
+    accumulator["worst_calmar_delta"] = np.minimum(
+        accumulator["worst_calmar_delta"],
+        period["OOS Calmar Delta"].to_numpy(dtype=float),
+    )
+    accumulator["worst_maxdd_delta"] = np.minimum(
+        accumulator["worst_maxdd_delta"],
+        period["OOS MaxDD Delta (%)"].to_numpy(dtype=float),
+    )
+    accumulator["cagr_delta_sum"] += period["OOS CAGR Delta (%)"].to_numpy(dtype=float)
+    accumulator["rf_pass"] += period["RF Cost Pass"].to_numpy(dtype=np.int16)
+    accumulator["active_days_sum"] += period["OOS Active Days"].to_numpy(dtype=float)
+    accumulator["spy_active_days_sum"] += period["OOS SPY Active Days"].to_numpy(dtype=float)
+    accumulator["gld_active_days_sum"] += period["OOS GLD Active Days"].to_numpy(dtype=float)
+    accumulator["both_active_days_sum"] += period["OOS Both Active Days"].to_numpy(dtype=float)
+    accumulator["cap_binding_days_sum"] += period["OOS Cap Binding Days"].to_numpy(dtype=float)
+    accumulator["active_days_pct_sum"] += period["OOS Active Days (%)"].to_numpy(dtype=float)
+    accumulator["spy_active_days_pct_sum"] += period["OOS SPY Active Days (%)"].to_numpy(dtype=float)
+    accumulator["gld_active_days_pct_sum"] += period["OOS GLD Active Days (%)"].to_numpy(dtype=float)
+    accumulator["both_active_days_pct_sum"] += period["OOS Both Active Days (%)"].to_numpy(dtype=float)
+    accumulator["cap_binding_days_pct_sum"] += period["OOS Cap Binding Days (%)"].to_numpy(dtype=float)
+    accumulator["min_trades"] = np.minimum(
+        accumulator["min_trades"],
+        period["OOS Trade Episodes"].to_numpy(dtype=float),
+    )
+    accumulator["min_spy_trades"] = np.minimum(
+        accumulator["min_spy_trades"],
+        period["OOS SPY Trade Episodes"].to_numpy(dtype=float),
+    )
+    accumulator["min_gld_trades"] = np.minimum(
+        accumulator["min_gld_trades"],
+        period["OOS GLD Trade Episodes"].to_numpy(dtype=float),
+    )
+    accumulator["exposure_sum"] += period["OOS Average Overlay Exposure (%)"].to_numpy(dtype=float)
+    accumulator["max_exposure_sum"] += period["OOS Max Overlay Exposure (%)"].to_numpy(dtype=float)
+    return accumulator
+
+
+def _finalize_full_grid_structural_accumulator(
+    accumulator: dict[str, object] | None,
+) -> pd.DataFrame:
+    if accumulator is None:
+        return pd.DataFrame()
+    tested = accumulator["tested"].astype(float)
+    out = accumulator["configs"].copy()
+    out["Structural Splits Tested"] = accumulator["tested"]
+    out["Structural Splits Passed"] = accumulator["passed"]
+    out["Average OOS Calmar"] = accumulator["calmar_sum"] / tested
+    out["Average OOS Calmar Delta"] = accumulator["calmar_delta_sum"] / tested
+    out["Worst OOS Calmar Delta"] = accumulator["worst_calmar_delta"]
+    out["Worst OOS MaxDD Delta (%)"] = accumulator["worst_maxdd_delta"]
+    out["Average OOS CAGR Delta (%)"] = accumulator["cagr_delta_sum"] / tested
+    out["RF Cost Pass Splits"] = accumulator["rf_pass"]
+    out["Average OOS Active Days"] = accumulator["active_days_sum"] / tested
+    out["Average OOS SPY Active Days"] = accumulator["spy_active_days_sum"] / tested
+    out["Average OOS GLD Active Days"] = accumulator["gld_active_days_sum"] / tested
+    out["Average OOS Both Active Days"] = accumulator["both_active_days_sum"] / tested
+    out["Average OOS Cap Binding Days"] = accumulator["cap_binding_days_sum"] / tested
+    out["Min OOS Trade Episodes"] = accumulator["min_trades"].astype(int)
+    out["Min OOS SPY Trade Episodes"] = accumulator["min_spy_trades"].astype(int)
+    out["Min OOS GLD Trade Episodes"] = accumulator["min_gld_trades"].astype(int)
+    out["Average OOS Active Days (%)"] = accumulator["active_days_pct_sum"] / tested
+    out["Average OOS SPY Active Days (%)"] = accumulator["spy_active_days_pct_sum"] / tested
+    out["Average OOS GLD Active Days (%)"] = accumulator["gld_active_days_pct_sum"] / tested
+    out["Average OOS Both Active Days (%)"] = accumulator["both_active_days_pct_sum"] / tested
+    out["Average OOS Cap Binding Days (%)"] = accumulator["cap_binding_days_pct_sum"] / tested
+    out["Average OOS Exposure (%)"] = accumulator["exposure_sum"] / tested
+    out["Average OOS Max Overlay Exposure (%)"] = accumulator["max_exposure_sum"] / tested
+    out["MaxDD Breach >3pp"] = out["Worst OOS MaxDD Delta (%)"] < -3.0
+    out["Structural Pass"] = (
+        (out["Structural Splits Passed"] == out["Structural Splits Tested"])
+        & ~out["MaxDD Breach >3pp"]
+    )
+    out["SPY Rule"] = out.apply(lambda row: _row_rule_label(row, "SPY"), axis=1)
+    out["GLD Rule"] = out.apply(lambda row: _row_rule_label(row, "GLD"), axis=1)
+    out["Broker Profile"] = _broker_profile_series(out)
+    return _round_float_cols(out)
+
+
+def _update_full_grid_annual_accumulator(
+    accumulator: dict[str, object] | None, period: pd.DataFrame
+) -> dict[str, object] | None:
+    if period.empty:
+        return accumulator
+    configs = period[CONFIG_COLS].reset_index(drop=True)
+    if accumulator is None:
+        accumulator = {
+            "configs": configs,
+            "tested": np.zeros(len(period), dtype=np.int16),
+            "improved": np.zeros(len(period), dtype=np.int16),
+            "calmar_sum": np.zeros(len(period), dtype=float),
+            "calmar_delta_sum": np.zeros(len(period), dtype=float),
+            "worst_calmar_delta": np.full(len(period), np.inf),
+            "worst_maxdd_delta": np.full(len(period), np.inf),
+            "exposure_sum": np.zeros(len(period), dtype=float),
+            "active_days_sum": np.zeros(len(period), dtype=float),
+            "spy_active_days_sum": np.zeros(len(period), dtype=float),
+            "gld_active_days_sum": np.zeros(len(period), dtype=float),
+            "both_active_days_sum": np.zeros(len(period), dtype=float),
+            "cap_binding_days_sum": np.zeros(len(period), dtype=float),
+            "spy_active_days_pct_sum": np.zeros(len(period), dtype=float),
+            "gld_active_days_pct_sum": np.zeros(len(period), dtype=float),
+            "both_active_days_pct_sum": np.zeros(len(period), dtype=float),
+            "cap_binding_days_pct_sum": np.zeros(len(period), dtype=float),
+            "min_trades": np.full(len(period), np.inf),
+            "min_spy_trades": np.full(len(period), np.inf),
+            "min_gld_trades": np.full(len(period), np.inf),
+        }
+    elif not configs.equals(accumulator["configs"]):
+        raise ValueError("Full-grid annual accumulator received a different config order.")
+
+    accumulator["tested"] += 1
+    accumulator["improved"] += period["Calmar Improvement"].to_numpy(dtype=np.int16)
+    accumulator["calmar_sum"] += period["OOS Calmar"].to_numpy(dtype=float)
+    accumulator["calmar_delta_sum"] += period["OOS Calmar Delta"].to_numpy(dtype=float)
+    accumulator["worst_calmar_delta"] = np.minimum(
+        accumulator["worst_calmar_delta"],
+        period["OOS Calmar Delta"].to_numpy(dtype=float),
+    )
+    accumulator["worst_maxdd_delta"] = np.minimum(
+        accumulator["worst_maxdd_delta"],
+        period["OOS MaxDD Delta (%)"].to_numpy(dtype=float),
+    )
+    accumulator["exposure_sum"] += period["OOS Average Overlay Exposure (%)"].to_numpy(dtype=float)
+    accumulator["active_days_sum"] += period["OOS Active Days"].to_numpy(dtype=float)
+    accumulator["spy_active_days_sum"] += period["OOS SPY Active Days"].to_numpy(dtype=float)
+    accumulator["gld_active_days_sum"] += period["OOS GLD Active Days"].to_numpy(dtype=float)
+    accumulator["both_active_days_sum"] += period["OOS Both Active Days"].to_numpy(dtype=float)
+    accumulator["cap_binding_days_sum"] += period["OOS Cap Binding Days"].to_numpy(dtype=float)
+    accumulator["spy_active_days_pct_sum"] += period["OOS SPY Active Days (%)"].to_numpy(dtype=float)
+    accumulator["gld_active_days_pct_sum"] += period["OOS GLD Active Days (%)"].to_numpy(dtype=float)
+    accumulator["both_active_days_pct_sum"] += period["OOS Both Active Days (%)"].to_numpy(dtype=float)
+    accumulator["cap_binding_days_pct_sum"] += period["OOS Cap Binding Days (%)"].to_numpy(dtype=float)
+    accumulator["min_trades"] = np.minimum(
+        accumulator["min_trades"],
+        period["OOS Trade Episodes"].to_numpy(dtype=float),
+    )
+    accumulator["min_spy_trades"] = np.minimum(
+        accumulator["min_spy_trades"],
+        period["OOS SPY Trade Episodes"].to_numpy(dtype=float),
+    )
+    accumulator["min_gld_trades"] = np.minimum(
+        accumulator["min_gld_trades"],
+        period["OOS GLD Trade Episodes"].to_numpy(dtype=float),
+    )
+    return accumulator
+
+
+def _finalize_full_grid_annual_accumulator(
+    accumulator: dict[str, object] | None,
+) -> pd.DataFrame:
+    if accumulator is None:
+        return pd.DataFrame()
+    tested = accumulator["tested"].astype(float)
+    out = accumulator["configs"].copy()
+    out["Annual Years Tested"] = accumulator["tested"]
+    out["Annual Calmar Improvement Years"] = accumulator["improved"]
+    out["Average Annual Calmar"] = accumulator["calmar_sum"] / tested
+    out["Average Annual Calmar Delta"] = accumulator["calmar_delta_sum"] / tested
+    out["Worst Annual Calmar Delta"] = accumulator["worst_calmar_delta"]
+    out["Worst Annual MaxDD Delta (%)"] = accumulator["worst_maxdd_delta"]
+    out["Average Annual Exposure (%)"] = accumulator["exposure_sum"] / tested
+    out["Average Annual Active Days"] = accumulator["active_days_sum"] / tested
+    out["Average Annual SPY Active Days"] = accumulator["spy_active_days_sum"] / tested
+    out["Average Annual GLD Active Days"] = accumulator["gld_active_days_sum"] / tested
+    out["Average Annual Both Active Days"] = accumulator["both_active_days_sum"] / tested
+    out["Average Annual Cap Binding Days"] = accumulator["cap_binding_days_sum"] / tested
+    out["Average Annual SPY Active Days (%)"] = accumulator["spy_active_days_pct_sum"] / tested
+    out["Average Annual GLD Active Days (%)"] = accumulator["gld_active_days_pct_sum"] / tested
+    out["Average Annual Both Active Days (%)"] = accumulator["both_active_days_pct_sum"] / tested
+    out["Average Annual Cap Binding Days (%)"] = accumulator["cap_binding_days_pct_sum"] / tested
+    out["Min Annual Trade Episodes"] = accumulator["min_trades"].astype(int)
+    out["Min Annual SPY Trade Episodes"] = accumulator["min_spy_trades"].astype(int)
+    out["Min Annual GLD Trade Episodes"] = accumulator["min_gld_trades"].astype(int)
+    out["SPY Rule"] = out.apply(lambda row: _row_rule_label(row, "SPY"), axis=1)
+    out["GLD Rule"] = out.apply(lambda row: _row_rule_label(row, "GLD"), axis=1)
+    out["Broker Profile"] = _broker_profile_series(out)
+    return _round_float_cols(out)
+
+
+def _full_grid_combined_summary(
+    structural_summary: pd.DataFrame, annual_summary: pd.DataFrame
+) -> pd.DataFrame:
+    if structural_summary.empty:
+        return pd.DataFrame()
+    annual_cols = [
+        "Annual Years Tested",
+        "Annual Calmar Improvement Years",
+        "Average Annual Calmar",
+        "Average Annual Calmar Delta",
+        "Worst Annual Calmar Delta",
+        "Worst Annual MaxDD Delta (%)",
+        "Average Annual Exposure (%)",
+        "Average Annual Active Days",
+        "Average Annual SPY Active Days",
+        "Average Annual GLD Active Days",
+        "Average Annual Both Active Days",
+        "Average Annual Cap Binding Days",
+        "Average Annual SPY Active Days (%)",
+        "Average Annual GLD Active Days (%)",
+        "Average Annual Both Active Days (%)",
+        "Average Annual Cap Binding Days (%)",
+        "Min Annual Trade Episodes",
+        "Min Annual SPY Trade Episodes",
+        "Min Annual GLD Trade Episodes",
+    ]
+    annual_merge_cols = CONFIG_COLS + [
+        col for col in annual_cols if col in annual_summary.columns
+    ]
+    out = structural_summary.merge(
+        annual_summary[annual_merge_cols]
+        if not annual_summary.empty
+        else pd.DataFrame(columns=CONFIG_COLS),
+        on=CONFIG_COLS,
+        how="left",
+    )
+    if "Annual Calmar Improvement Years" not in out:
+        out["Annual Calmar Improvement Years"] = 0
+    if "Annual Years Tested" not in out:
+        out["Annual Years Tested"] = 0
+    out["Overall Pass"] = (
+        out["Structural Pass"]
+        & (out["Annual Calmar Improvement Years"].fillna(0) >= 8)
+    )
+    return _round_float_cols(out)
+
+
+def _full_grid_leaderboard(summary: pd.DataFrame, top_n: int = 1000) -> pd.DataFrame:
+    if summary.empty:
+        return pd.DataFrame()
+    ranked = summary.sort_values(
+        [
+            "Overall Pass",
+            "Average OOS Calmar",
+            "Worst OOS Calmar Delta",
+            "Worst OOS MaxDD Delta (%)",
+            "Annual Calmar Improvement Years",
+            "Average OOS Exposure (%)",
+        ],
+        ascending=[False, False, False, False, False, True],
+    ).head(top_n).copy()
+    ranked.insert(0, "Rank", range(1, len(ranked) + 1))
+    first_cols = [
+        "Rank",
+        "Overall Pass",
+        "Broker Profile",
+        "SPY Rule",
+        "GLD Rule",
+        "Global Cap",
+        "Average OOS Calmar",
+        "Average OOS Calmar Delta",
+        "Worst OOS Calmar Delta",
+        "Worst OOS MaxDD Delta (%)",
+        "Average OOS CAGR Delta (%)",
+        "RF Cost Pass Splits",
+        "Min OOS Trade Episodes",
+        "Average OOS Exposure (%)",
+        "Annual Calmar Improvement Years",
+        "Annual Years Tested",
+    ]
+    ordered = [col for col in first_cols if col in ranked.columns]
+    return ranked[ordered + [col for col in ranked.columns if col not in ordered]]
+
+
+def _full_grid_annual_leaderboard(summary: pd.DataFrame, top_n: int = 1000) -> pd.DataFrame:
+    if summary.empty:
+        return pd.DataFrame()
+    ranked = summary.sort_values(
+        [
+            "Annual Calmar Improvement Years",
+            "Average Annual Calmar",
+            "Worst Annual Calmar Delta",
+            "Worst Annual MaxDD Delta (%)",
+            "Average Annual Exposure (%)",
+        ],
+        ascending=[False, False, False, False, True],
+    ).head(top_n).copy()
+    ranked.insert(0, "Rank", range(1, len(ranked) + 1))
+    return ranked
+
+
+def _full_grid_compact_summary(structural: pd.DataFrame) -> pd.DataFrame:
+    if structural.empty:
+        return pd.DataFrame()
+    group_cols = ["Broker Profile", "Global Cap"]
+    out = structural.groupby(group_cols).agg(
+        Rows=("Structural Splits Tested", "sum"),
+        Configs=("SPY Entry", "count"),
+        Avg_OOS_Calmar=("Average OOS Calmar", "mean"),
+        Best_OOS_Calmar=("Average OOS Calmar", "max"),
+        Avg_OOS_Calmar_Delta=("Average OOS Calmar Delta", "mean"),
+        Pass_Rows=("Structural Splits Passed", "sum"),
+    ).reset_index()
+    return _round_float_cols(out)
+
+
+def _broker_profile_series(data: pd.DataFrame) -> pd.Series:
+    return pd.Series(
+        np.select(
+            [
+                (data["Global Cap"] <= 0.20)
+                & (data["SPY Weight"] <= 0.20)
+                & (data["GLD Weight"] <= 0.20),
+                (data["Global Cap"] <= 0.30)
+                & (data["SPY Weight"] <= 0.30)
+                & (data["GLD Weight"] <= 0.30),
+            ],
+            ["Strict Pilot", "IBKR Safe"],
+            default="Research Unrestricted",
+        ),
+        index=data.index,
+    )
+
+
+def _round_float_cols(df: pd.DataFrame, ndigits: int = 4) -> pd.DataFrame:
+    out = df.copy()
+    float_cols = out.select_dtypes(include=["float"]).columns
+    out[float_cols] = out[float_cols].round(ndigits)
+    return out
 
 
 # ---------------------------------------------------------------------------
 # Fast mixed grid
 # ---------------------------------------------------------------------------
+
+
+def _fast_mixed_grid_vectorized(
+    is_base: pd.Series,
+    is_prices: pd.DataFrame,
+    entry_grid: tuple[float, ...],
+    exit_grid: tuple[float, ...],
+    leverage_grid: tuple[float, ...],
+    cap_grid: tuple[float, ...],
+    spy_entry_grid: tuple[float, ...] | None = None,
+    spy_exit_grid: tuple[float, ...] | None = None,
+    spy_weight_grid: tuple[float, ...] | None = None,
+    gld_entry_grid: tuple[float, ...] | None = None,
+    gld_exit_grid: tuple[float, ...] | None = None,
+    gld_weight_grid: tuple[float, ...] | None = None,
+    lookback: int = 14,
+    financing_cost_annual: float = 0.0,
+    configs_per_chunk: int = 100_000,
+    sort_output: bool = False,
+    progress_label: str | None = None,
+) -> pd.DataFrame:
+    """Chunked NumPy full-grid scanner.
+
+    This is used by the brute-force OOS job. It keeps the parameter grid intact
+    but evaluates many configs per NumPy call, avoiding millions of Python-level
+    daily-return loops.
+    """
+    for ticker in MIXED_TICKERS:
+        if ticker not in is_prices.columns:
+            raise KeyError(f"Mixed grid requires '{ticker}' in price frame.")
+
+    entry_grids = {
+        "SPY": spy_entry_grid or entry_grid,
+        "GLD": gld_entry_grid or entry_grid,
+    }
+    exit_grids = {
+        "SPY": spy_exit_grid or exit_grid,
+        "GLD": gld_exit_grid or exit_grid,
+    }
+    weight_grids = {
+        "SPY": spy_weight_grid or leverage_grid,
+        "GLD": gld_weight_grid or leverage_grid,
+    }
+
+    base = is_base.dropna().astype(float).sort_index()
+    if len(base) < 2:
+        return pd.DataFrame()
+    prices = is_prices.sort_index().astype(float).reindex(base.index)
+    base_returns = base.pct_change().fillna(0.0).to_numpy(dtype=float)
+    spy_returns = prices["SPY"].pct_change().fillna(0.0).to_numpy(dtype=float)
+    gld_returns = prices["GLD"].pct_change().fillna(0.0).to_numpy(dtype=float)
+
+    rules_by_ticker: dict[str, list[tuple[float, float]]] = {}
+    signals_by_ticker: dict[str, np.ndarray] = {}
+    for ticker in MIXED_TICKERS:
+        rules = _valid_rule_pairs(entry_grids[ticker], exit_grids[ticker])
+        rsi = compute_rsi(prices[ticker], lookback)
+        signals = [
+            generate_hysteresis_signal(rsi, entry, exit_)
+            .shift(1)
+            .fillna(0.0)
+            .astype(float)
+            .to_numpy(dtype=np.float32)
+            for entry, exit_ in rules
+        ]
+        rules_by_ticker[ticker] = rules
+        signals_by_ticker[ticker] = np.vstack(signals) if signals else np.empty((0, len(base)))
+
+    configs = _full_grid_config_frame(
+        spy_rules=rules_by_ticker["SPY"],
+        gld_rules=rules_by_ticker["GLD"],
+        spy_weight_grid=weight_grids["SPY"],
+        gld_weight_grid=weight_grids["GLD"],
+        cap_grid=cap_grid,
+    )
+    if configs.empty:
+        return pd.DataFrame()
+
+    month_end_positions = _month_end_positions(base.index)
+    years = max((base.index[-1] - base.index[0]).days / 365.25, 1 / 365.25)
+    base_stats = _grid_metrics_from_arrays(
+        base.to_numpy(dtype=float),
+        base_returns,
+        month_end_positions,
+        years,
+    )
+    daily_financing_rate = (
+        (1.0 + financing_cost_annual) ** (1 / TRADING_DAYS_PER_YEAR) - 1.0
+        if financing_cost_annual > 0
+        else 0.0
+    )
+
+    chunk_size = max(1_000, int(configs_per_chunk))
+    chunks = []
+    chunk_total = int(np.ceil(len(configs) / chunk_size))
+    for start in range(0, len(configs), chunk_size):
+        chunk_started = time.perf_counter()
+        chunk = configs.iloc[start : start + chunk_size].copy()
+        metrics = _evaluate_mixed_config_chunk(
+            chunk=chunk,
+            spy_signals=signals_by_ticker["SPY"],
+            gld_signals=signals_by_ticker["GLD"],
+            base_returns=base_returns,
+            spy_returns=spy_returns,
+            gld_returns=gld_returns,
+            base_start=float(base.iloc[0]),
+            month_end_positions=month_end_positions,
+            years=years,
+            base_stats=base_stats,
+            daily_financing_rate=daily_financing_rate,
+        )
+        chunks.append(pd.concat([chunk[CONFIG_COLS].reset_index(drop=True), metrics], axis=1))
+        if progress_label:
+            chunk_no = start // chunk_size + 1
+            print(
+                f"[full-grid-chunk] {progress_label}: {chunk_no:,}/{chunk_total:,} "
+                f"({min(start + chunk_size, len(configs)):,}/{len(configs):,}) in "
+                f"{time.perf_counter() - chunk_started:.1f}s",
+                flush=True,
+            )
+
+    return pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+
+
+def _valid_rule_pairs(
+    entry_grid: tuple[float, ...], exit_grid: tuple[float, ...]
+) -> list[tuple[float, float]]:
+    return [
+        (float(entry), float(exit_))
+        for entry in entry_grid
+        for exit_ in exit_grid
+        if float(exit_) > float(entry)
+    ]
+
+
+def _full_grid_config_frame(
+    spy_rules: list[tuple[float, float]],
+    gld_rules: list[tuple[float, float]],
+    spy_weight_grid: tuple[float, ...],
+    gld_weight_grid: tuple[float, ...],
+    cap_grid: tuple[float, ...],
+) -> pd.DataFrame:
+    if not spy_rules or not gld_rules:
+        return pd.DataFrame()
+    product = pd.MultiIndex.from_product(
+        [
+            range(len(spy_rules)),
+            range(len(gld_rules)),
+            tuple(float(x) for x in spy_weight_grid),
+            tuple(float(x) for x in gld_weight_grid),
+            tuple(float(x) for x in cap_grid),
+        ],
+        names=[
+            "SPY Rule Index",
+            "GLD Rule Index",
+            "SPY Weight",
+            "GLD Weight",
+            "Global Cap",
+        ],
+    ).to_frame(index=False)
+    spy_entries = np.array([entry for entry, _ in spy_rules], dtype=float)
+    spy_exits = np.array([exit_ for _, exit_ in spy_rules], dtype=float)
+    gld_entries = np.array([entry for entry, _ in gld_rules], dtype=float)
+    gld_exits = np.array([exit_ for _, exit_ in gld_rules], dtype=float)
+    spy_idx = product["SPY Rule Index"].to_numpy(dtype=np.intp)
+    gld_idx = product["GLD Rule Index"].to_numpy(dtype=np.intp)
+    product["SPY Entry"] = spy_entries[spy_idx]
+    product["SPY Exit"] = spy_exits[spy_idx]
+    product["GLD Entry"] = gld_entries[gld_idx]
+    product["GLD Exit"] = gld_exits[gld_idx]
+    return product[
+        [
+            "SPY Rule Index",
+            "GLD Rule Index",
+            "SPY Entry",
+            "SPY Exit",
+            "SPY Weight",
+            "GLD Entry",
+            "GLD Exit",
+            "GLD Weight",
+            "Global Cap",
+        ]
+    ]
+
+
+def _evaluate_mixed_config_chunk(
+    chunk: pd.DataFrame,
+    spy_signals: np.ndarray,
+    gld_signals: np.ndarray,
+    base_returns: np.ndarray,
+    spy_returns: np.ndarray,
+    gld_returns: np.ndarray,
+    base_start: float,
+    month_end_positions: np.ndarray,
+    years: float,
+    base_stats: dict[str, float],
+    daily_financing_rate: float,
+) -> pd.DataFrame:
+    spy_idx = chunk["SPY Rule Index"].to_numpy(dtype=np.intp)
+    gld_idx = chunk["GLD Rule Index"].to_numpy(dtype=np.intp)
+    spy_weight = chunk["SPY Weight"].to_numpy(dtype=float)
+    gld_weight = chunk["GLD Weight"].to_numpy(dtype=float)
+    cap = chunk["Global Cap"].to_numpy(dtype=float)
+    n_configs = len(chunk)
+    n_days = len(base_returns)
+
+    current_values = np.full(n_configs, base_start, dtype=float)
+    running_max = np.full(n_configs, base_start, dtype=float)
+    max_dd = np.zeros(n_configs, dtype=float)
+    return_sum = np.zeros(n_configs, dtype=float)
+    return_sumsq = np.zeros(n_configs, dtype=float)
+    return_count = 0
+    active_days = np.zeros(n_configs, dtype=np.int32)
+    spy_active_days = np.zeros(n_configs, dtype=np.int32)
+    gld_active_days = np.zeros(n_configs, dtype=np.int32)
+    both_active_days = np.zeros(n_configs, dtype=np.int32)
+    cap_binding_days = np.zeros(n_configs, dtype=np.int32)
+    exposure_sum = np.zeros(n_configs, dtype=float)
+    max_exposure = np.zeros(n_configs, dtype=float)
+    trade_episodes = np.zeros(n_configs, dtype=np.int32)
+    spy_trade_episodes = np.zeros(n_configs, dtype=np.int32)
+    gld_trade_episodes = np.zeros(n_configs, dtype=np.int32)
+    was_active = np.zeros(n_configs, dtype=bool)
+    was_spy_active = np.zeros(n_configs, dtype=bool)
+    was_gld_active = np.zeros(n_configs, dtype=bool)
+    previous_month_values: np.ndarray | None = None
+    worst_month = np.full(n_configs, np.nan)
+    month_end_set = set(int(pos) for pos in month_end_positions)
+
+    for t in range(n_days):
+        spy_desired = spy_signals[spy_idx, t].astype(float, copy=False) * spy_weight
+        gld_desired = gld_signals[gld_idx, t].astype(float, copy=False) * gld_weight
+        desired_sum = spy_desired + gld_desired
+        scale = np.ones(n_configs, dtype=float)
+        np.divide(cap, desired_sum, out=scale, where=desired_sum > cap)
+        scale = np.minimum(scale, 1.0)
+        spy_pos = spy_desired * scale
+        gld_pos = gld_desired * scale
+        overlay_exposure = spy_pos + gld_pos
+        strategy_returns = (
+            base_returns[t]
+            + spy_pos * spy_returns[t]
+            + gld_pos * gld_returns[t]
+        )
+        if daily_financing_rate > 0:
+            strategy_returns = strategy_returns - overlay_exposure * daily_financing_rate
+
+        if t > 0:
+            current_values *= 1.0 + strategy_returns
+            running_max = np.maximum(running_max, current_values)
+            max_dd = np.minimum(max_dd, current_values / running_max - 1.0)
+            return_sum += strategy_returns
+            return_sumsq += strategy_returns * strategy_returns
+            return_count += 1
+
+        active = overlay_exposure > 0
+        spy_active = spy_pos > 0
+        gld_active = gld_pos > 0
+        active_days += active
+        spy_active_days += spy_active
+        gld_active_days += gld_active
+        both_active_days += spy_active & gld_active
+        cap_binding_days += (desired_sum > cap) & active
+        exposure_sum += overlay_exposure
+        max_exposure = np.maximum(max_exposure, overlay_exposure)
+        trade_episodes += active & ~was_active
+        spy_trade_episodes += spy_active & ~was_spy_active
+        gld_trade_episodes += gld_active & ~was_gld_active
+        was_active = active
+        was_spy_active = spy_active
+        was_gld_active = gld_active
+
+        if t in month_end_set:
+            if previous_month_values is not None:
+                monthly = (current_values / previous_month_values - 1.0) * 100
+                worst_month = np.fmin(worst_month, monthly)
+            previous_month_values = current_values.copy()
+
+    total_return = (current_values / base_start - 1.0) * 100
+    cagr = np.where(
+        current_values > 0,
+        ((current_values / base_start) ** (1 / years) - 1.0) * 100,
+        np.nan,
+    )
+    daily_mean = return_sum / max(return_count, 1)
+    variance = (
+        (return_sumsq - (return_sum * return_sum / return_count)) / (return_count - 1)
+        if return_count > 1
+        else np.zeros(n_configs)
+    )
+    daily_std = np.sqrt(np.maximum(variance, 0.0))
+    rf_daily = (1.0 + config.RISK_FREE_RATE) ** (1 / TRADING_DAYS_PER_YEAR) - 1.0
+    sharpe = np.full(n_configs, np.nan)
+    valid_std = daily_std > 1e-12
+    sharpe[valid_std] = (
+        (daily_mean[valid_std] - rf_daily)
+        / daily_std[valid_std]
+        * np.sqrt(TRADING_DAYS_PER_YEAR)
+    )
+    max_dd_pct = max_dd * 100
+    calmar = np.full(n_configs, np.nan)
+    valid_dd = np.abs(max_dd_pct) > 1e-12
+    calmar[valid_dd] = cagr[valid_dd] / np.abs(max_dd_pct[valid_dd])
+
+    metrics = {
+        "Active Days": active_days.astype(int),
+        "Active Days (%)": np.round(active_days / max(n_days, 1) * 100, 4),
+        "SPY Active Days": spy_active_days.astype(int),
+        "SPY Active Days (%)": np.round(spy_active_days / max(n_days, 1) * 100, 4),
+        "GLD Active Days": gld_active_days.astype(int),
+        "GLD Active Days (%)": np.round(gld_active_days / max(n_days, 1) * 100, 4),
+        "Both Active Days": both_active_days.astype(int),
+        "Both Active Days (%)": np.round(both_active_days / max(n_days, 1) * 100, 4),
+        "Cap Binding Days": cap_binding_days.astype(int),
+        "Cap Binding Days (%)": np.round(cap_binding_days / max(n_days, 1) * 100, 4),
+        "Average Overlay Exposure (%)": np.round(exposure_sum / max(n_days, 1) * 100, 4),
+        "Max Overlay Exposure (%)": np.round(max_exposure * 100, 4),
+        "Trade Episodes": trade_episodes.astype(int),
+        "SPY Trade Episodes": spy_trade_episodes.astype(int),
+        "GLD Trade Episodes": gld_trade_episodes.astype(int),
+        "CAGR (%)": np.round(cagr, 4),
+        "Sharpe": np.round(sharpe, 4),
+        "Calmar": np.round(calmar, 4),
+        "Max Drawdown (%)": np.round(max_dd_pct, 4),
+        "Worst Month (%)": np.round(worst_month, 4),
+        "Total Return (%)": np.round(total_return, 4),
+    }
+    metrics["Incremental CAGR (%)"] = np.round(metrics["CAGR (%)"] - base_stats["CAGR (%)"], 4)
+    metrics["Incremental Calmar"] = np.round(metrics["Calmar"] - base_stats["Calmar"], 4)
+    metrics["Incremental MaxDD (%)"] = np.round(
+        metrics["Max Drawdown (%)"] - base_stats["Max Drawdown (%)"],
+        4,
+    )
+    return pd.DataFrame(metrics)
+
+
+def _grid_metrics_matrix(
+    values: np.ndarray,
+    returns: np.ndarray,
+    month_end_positions: np.ndarray,
+    years: float,
+) -> dict[str, np.ndarray]:
+    start = values[:, 0]
+    end = values[:, -1]
+    valid_growth = (start > 0) & (end > 0)
+    total_return = np.where(valid_growth, (end / start - 1.0) * 100, np.nan)
+    cagr = np.where(valid_growth, ((end / start) ** (1 / years) - 1.0) * 100, np.nan)
+
+    running_max = np.maximum.accumulate(values, axis=1)
+    max_dd = np.min(values / running_max - 1.0, axis=1) * 100
+
+    daily = returns[:, 1:]
+    daily_std = np.std(daily, axis=1, ddof=1) if daily.shape[1] > 1 else np.zeros(len(values))
+    rf_daily = (1.0 + config.RISK_FREE_RATE) ** (1 / TRADING_DAYS_PER_YEAR) - 1.0
+    sharpe = np.full(len(values), np.nan)
+    valid_std = daily_std > 1e-12
+    sharpe[valid_std] = (
+        (np.mean(daily[valid_std], axis=1) - rf_daily)
+        / daily_std[valid_std]
+        * np.sqrt(TRADING_DAYS_PER_YEAR)
+    )
+
+    if len(month_end_positions) >= 2:
+        month_values = values[:, month_end_positions]
+        monthly = (month_values[:, 1:] / month_values[:, :-1] - 1.0) * 100
+        worst_month = np.min(monthly, axis=1)
+    else:
+        worst_month = np.full(len(values), np.nan)
+
+    calmar = np.full(len(values), np.nan)
+    valid_dd = np.abs(max_dd) > 1e-12
+    calmar[valid_dd] = cagr[valid_dd] / np.abs(max_dd[valid_dd])
+    return {
+        "Active Days (%)": np.empty(len(values)),
+        "Both Active Days (%)": np.empty(len(values)),
+        "Average Overlay Exposure (%)": np.empty(len(values)),
+        "Max Overlay Exposure (%)": np.empty(len(values)),
+        "Trade Episodes": np.empty(len(values), dtype=int),
+        "CAGR (%)": np.round(cagr, 4),
+        "Sharpe": np.round(sharpe, 4),
+        "Calmar": np.round(calmar, 4),
+        "Max Drawdown (%)": np.round(max_dd, 4),
+        "Worst Month (%)": np.round(worst_month, 4),
+        "Total Return (%)": np.round(total_return, 4),
+    }
 
 
 def _fast_mixed_grid(
@@ -537,6 +1895,7 @@ def _fast_mixed_grid(
     gld_exit_grid: tuple[float, ...] | None = None,
     gld_weight_grid: tuple[float, ...] | None = None,
     lookback: int = 14,
+    financing_cost_annual: float = 0.0,
     chunk_size: int = 50_000,
     sort_output: bool = True,
 ) -> pd.DataFrame:
@@ -567,6 +1926,11 @@ def _fast_mixed_grid(
         return pd.DataFrame()
     prices = is_prices.sort_index().astype(float).reindex(base.index)
     base_returns = base.pct_change().fillna(0.0).to_numpy(dtype=float)
+    daily_financing_rate = (
+        (1.0 + financing_cost_annual) ** (1 / TRADING_DAYS_PER_YEAR) - 1.0
+        if financing_cost_annual > 0
+        else 0.0
+    )
     asset_returns = {
         ticker: prices[ticker].pct_change().fillna(0.0).to_numpy(dtype=float)
         for ticker in MIXED_TICKERS
@@ -632,11 +1996,27 @@ def _fast_mixed_grid(
                             years,
                         )
                         overlay_exposure = spy_pos + gld_pos
+                        if daily_financing_rate > 0:
+                            strategy_returns = strategy_returns - overlay_exposure * daily_financing_rate
+                            values_arr = base_start * np.cumprod(1.0 + strategy_returns)
+                            values_arr[0] = base_start
+                            metrics = _grid_metrics_from_arrays(
+                                values_arr,
+                                strategy_returns,
+                                month_end_positions,
+                                years,
+                            )
                         active_pct = float(np.mean(overlay_exposure > 0) * 100)
                         avg_exposure = float(np.mean(overlay_exposure) * 100)
                         max_exposure = float(np.max(overlay_exposure) * 100)
                         both_active_pct = float(
                             np.mean((spy_pos > 0) & (gld_pos > 0)) * 100
+                        )
+                        trade_episodes = int(
+                            np.sum(
+                                (overlay_exposure > 0)
+                                & np.r_[True, overlay_exposure[:-1] <= 0]
+                            )
                         )
                         rows.append(
                             {
@@ -651,6 +2031,7 @@ def _fast_mixed_grid(
                                 "Both Active Days (%)": round(both_active_pct, 4),
                                 "Average Overlay Exposure (%)": round(avg_exposure, 4),
                                 "Max Overlay Exposure (%)": round(max_exposure, 4),
+                                "Trade Episodes": trade_episodes,
                                 "CAGR (%)": metrics["CAGR (%)"],
                                 "Sharpe": metrics["Sharpe"],
                                 "Calmar": metrics["Calmar"],
@@ -979,6 +2360,7 @@ def _evaluate_rule_row(
     base_metrics: dict[str, float],
     split: str,
     label: str,
+    funding_spread: float = 0.0,
 ) -> dict[str, object]:
     specs = [
         OverlaySpec(
@@ -1005,6 +2387,7 @@ def _evaluate_rule_row(
         selector=str(rule["Selector"]),
         base_metrics=base_metrics,
         split=split,
+        funding_spread=funding_spread,
         extra={
             "Candidate Name": label,
             "Robust Avg Calmar": rule.get("Robust Avg Calmar", pd.NA),
@@ -1025,6 +2408,7 @@ def _walk_forward_summary(
     gld_exit_grid: tuple[float, ...],
     gld_weight_grid: tuple[float, ...],
     cap_grid: tuple[float, ...],
+    funding_spread: float = 0.0,
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for year in years:
@@ -1067,12 +2451,60 @@ def _walk_forward_summary(
                 base_metrics=base_metrics,
                 split=f"{year}-01-01",
                 label=f"walk-forward {rule['Selector']} ({year})",
+                funding_spread=funding_spread,
             )
             summary = eval_out["summary"]
             summary["Year"] = int(year)
             summary["Is Partial Year"] = bool(year == 2026)
             summary["Calmar Improvement"] = bool(summary["OOS Calmar Delta"] > 0)
             summary["Config Key"] = _config_key(summary)
+            rows.append(summary)
+    return pd.DataFrame(rows)
+
+
+def fixed_candidate_walk_forward_summary(
+    prices: pd.DataFrame,
+    allocation: dict[str, float],
+    candidates: list[MixedOverlayCandidate],
+    years: tuple[int, ...],
+    apply_fees: bool,
+    funding_spread: float = 0.0,
+) -> pd.DataFrame:
+    """Evaluate fixed mixed candidates one calendar year at a time."""
+    rows: list[dict[str, object]] = []
+    for year in years:
+        eval_start = pd.Timestamp(f"{year}-01-01")
+        eval_end = pd.Timestamp(f"{year + 1}-01-01")
+        is_prices = prices.loc[prices.index < eval_start]
+        oos_prices = prices.loc[(prices.index >= eval_start) & (prices.index < eval_end)]
+        if is_prices.empty or oos_prices.empty:
+            continue
+        is_base = _base_series(is_prices, allocation, apply_fees)
+        oos_base = _base_series(oos_prices, allocation, apply_fees)
+        if is_base.empty or oos_base.empty:
+            continue
+        base_metrics = _strategy_metrics(oos_base, BASE_LABEL)
+        for candidate in candidates:
+            eval_out = _evaluate_mixed_oos(
+                is_base=is_base,
+                is_prices=is_prices,
+                oos_base=oos_base,
+                oos_prices=oos_prices,
+                specs=list(candidate.specs),
+                global_cap=candidate.global_cap,
+                label=candidate.name,
+                selector="fixed_candidate",
+                base_metrics=base_metrics,
+                split=f"{year}-01-01",
+                funding_spread=funding_spread,
+                extra={"Candidate Name": candidate.name, "Notes": candidate.notes},
+            )
+            summary = eval_out["summary"]
+            summary["Year"] = int(year)
+            summary["Is Partial Year"] = bool(year == date.today().year)
+            summary["Calmar Improvement"] = bool(summary["OOS Calmar Delta"] > 0)
+            summary["Control Only"] = is_control_candidate_name(candidate.name)
+            summary["Benchmark"] = "base"
             rows.append(summary)
     return pd.DataFrame(rows)
 
@@ -1169,12 +2601,21 @@ def disciplined_pass_fail_summary(
         )
         rows.append({
             "Selector": selector,
+            "Benchmark": "base",
+            "Control Only": is_control_candidate_name(selector),
+            "Global Cap": round(max_cap, 4),
+            "SPY Rule": _rule_label(group, "SPY"),
+            "GLD Rule": _rule_label(group, "GLD"),
             "Structural Splits Tested": int(len(group)),
             "Structural Splits Passed": structural_pass_count,
+            "Average OOS Calmar": round(float(group["OOS Overlay Calmar"].mean()), 4),
+            "Average OOS Calmar Delta": round(float(group["OOS Calmar Delta"].mean()), 4),
             "Worst OOS Calmar Delta": round(float(group["OOS Calmar Delta"].min()), 4),
             "Worst OOS MaxDD Delta (%)": round(float(group["OOS MaxDD Delta (%)"].min()), 4),
             "Average OOS CAGR Delta (%)": round(float(group["OOS CAGR Delta (%)"].mean()), 4),
+            "RF Cost Pass Splits": int(group["RF Cost Pass"].sum()) if "RF Cost Pass" in group else np.nan,
             "Min OOS Trade Episodes": min_episodes,
+            "Average OOS Exposure (%)": round(float(group["OOS Average Overlay Exposure (%)"].mean()), 4),
             "Annual Years Tested": int(len(wf_full)),
             "Annual Calmar Improvement Years": annual_pass,
             "Stable Neighborhood Pass": stable_pass,
@@ -1183,8 +2624,8 @@ def disciplined_pass_fail_summary(
             "Overall Pass": overall,
         })
     return pd.DataFrame(rows).sort_values(
-        ["Overall Pass", "Annual Calmar Improvement Years", "Worst OOS MaxDD Delta (%)"],
-        ascending=[False, False, False],
+        ["Overall Pass", "Average OOS Calmar", "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)"],
+        ascending=[False, False, False, False],
     )
 
 
@@ -1221,6 +2662,7 @@ def _evaluate_mixed_oos(
     selector: str,
     base_metrics: dict[str, float],
     split: str,
+    funding_spread: float = 0.0,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Evaluate one capped mixed-spec config IS and OOS, returning bundle rows."""
@@ -1249,7 +2691,7 @@ def _evaluate_mixed_oos(
         prices=oos_prices,
         specs=specs,
         global_cap=global_cap,
-        financing_cost_annual=config.RISK_FREE_RATE,
+        financing_cost_annual=config.RISK_FREE_RATE + funding_spread,
         execution_lag=1,
         name=label,
     )
@@ -1279,6 +2721,7 @@ def _evaluate_mixed_oos(
         "IS Start Date": is_base.index[0].date().isoformat(),
         "IS End Date": is_base.index[-1].date().isoformat(),
         "Selector": selector,
+        "Benchmark": "base",
         "Global Cap": global_cap,
         "SPY Entry": _spec_value(specs, "SPY", "entry_threshold"),
         "SPY Exit": _spec_value(specs, "SPY", "exit_threshold"),
@@ -1296,6 +2739,8 @@ def _evaluate_mixed_oos(
         "OOS Overlay Calmar": oos_metrics["Calmar"],
         "OOS Overlay Max Drawdown (%)": oos_metrics["Max Drawdown (%)"],
         "OOS RF Opportunity Cost CAGR (%)": rf_metrics["CAGR (%)"],
+        "Funding Cost Annual (%)": round(float((config.RISK_FREE_RATE + funding_spread) * 100), 4),
+        "Funding Spread (%)": round(float(funding_spread * 100), 4),
         "OOS CAGR Delta (%)": round(
             float(oos_metrics["CAGR (%)"] - base_metrics["CAGR (%)"]), 4
         ),
@@ -1319,6 +2764,9 @@ def _evaluate_mixed_oos(
         **pass_flags,
         **extra,
     }
+    summary["Control Only"] = is_control_candidate_name(
+        summary.get("Candidate Name", selector)
+    )
 
     daily = _daily_series(pd.DataFrame({label: oos_result.value_series}))
     daily.insert(0, "Selector", selector)
@@ -1462,8 +2910,8 @@ def build_pass_fail_summary(
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True).sort_values(
-        ["Overall Pass", "Splits Passed", "Worst OOS MaxDD Delta (%)"],
-        ascending=[False, False, False],
+        ["Overall Pass", "Average OOS Calmar", "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)"],
+        ascending=[False, False, False, False],
     )
 
 
@@ -1477,9 +2925,20 @@ def _aggregate_pass_fail(df: pd.DataFrame, key: str, source: str) -> pd.DataFram
             {
                 "Source": source,
                 "Name": name,
+                "Benchmark": "base",
+                "Control Only": is_control_candidate_name(name),
+                "Global Cap": round(float(pd.to_numeric(group["Global Cap"]).max()), 4),
+                "SPY Rule": _rule_label(group, "SPY"),
+                "GLD Rule": _rule_label(group, "GLD"),
                 "Splits Tested": int(len(group)),
                 "Splits Passed": pass_count,
                 "Low Trade Count Splits": low_trade_count,
+                "Average OOS Calmar": round(
+                    float(group["OOS Overlay Calmar"].mean()), 4
+                ),
+                "Average OOS Calmar Delta": round(
+                    float(group["OOS Calmar Delta"].mean()), 4
+                ),
                 "Worst OOS Calmar Delta": round(
                     float(group["OOS Calmar Delta"].min()), 4
                 ),
@@ -1489,11 +2948,35 @@ def _aggregate_pass_fail(df: pd.DataFrame, key: str, source: str) -> pd.DataFram
                 "Average OOS CAGR Delta (%)": round(
                     float(group["OOS CAGR Delta (%)"].mean()), 4
                 ),
+                "RF Cost Pass Splits": int(group["RF Cost Pass"].sum()) if "RF Cost Pass" in group else np.nan,
+                "Min OOS Trade Episodes": int(group["OOS Trade Episodes"].min()),
+                "Average OOS Exposure (%)": round(
+                    float(group["OOS Average Overlay Exposure (%)"].mean()), 4
+                ),
                 "Overall Pass": bool(pass_count >= 2 and not maxdd_breach),
                 "MaxDD Breach >3pp": maxdd_breach,
             }
         )
     return pd.DataFrame(rows)
+
+
+def _rule_label(group: pd.DataFrame, ticker: str) -> str:
+    """Summarise the modal rule for a ticker in an aggregate row."""
+    entry_col = f"{ticker} Entry"
+    exit_col = f"{ticker} Exit"
+    weight_col = f"{ticker} Weight"
+    if not {entry_col, exit_col, weight_col} <= set(group.columns):
+        return ""
+    keys = (
+        group[[entry_col, exit_col, weight_col]]
+        .round(4)
+        .astype(str)
+        .agg("/".join, axis=1)
+    )
+    if keys.empty:
+        return ""
+    mode = keys.value_counts().index[0].split("/")
+    return f"{float(mode[0]):g}/{float(mode[1]):g} @ {float(mode[2]) * 100:g}%"
 
 
 # ---------------------------------------------------------------------------
@@ -1638,6 +3121,9 @@ def _manifest(
     cap_grid: tuple[float, ...],
     apply_fees: bool,
     fixed_only: bool,
+    max_global_cap: float | None,
+    max_sleeve_weight: float | None,
+    funding_spread: float,
     generated_at: datetime,
     data_source: str,
 ) -> dict:
@@ -1654,6 +3140,12 @@ def _manifest(
         "pricing_model": config.PRICING_MODEL,
         "apply_fees": apply_fees,
         "fees": {"DIY": DIY_FEE if apply_fees else 0.0},
+        "broker_constraints": {
+            "max_global_cap": max_global_cap,
+            "max_sleeve_weight": max_sleeve_weight,
+            "funding_spread": funding_spread,
+            "funding_cost_annual": config.RISK_FREE_RATE + funding_spread,
+        },
         "allocation": allocation,
         "oos_splits": list(splits),
         "fixed_only": fixed_only,
@@ -1696,6 +3188,7 @@ def _manifest(
             "is_mixed_grid.csv",
             "selected_rules.csv",
             "fixed_candidates_oos.csv",
+            "fixed_candidate_walk_forward_summary.csv",
             "oos_summary.csv",
             "oos_daily_series.csv",
             "oos_signal_history.csv",
@@ -1723,6 +3216,9 @@ def _sweep_manifest(
     gld_weight_grid: tuple[float, ...],
     cap_grid: tuple[float, ...],
     apply_fees: bool,
+    max_global_cap: float | None,
+    max_sleeve_weight: float | None,
+    funding_spread: float,
     generated_at: datetime,
     data_source: str,
 ) -> dict:
@@ -1740,6 +3236,12 @@ def _sweep_manifest(
         "pricing_model": config.PRICING_MODEL,
         "apply_fees": apply_fees,
         "fees": {"DIY": DIY_FEE if apply_fees else 0.0},
+        "broker_constraints": {
+            "max_global_cap": max_global_cap,
+            "max_sleeve_weight": max_sleeve_weight,
+            "funding_spread": funding_spread,
+            "funding_cost_annual": config.RISK_FREE_RATE + funding_spread,
+        },
         "allocation": allocation,
         "oos_splits": list(splits),
         "walk_forward_years": list(walk_forward_years),
@@ -1766,12 +3268,79 @@ def _sweep_manifest(
         "artifacts": [
             "manifest.json",
             "is_sweep_grid.parquet",
+            "is_sweep_leaderboard.csv",
             "selected_rules.csv",
             "oos_summary.csv",
             "walk_forward_summary.csv",
             "parameter_stability.csv",
             "sweep_heatmap_tables.csv",
             "pass_fail_summary.csv",
+        ],
+    }
+
+
+def _full_grid_manifest(
+    strategy_id: str,
+    allocation: dict[str, float],
+    start_date: str,
+    end_date: str,
+    prices: pd.DataFrame,
+    splits: tuple[str, ...],
+    walk_forward_years: tuple[int, ...],
+    entry_grid: tuple[float, ...],
+    exit_grid: tuple[float, ...],
+    spy_weight_grid: tuple[float, ...],
+    gld_weight_grid: tuple[float, ...],
+    cap_grid: tuple[float, ...],
+    apply_fees: bool,
+    max_global_cap: float | None,
+    max_sleeve_weight: float | None,
+    funding_spread: float,
+    generated_at: datetime,
+    data_source: str,
+) -> dict:
+    return {
+        "generated_at": generated_at.isoformat(timespec="seconds"),
+        "strategy_id": strategy_id,
+        "mode": "full_grid_oos_walk_forward",
+        "date_range": {
+            "requested_start": start_date,
+            "requested_end": end_date,
+            "actual_start": prices.index.min().date().isoformat(),
+            "actual_end": prices.index.max().date().isoformat(),
+        },
+        "data_source": data_source,
+        "pricing_model": config.PRICING_MODEL,
+        "apply_fees": apply_fees,
+        "fees": {"DIY": DIY_FEE if apply_fees else 0.0},
+        "broker_constraints": {
+            "max_global_cap": max_global_cap,
+            "max_sleeve_weight": max_sleeve_weight,
+            "funding_spread": funding_spread,
+            "funding_cost_annual": config.RISK_FREE_RATE + funding_spread,
+        },
+        "allocation": allocation,
+        "oos_splits": list(splits),
+        "walk_forward_years": list(walk_forward_years),
+        "rsi_lookback": 14,
+        "mixed_grid": {
+            "entry_thresholds": list(entry_grid),
+            "exit_thresholds": list(exit_grid),
+            "spy_weight_grid": list(spy_weight_grid),
+            "gld_weight_grid": list(gld_weight_grid),
+            "cap_grid": list(cap_grid),
+            "tickers": list(MIXED_TICKERS),
+            "invalid_rule": "entry >= exit is skipped",
+        },
+        "artifacts": [
+            "manifest.json",
+            "structural_full_grid_oos.parquet",
+            "all_considered_strategies.csv",
+            "structural_full_grid_leaderboard.csv",
+            "structural_full_grid_summary.csv",
+            "annual_full_grid_walk_forward.parquet",
+            "annual_full_grid_summary.parquet",
+            "annual_full_grid_leaderboard.csv",
         ],
     }
 
@@ -1812,11 +3381,41 @@ def main() -> None:
         action="store_true",
         help="Skip the mixed grid; evaluate only the named fixed candidates.",
     )
+    parser.add_argument(
+        "--full-grid-oos",
+        action="store_true",
+        help="Evaluate every full-grid config structurally OOS and annual walk-forward.",
+    )
+    parser.add_argument("--max-global-cap", type=float, default=None)
+    parser.add_argument("--max-sleeve-weight", type=float, default=None)
+    parser.add_argument(
+        "--funding-spread",
+        type=float,
+        default=0.0,
+        help="Additional annual funding spread over the project risk-free rate, decimal form.",
+    )
+    parser.add_argument("--data-source", choices=("yfinance", "fmp"), default=config.DATA_SOURCE)
+    parser.add_argument("--fmp-price-column", default=config.FMP_PRICE_COLUMN)
     parser.add_argument("--no-fees", action="store_true", help="Skip DIY expense-ratio drag.")
     args = parser.parse_args()
 
+    config.DATA_SOURCE = args.data_source
+    config.FMP_PRICE_COLUMN = args.fmp_price_column
     splits = _parse_splits(args.splits)
-    if args.sweep_depth == "disciplined":
+    if args.full_grid_oos:
+        bundle = build_full_grid_from_yfinance(
+            strategy_id=args.strategy_id,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            output_root=args.output_root or DEFAULT_FULL_GRID_OUTPUT_ROOT,
+            apply_fees=not args.no_fees,
+            splits=splits,
+            max_global_cap=args.max_global_cap,
+            max_sleeve_weight=args.max_sleeve_weight,
+            funding_spread=args.funding_spread,
+        )
+        print(f"Mixed leverage full-grid OOS bundle written to: {bundle}")
+    elif args.sweep_depth == "disciplined":
         bundle = build_sweep_from_yfinance(
             strategy_id=args.strategy_id,
             start_date=args.start_date,
@@ -1824,6 +3423,9 @@ def main() -> None:
             output_root=args.output_root or DEFAULT_SWEEP_OUTPUT_ROOT,
             apply_fees=not args.no_fees,
             splits=splits,
+            max_global_cap=args.max_global_cap,
+            max_sleeve_weight=args.max_sleeve_weight,
+            funding_spread=args.funding_spread,
         )
         print(f"Mixed leverage disciplined sweep bundle written to: {bundle}")
     else:
@@ -1835,6 +3437,9 @@ def main() -> None:
             apply_fees=not args.no_fees,
             splits=splits,
             fixed_only=args.fixed_only,
+            max_global_cap=args.max_global_cap,
+            max_sleeve_weight=args.max_sleeve_weight,
+            funding_spread=args.funding_spread,
         )
         print(f"Mixed leverage OOS validation bundle written to: {bundle}")
 

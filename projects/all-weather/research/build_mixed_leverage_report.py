@@ -68,7 +68,7 @@ def default_mixed_candidates() -> list[MixedOverlayCandidate]:
             name="SPY+GLD default 20% total cap",
             specs=(spy_default, gld_default),
             global_cap=0.20,
-            notes="Both default RSI sleeves compete for the same 20% overlay budget.",
+            notes="CONTROL ONLY: both default RSI sleeves compete for the same 20% overlay budget.",
         ),
         MixedOverlayCandidate(
             name="SPY 10% + GLD 20% total cap",
@@ -96,6 +96,60 @@ def default_mixed_candidates() -> list[MixedOverlayCandidate]:
             ),
             global_cap=0.20,
             notes="Uses the GLD threshold region that survived OOS validation most cleanly.",
+        ),
+        MixedOverlayCandidate(
+            name="SPY34/42 + GLD32/64 30% cap",
+            specs=(
+                OverlaySpec("SPY", entry_threshold=34.0, exit_threshold=42.0, overlay_weight=0.25),
+                OverlaySpec("GLD", entry_threshold=32.0, exit_threshold=64.0, overlay_weight=0.30),
+            ),
+            global_cap=0.30,
+            notes="Heatmap-inspired Calmar candidate: SPY single-ETF peak with GLD 32/64 region.",
+        ),
+        MixedOverlayCandidate(
+            name="SPY34/42 + GLD32/64 25% cap",
+            specs=(
+                OverlaySpec("SPY", entry_threshold=34.0, exit_threshold=42.0, overlay_weight=0.25),
+                OverlaySpec("GLD", entry_threshold=32.0, exit_threshold=64.0, overlay_weight=0.25),
+            ),
+            global_cap=0.25,
+            notes="Broker-safe heatmap candidate with equal 25% sleeve weights.",
+        ),
+        MixedOverlayCandidate(
+            name="SPY34/42 + GLD32/64 20% cap",
+            specs=(
+                OverlaySpec("SPY", entry_threshold=34.0, exit_threshold=42.0, overlay_weight=0.20),
+                OverlaySpec("GLD", entry_threshold=32.0, exit_threshold=64.0, overlay_weight=0.20),
+            ),
+            global_cap=0.20,
+            notes="Strict-pilot heatmap candidate with 20% cap and sleeves.",
+        ),
+        MixedOverlayCandidate(
+            name="Older mixed best_calmar 30% cap",
+            specs=(
+                OverlaySpec("SPY", entry_threshold=34.0, exit_threshold=42.0, overlay_weight=0.25),
+                OverlaySpec("GLD", entry_threshold=22.0, exit_threshold=50.0, overlay_weight=0.25),
+            ),
+            global_cap=0.30,
+            notes="Fixed version of the older mixed best_calmar selector that passed structural OOS.",
+        ),
+        MixedOverlayCandidate(
+            name="Best MaxDD Preservation 30% cap",
+            specs=(
+                OverlaySpec("SPY", entry_threshold=22.0, exit_threshold=40.0, overlay_weight=0.25),
+                OverlaySpec("GLD", entry_threshold=22.0, exit_threshold=64.0, overlay_weight=0.30),
+            ),
+            global_cap=0.30,
+            notes="Fixed version of latest IBKR-safe disciplined sweep drawdown-preservation candidate.",
+        ),
+        MixedOverlayCandidate(
+            name="Best MaxDD Preservation 20% cap",
+            specs=(
+                OverlaySpec("SPY", entry_threshold=22.0, exit_threshold=40.0, overlay_weight=0.20),
+                OverlaySpec("GLD", entry_threshold=22.0, exit_threshold=64.0, overlay_weight=0.20),
+            ),
+            global_cap=0.20,
+            notes="Strict-pilot fixed version of the disciplined sweep drawdown-preservation candidate.",
         ),
     ]
 

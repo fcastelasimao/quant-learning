@@ -39,6 +39,14 @@ Subject to: Σ_i w_i = 1, w_i ≥ 0.02
 
 Solved via scipy's SLSQP (Sequential Least Squares Programming). The covariance matrix Σ is estimated from 5 years of daily log returns. Production weights are averaged across the 2018, 2020, and 2022 stress-window derivations. These windows overlap, so they are useful robustness checks, not fully independent samples.
 
+### Production Strategy
+
+Machine alias: `6_asset_rp_baseline`
+Display name: 6 Asset RP Baseline
+
+The legacy registry key `6asset_tip_gsg_rpavg` is kept for reproducibility
+because historical results, reports, and logs reference it.
+
 ### Production Allocation
 
 | Asset | ETF | Weight | Role |
@@ -157,7 +165,7 @@ All commands must be run from `projects/all-weather/`. Use `conda run -n allweat
 conda run -n allweather python main.py
 ```
 
-Runs the full backtest with the production `6asset_tip_gsg_rpavg` RP weights. Output goes to `results/<timestamp>/`, including `annual_metrics.csv` for year-by-year PnL, returns, and drawdowns.
+Runs the full backtest with the production `6_asset_rp_baseline` RP weights. Output goes to `results/<timestamp>/`, including `annual_metrics.csv` for year-by-year PnL, returns, and drawdowns.
 
 ### Run tests
 
@@ -232,17 +240,23 @@ that review surface.
 
 ```bash
 # Preview what trades would be made (no orders placed)
-conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER
+conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER --use-live-tickers
 
 # Execute the rebalance
-conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER --execute
+conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER --use-live-tickers --execute
+
+# Read-only preview against a live account
+conda run -n allweather python -m live.alpaca_rebalance --live --account LIVE --use-live-tickers
 
 # or via Make:
 make rebalance-preview ACCOUNT=PAPER
+make rebalance-live-preview ACCOUNT=LIVE
 make rebalance-execute ACCOUNT=PAPER
 ```
 
-Live execution requires explicit `--live`. Rejected, canceled, expired, or
+The live rebalancer defaults to strategy live tickers (`GLD -> GLDM`) and
+refuses non-production strategies unless explicitly overridden. Live execution
+requires explicit `--live` and `--execute`. Rejected, canceled, expired, or
 timed-out orders fail the run, and final positions are checked against target
 weights before the run is marked successful.
 
@@ -309,7 +323,7 @@ projects/all-weather/
 All parameters live in `engine/config.py`. The default strategy is loaded from `strategies.json`:
 
 ```python
-DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"  # production RP-averaged weights
+DEFAULT_STRATEGY = "6_asset_rp_baseline"  # alias for production RP-averaged weights
 ```
 
 Key settings:

@@ -72,10 +72,10 @@ def get_price_provenance(prices: pd.DataFrame) -> dict[str, Any]:
 
 
 def _repo_data_dir() -> str:
-    """Return the repo-level data directory that holds FMP SQLite files."""
+    """Return the shared QuantFinance/data directory that holds FMP SQLite files."""
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     repo_root = os.path.dirname(os.path.dirname(project_root))
-    return os.path.join(repo_root, "data")
+    return os.path.join(os.path.dirname(repo_root), "data")
 
 
 def _run_price_quality_checks(prices: pd.DataFrame,

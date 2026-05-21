@@ -42,7 +42,7 @@ DATA_SOURCE = "yfinance"
 # Options: "yfinance", "fmp"
 FMP_PRICE_COLUMN = "close"
 # Options: "open", "high", "low", "close", "adj_close"
-FMP_DATA_DIR = None  # None -> repo-level quant-learning/data
+FMP_DATA_DIR = None  # None -> shared QuantFinance/data
 REBALANCE_THRESHOLD = 0.05
 # "per_asset"     — each asset is checked independently; only breaching assets are traded
 # "full_on_breach" — if any asset breaches the threshold, ALL assets are brought back to target
@@ -66,9 +66,11 @@ TAX_DRAG_PCT         = 0.0   # 0.0 for ISA/SIPP
 
 # ---- Target allocation ----
 # Load from strategies.json. Override by setting DEFAULT_STRATEGY.
-DEFAULT_STRATEGY = "6asset_tip_gsg_rpavg"
+DEFAULT_STRATEGY = "6_asset_rp_baseline"
 
-def _load_default_strategy() -> tuple[dict[str, float], dict[str, str]]:
+
+def _load_strategy_registry() -> dict:
+    """Load the strategy registry, falling back to the example file if needed."""
     base_path = os.path.dirname(os.path.dirname(__file__))  # project root, not engine/
     strategies_path = os.path.join(base_path, "strategies.json")
     example_path = os.path.join(base_path, "strategies.example.json")
@@ -80,9 +82,29 @@ def _load_default_strategy() -> tuple[dict[str, float], dict[str, str]]:
             raise FileNotFoundError("Neither strategies.json nor strategies.example.json found.")
 
     with open(strategies_path) as f:
-        data = json.load(f)
+        return json.load(f)
 
-    s = data["strategies"][DEFAULT_STRATEGY]
+
+def resolve_strategy_id(strategy_id: str) -> str:
+    """Return the canonical registry key for a strategy id or alias."""
+    data = _load_strategy_registry()
+    strategies = data["strategies"]
+    if strategy_id in strategies:
+        return strategy_id
+
+    matches = [
+        key for key, payload in strategies.items()
+        if strategy_id in payload.get("aliases", [])
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise KeyError(f"Strategy alias '{strategy_id}' is ambiguous: {matches}")
+    raise KeyError(f"Strategy '{strategy_id}' not found. Available: {list(strategies.keys())}")
+
+def _load_default_strategy() -> tuple[dict[str, float], dict[str, str]]:
+    data = _load_strategy_registry()
+    s = data["strategies"][resolve_strategy_id(DEFAULT_STRATEGY)]
     return s["allocation"], s.get("live_tickers", {})
 
 TARGET_ALLOCATION, LIVE_TICKERS = _load_default_strategy()
@@ -259,13 +281,8 @@ def validate_config() -> None:
 # ---- Strategy loader ----
 
 def load_strategy(strategy_id: str) -> dict:
-    strategies_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "strategies.json")
-    with open(strategies_path, "r") as f:
-        data = json.load(f)
-    strategies = data["strategies"]
-    if strategy_id not in strategies:
-        raise KeyError(f"Strategy '{strategy_id}' not found. Available: {list(strategies.keys())}")
-    s = strategies[strategy_id]
+    data = _load_strategy_registry()
+    s = data["strategies"][resolve_strategy_id(strategy_id)]
     return {
         "allocation":             s["allocation"],
         "asset_class_groups":     s.get("asset_class_groups", {}),

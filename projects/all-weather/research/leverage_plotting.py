@@ -483,3 +483,150 @@ def plot_mixed_growth_figure(
     axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     plt.tight_layout(pad=1.2)
     return fig
+
+
+def plot_walk_forward_heatmap_figure(walk_forward: pd.DataFrame) -> plt.Figure:
+    """Selector x year heatmap showing whether annual walk-forward Calmar improved."""
+    fig, ax = plt.subplots(figsize=(13, 4.8))
+    fig.patch.set_facecolor(DARK_BG)
+    style_ax(ax)
+    if walk_forward.empty or "Calmar Improvement" not in walk_forward:
+        ax.set_title("No walk-forward data", fontsize=10)
+        return fig
+
+    data = walk_forward.copy()
+    if "Is Partial Year" in data:
+        data = data[~data["Is Partial Year"].astype(bool)]
+    data["Calmar Improvement"] = data["Calmar Improvement"].astype(str).str.lower().isin(["true", "1"])
+    pivot = data.pivot_table(
+        index="Selector",
+        columns="Year",
+        values="Calmar Improvement",
+        aggfunc="max",
+    ).sort_index()
+    values = pivot.astype(float).values
+    cmap = plt.get_cmap("RdYlGn").copy()
+    image = ax.imshow(values, aspect="auto", cmap=cmap, vmin=0, vmax=1)
+    ax.set_xticks(range(len(pivot.columns)))
+    ax.set_xticklabels([str(int(x)) for x in pivot.columns], color=TEXT_COL, fontsize=8)
+    ax.set_yticks(range(len(pivot.index)))
+    ax.set_yticklabels([_short_label(str(x), "Selector", max_len=28) for x in pivot.index], color=TEXT_COL, fontsize=8)
+    ax.set_title("Annual walk-forward Calmar improvement", fontsize=11, pad=8)
+    ax.set_xlabel("Evaluation year")
+    ax.set_ylabel("Selector")
+    cbar = fig.colorbar(image, ax=ax, ticks=[0, 1])
+    cbar.ax.set_yticklabels(["No", "Yes"], color=TEXT_COL)
+    cbar.ax.tick_params(colors=TEXT_COL)
+    plt.tight_layout(pad=1.1)
+    return fig
+
+
+def plot_calmar_maxdd_scatter_figure(candidates: pd.DataFrame) -> plt.Figure:
+    """Scatter plot of Calmar improvement against drawdown impact."""
+    fig, ax = plt.subplots(figsize=(10.5, 5.8))
+    fig.patch.set_facecolor(DARK_BG)
+    style_ax(ax)
+    required = {"Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)"}
+    if candidates.empty or not required <= set(candidates.columns):
+        ax.set_title("No Calmar/MaxDD candidate data", fontsize=10)
+        return fig
+
+    data = candidates.copy()
+    x = pd.to_numeric(data["Worst OOS Calmar Delta"], errors="coerce")
+    y = pd.to_numeric(data["Worst OOS MaxDD Delta (%)"], errors="coerce")
+    size = pd.to_numeric(data.get("Average OOS Exposure (%)", 1.0), errors="coerce").fillna(1.0)
+    passes = (
+        data["Overall Pass"].fillna(False).astype(bool)
+        if "Overall Pass" in data
+        else pd.Series(False, index=data.index)
+    )
+    colors = np.where(passes, "#3fb950", "#f78166")
+    sizes = 60 + np.clip(size, 0, 15) * 18
+    ax.scatter(x, y, s=sizes, c=colors, alpha=0.82, edgecolor="#0d1117", linewidth=0.8)
+    for _, row in data.iterrows():
+        label = _short_label(str(row.get("Candidate", row.get("Selector", ""))), "Candidate Name", max_len=28)
+        xv = pd.to_numeric(row.get("Worst OOS Calmar Delta"), errors="coerce")
+        yv = pd.to_numeric(row.get("Worst OOS MaxDD Delta (%)"), errors="coerce")
+        if pd.notna(xv) and pd.notna(yv):
+            ax.annotate(label, xy=(float(xv), float(yv)), xytext=(5, 4),
+                        textcoords="offset points", color=TEXT_COL, fontsize=7)
+    ax.axvline(0, color="#8b949e", lw=0.8)
+    ax.axhline(0, color="#8b949e", lw=0.8)
+    ax.set_title("Candidate frontier: worst Calmar delta vs worst MaxDD delta", fontsize=11, pad=8)
+    ax.set_xlabel("Worst OOS Calmar delta vs base")
+    ax.set_ylabel("Worst OOS MaxDD delta vs base (pp)")
+    plt.tight_layout(pad=1.0)
+    return fig
+
+
+def plot_exposure_timeline_figure(
+    diagnostics: pd.DataFrame,
+    strategy: str | None = None,
+) -> plt.Figure:
+    """Gross exposure and SPY/GLD sleeve timeline for one mixed overlay strategy."""
+    fig, ax = plt.subplots(figsize=(13, 4.8))
+    fig.patch.set_facecolor(DARK_BG)
+    style_ax(ax)
+    if diagnostics.empty:
+        ax.set_title("No exposure diagnostics loaded", fontsize=10)
+        return fig
+
+    data = diagnostics.copy()
+    data["Date"] = pd.to_datetime(data["Date"])
+    if strategy and "Overlay Strategy" in data:
+        data = data[data["Overlay Strategy"] == strategy]
+    elif "Overlay Strategy" in data:
+        strategy = data["Overlay Strategy"].dropna().iloc[0]
+        data = data[data["Overlay Strategy"] == strategy]
+    if data.empty:
+        ax.set_title("No exposure diagnostics for selected strategy", fontsize=10)
+        return fig
+
+    ax.plot(data["Date"], data["Gross Exposure"] * 100, color="#f0b429", lw=1.4, label="Gross exposure")
+    if "SPY Position" in data:
+        ax.fill_between(data["Date"], data["SPY Position"] * 100, 0, color="#58a6ff", alpha=0.28, label="SPY sleeve")
+    if "GLD Position" in data:
+        ax.fill_between(data["Date"], data["GLD Position"] * 100, 0, color="#3fb950", alpha=0.28, label="GLD sleeve")
+    ax.axhline(100, color="#8b949e", lw=0.8)
+    ax.set_title(f"Daily overlay exposure — {_short_label(str(strategy), 'Candidate Name', max_len=48)}", fontsize=11, pad=8)
+    ax.set_ylabel("Exposure (%)")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax.legend(fontsize=8, facecolor="#21262d", edgecolor=GRID_COL, labelcolor=TEXT_COL)
+    plt.tight_layout(pad=1.1)
+    return fig
+
+
+def plot_trade_episode_distribution_figure(episodes: pd.DataFrame) -> plt.Figure:
+    """Trade episode count and contribution distribution for selected candidates."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
+    fig.patch.set_facecolor(DARK_BG)
+    for ax in axes:
+        style_ax(ax)
+    if episodes.empty:
+        axes[0].set_title("No trade episode data", fontsize=10)
+        axes[1].set_visible(False)
+        return fig
+
+    data = episodes.copy()
+    name_col = "Overlay Strategy" if "Overlay Strategy" in data else "Ticker"
+    group = data.groupby(name_col, as_index=False).agg(
+        Episodes=("Episode", "count"),
+        Median_Days=("Trading Days", "median"),
+        Total_Contribution=("Overlay Return Contribution (%)", "sum"),
+    )
+    group = group.sort_values("Total_Contribution", ascending=False).head(10)
+    labels = [_short_label(str(x), "Candidate Name", max_len=26) for x in group[name_col]]
+    y = np.arange(len(group))
+    axes[0].barh(y, group["Episodes"], color="#58a6ff")
+    axes[0].set_yticks(y)
+    axes[0].set_yticklabels(labels, color=TEXT_COL, fontsize=7)
+    axes[0].invert_yaxis()
+    axes[0].set_title("Trade episode count", fontsize=10, pad=6)
+    axes[1].barh(y, group["Total_Contribution"], color="#3fb950")
+    axes[1].set_yticks(y)
+    axes[1].set_yticklabels(labels, color=TEXT_COL, fontsize=7)
+    axes[1].invert_yaxis()
+    axes[1].axvline(0, color="#8b949e", lw=0.8)
+    axes[1].set_title("Total overlay contribution (%)", fontsize=10, pad=6)
+    plt.tight_layout(pad=1.0)
+    return fig

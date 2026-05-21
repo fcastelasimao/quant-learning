@@ -6,6 +6,7 @@ be used in customer or employer materials.
 
 | Claim | Status | Evidence artifact | Data basis | Date range | Notes |
 |---|---|---|---|---|---|
+| Production strategy name is 6 Asset RP Baseline, with machine alias `6_asset_rp_baseline`. | Approved | `strategies.json` | Strategy registry | Current | Legacy key `6asset_tip_gsg_rpavg` remains for reproducibility. |
 | Production strategy is a long-only six-ETF risk-balanced allocation. | Approved | `strategies.json` | Strategy registry | Current | Public claim is structural, not performance-based. |
 | Production weights are SPY 13.4%, QQQ 10.3%, TLT 17.5%, TIP 34.8%, GLD/GLDM 14.2%, GSG 9.8%. | Approved | `strategies.json` | Strategy registry | Current | GLD is backtest ETF; GLDM is live gold ETF substitution. |
 | Strategy is designed for capital preservation rather than return maximization. | Approved | `docs/customer_pack.md` | Methodology | Current | Must be phrased as design intent, not guaranteed outcome. |

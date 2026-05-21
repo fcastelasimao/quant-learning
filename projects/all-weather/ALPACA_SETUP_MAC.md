@@ -377,7 +377,7 @@ python -c "import json; print(list(json.load(open('strategies.json'))['strategie
 Use one of those strategy IDs:
 
 ```bash
-python -m live.alpaca_rebalance --paper --strategy-id 6asset_tip_gsg_rpavg --execute
+python -m live.alpaca_rebalance --paper --strategy-id 6_asset_rp_baseline --execute
 ```
 
 ### Orders Stuck in Pending State

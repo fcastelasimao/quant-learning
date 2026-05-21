@@ -6,8 +6,10 @@ from research.leverage_analysis import (
     BASE,
     BENCHMARK,
     compute_heatmap_pivot,
+    build_candidate_funnel,
     default_focus_strategies,
     derive_leverage_tables,
+    filter_broker_limits,
     fmt_num,
     fmt_pp,
     fmt_pct,
@@ -142,8 +144,107 @@ def test_presentation_table_filters_to_existing_columns():
     assert list(result.columns) == ["A", "C"]
 
 
+def test_ibkr_safe_filters_rows_above_thirty_percent():
+    df = pd.DataFrame({"Overlay Weight (%)": [20.0, 30.0, 35.0], "Label": ["a", "b", "c"]})
+    result = filter_broker_limits(df, "IBKR Safe")
+
+    assert result["Overlay Weight (%)"].max() <= 30.0
+    assert "c" not in set(result["Label"])
+
+
+def test_strict_pilot_filters_rows_above_twenty_percent():
+    df = pd.DataFrame({"Overlay Weight (%)": [20.0, 25.0, 30.0], "Label": ["a", "b", "c"]})
+    result = filter_broker_limits(df, "Strict Pilot")
+
+    assert result["Overlay Weight (%)"].tolist() == [20.0]
+
+
+def test_research_unrestricted_keeps_all_rows_and_tags_aggressive():
+    df = pd.DataFrame({"Overlay Weight (%)": [20.0, 35.0], "Label": ["safe", "aggressive"]})
+    result = filter_broker_limits(df, "Research Unrestricted")
+
+    assert result["Label"].tolist() == ["safe", "aggressive"]
+    assert result.loc[result["Label"] == "aggressive", "Aggressive Research"].iloc[0]
+
+
+def test_mixed_broker_filter_checks_global_cap_and_sleeves():
+    df = pd.DataFrame({
+        "Global Cap": [0.20, 0.35, 0.20],
+        "SPY Weight": [0.20, 0.20, 0.35],
+        "GLD Weight": [0.20, 0.20, 0.20],
+        "Label": ["allowed", "cap too high", "sleeve too high"],
+    })
+    result = filter_broker_limits(df, "IBKR Safe")
+
+    assert result["Label"].tolist() == ["allowed"]
+
+
+def test_candidate_funnel_has_required_caveats_and_excludes_aggressive_for_ibkr_safe():
+    pass_fail = pd.DataFrame({
+        "Source": ["fixed", "fixed"],
+        "Name": ["SPY+GLD default 20% total cap", "SPY34/42 + GLD32/64 30% cap"],
+        "Benchmark": ["base", "base"],
+        "Global Cap": [0.20, 0.30],
+        "SPY Rule": ["30/50 @ 20%", "34/42 @ 25%"],
+        "GLD Rule": ["30/50 @ 20%", "32/64 @ 30%"],
+        "Splits Passed": [3, 3],
+        "Splits Tested": [3, 3],
+        "Average OOS Calmar": [0.51, 0.56],
+        "Average OOS Calmar Delta": [0.07, 0.12],
+        "Worst OOS Calmar Delta": [0.04, 0.1],
+        "Worst OOS MaxDD Delta (%)": [-0.6, 0.0],
+        "Average OOS CAGR Delta (%)": [1.4, 0.5],
+        "RF Cost Pass Splits": [3, 3],
+        "Min OOS Trade Episodes": [8, 6],
+        "Average OOS Exposure (%)": [2.3, 1.4],
+        "Low Trade Count Splits": [0, 1],
+        "MaxDD Breach >3pp": [False, False],
+        "Control Only": [True, False],
+        "Overall Pass": [True, True],
+    })
+    sweep_pass_fail = pd.DataFrame({
+        "Selector": ["best_maxdd_preservation", "best_calmar"],
+        "Structural Splits Passed": [3, 3],
+        "Structural Splits Tested": [3, 3],
+        "Worst OOS Calmar Delta": [0.05, 0.06],
+        "Worst OOS MaxDD Delta (%)": [0.0, -4.0],
+        "Average OOS CAGR Delta (%)": [0.8, 1.1],
+        "RF Cost Pass Splits": [3, 2],
+        "Average OOS Calmar": [0.49, 0.52],
+        "Average OOS Calmar Delta": [0.05, 0.07],
+        "Min OOS Trade Episodes": [3, 5],
+        "Average OOS Exposure (%)": [0.7, 7.0],
+        "Global Cap": [0.30, 0.35],
+        "SPY Rule": ["22/40 @ 25%", "24/40 @ 25%"],
+        "GLD Rule": ["22/64 @ 30%", "32/64 @ 30%"],
+        "Annual Calmar Improvement Years": [8, 9],
+        "Stable Neighborhood Pass": [True, True],
+        "Aggressive Cap >30%": [False, True],
+        "Control Only": [False, False],
+        "Promotion Tier": ["broker-safe candidate", "aggressive research"],
+        "Overall Pass": [True, True],
+    })
+    stability = pd.DataFrame({
+        "Selector": ["best_maxdd_preservation"],
+        "Most Common Config": ["24|40|0.2|22|44|0.2|0.2"],
+    })
+
+    result = build_candidate_funnel(pass_fail, sweep_pass_fail, stability, "IBKR Safe")
+
+    required = {
+        "Candidate", "Benchmark", "Global Cap", "SPY Rule", "GLD Rule",
+        "Average OOS Calmar", "Splits Passed", "Low Trade Count Splits",
+        "MaxDD Breach >3pp", "Promotion Tier", "Broker Allowed", "Caveat",
+    }
+    assert required <= set(result.columns)
+    assert "Best Calmar" not in set(result["Candidate"])
+    assert "SPY+GLD default 20% total cap" not in set(result["Candidate"])
+    assert result["Benchmark"].eq("base").all()
+    assert "Low trade count" in set(result["Caveat"])
+
+
 def test_label_selector_known_key():
-    assert label_selector("default_30_50_20") == "Default 30/50, +20%"
+    assert label_selector("default_30_50_20") == "Default 30/50, +20% (control only)"
 
 
 def test_label_selector_unknown_key_titlecases():

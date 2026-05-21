@@ -4,21 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "6b83763ee0888487",
+        "id": "b0e24d2f07d63ff7",
         "type": "tabs",
         "children": [
           {
-            "id": "ee82d64cdc62de8e",
+            "id": "de7036601f9444e0",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "projects/qframe/README.md",
-                "mode": "preview",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "README"
+              "title": "New tab"
             }
           }
         ]
@@ -183,8 +179,9 @@
       "bases:Create new base": false
     }
   },
-  "active": "ee82d64cdc62de8e",
+  "active": "de7036601f9444e0",
   "lastOpenFiles": [
+    "projects/qframe/README.md",
     "projects/qframe/src/qframe/data/__pycache__/loader.cpython-39.pyc",
     "projects/qframe/src/qframe/data/__pycache__/__init__.cpython-39.pyc",
     "projects/qframe/src/qframe/factor_harness/__pycache__/multiple_testing.cpython-39.pyc",
@@ -195,14 +192,12 @@
     "projects/qframe/src/qframe/pipeline/__pycache__/executor.cpython-39.pyc",
     "projects/qframe/src/qframe/pipeline/__pycache__/__init__.cpython-39.pyc",
     "projects/qframe/src/qframe/regime/__pycache__/analyzer.cpython-39.pyc",
-    "projects/qframe/src/qframe/regime/__pycache__/velocity.cpython-39.pyc",
     "projects/all-weather/results/linkedin_comparison.png",
     "projects/all-weather/results/linkedin_comparison_old.png",
     "projects/all-weather/results/2026-04-15_allw_comparison_growth_from2025-03-06_to2026-04-15.png",
     "projects/qframe/gate-thresholds.md",
     "projects/qframe/CLAUDE.md",
     "projects/qframe/research-log.md",
-    "projects/qframe/README.md",
     "projects/qframe/docs/quant-primer.md",
     "2026-04-13.md",
     "Untitled.canvas",

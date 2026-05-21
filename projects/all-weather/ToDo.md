@@ -1,6 +1,6 @@
 # All Weather Portfolio — TODO
 
-Last updated: 2026-05-11
+Last updated: 2026-05-19
 
 ---
 
@@ -21,6 +21,8 @@ Last updated: 2026-05-11
 - [x] Marimo leverage comparison notebook — date filter, overlay selector, threshold/leverage heatmaps
 - [x] RSI leverage OOS validation runner — IS-only selection for 2018/2020/2022 windows
 - [x] Paper trading launched — April 2026 via Alpaca (two accounts)
+- [x] Production strategy named 6 Asset RP Baseline (`6_asset_rp_baseline` alias)
+- [x] Live rebalancer defaults to live tickers and blocks non-production strategies
 - [x] LinkedIn post + comparison plot
 - [x] Dead code archived, config.py fixed to production strategy
 
@@ -38,7 +40,7 @@ Last updated: 2026-05-11
 
 ## Current — Product launch
 
-- [ ] Brand name
+- [x] Strategy name: 6 Asset RP Baseline
 - [ ] Blog post (ALLW comparison data ready)
 - [ ] Landing page
 - [ ] FCA compliance review

@@ -10,6 +10,7 @@ and returns DataFrames or scalar values.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import numpy as np
 import pandas as pd
@@ -22,13 +23,39 @@ PALETTE = [
     "#d2a8ff", "#ff7b72", "#56d4dd", "#a5d6ff",
 ]
 SELECTOR_LABELS: dict[str, str] = {
-    "default_30_50_20": "Default 30/50, +20%",
+    "default_30_50_20": "Default 30/50, +20% (control only)",
     "robust_calmar_region": "Robust Calmar Region",
     "best_maxdd_preservation": "Best Drawdown Preservation",
     "best_calmar": "Best Calmar",
     "best_cagr_with_maxdd_guard": "Best CAGR With MaxDD Guard",
     "simple_stable_region": "Simple Stable Region",
     "base": "Base",
+}
+CONTROL_CANDIDATES: set[str] = {
+    "default_30_50_20",
+    "SPY+GLD default 20% total cap",
+    "Default 30/50, +20% (control only)",
+}
+
+BROKER_LIMIT_PROFILES: dict[str, dict[str, float | bool | str]] = {
+    "IBKR Safe": {
+        "max_cap_pct": 30.0,
+        "max_sleeve_pct": 30.0,
+        "unrestricted": False,
+        "description": "IBKR conservative rules-based proxy: cap and sleeves <= 30%.",
+    },
+    "Strict Pilot": {
+        "max_cap_pct": 20.0,
+        "max_sleeve_pct": 20.0,
+        "unrestricted": False,
+        "description": "First live/paper pilot proxy: cap and sleeves <= 20%.",
+    },
+    "Research Unrestricted": {
+        "max_cap_pct": float("inf"),
+        "max_sleeve_pct": float("inf"),
+        "unrestricted": True,
+        "description": "Show every research row; tag >30% as aggressive.",
+    },
 }
 
 
@@ -38,6 +65,34 @@ def latest_bundle(root: Path) -> str:
         return ""
     dirs = [p for p in root.iterdir() if p.is_dir() and (p / "manifest.json").exists()]
     return str(max(dirs, key=lambda p: p.stat().st_mtime)) if dirs else ""
+
+
+def latest_bundle_for_profile(root: Path, profile: str) -> str:
+    """Return the newest result bundle matching the selected broker profile when possible."""
+    if not root.exists():
+        return ""
+    dirs = [p for p in root.iterdir() if p.is_dir() and (p / "manifest.json").exists()]
+    if not dirs:
+        return ""
+    limits = broker_profile_limits(profile)
+    if bool(limits["unrestricted"]):
+        return str(max(dirs, key=lambda p: p.stat().st_mtime))
+    target_cap = float(limits["max_cap_pct"]) / 100.0
+    target_sleeve = float(limits["max_sleeve_pct"]) / 100.0
+    matches = []
+    for path in dirs:
+        try:
+            manifest = json.loads((path / "manifest.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        constraints = manifest.get("broker_constraints") or {}
+        cap = constraints.get("max_global_cap")
+        sleeve = constraints.get("max_sleeve_weight")
+        if cap is None or sleeve is None:
+            continue
+        if abs(float(cap) - target_cap) <= 1e-9 and abs(float(sleeve) - target_sleeve) <= 1e-9:
+            matches.append(path)
+    return str(max(matches or dirs, key=lambda p: p.stat().st_mtime))
 
 
 def visible_strategies(strategies) -> list[str]:
@@ -92,6 +147,11 @@ def label_selector(selector: str) -> str:
     return SELECTOR_LABELS.get(selector, str(selector).replace("_", " ").title())
 
 
+def is_control_candidate(name: object) -> bool:
+    text = str(name)
+    return text in CONTROL_CANDIDATES or "default 30/50" in text.lower()
+
+
 def fmt_pct(value, digits: int = 2) -> str:
     return "n/a" if pd.isna(value) else f"{float(value):.{digits}f}%"
 
@@ -115,6 +175,229 @@ def strategy_label(strategy: str) -> str:
 def presentation_table(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     """Return a copy of df restricted to the columns that exist in it."""
     return df[[col for col in cols if col in df.columns]].copy()
+
+
+def broker_profile_options() -> list[str]:
+    """Return broker-limit profile names in UI display order."""
+    return list(BROKER_LIMIT_PROFILES)
+
+
+def broker_profile_limits(profile: str) -> dict[str, float | bool | str]:
+    """Return the configured broker-limit profile, defaulting to IBKR Safe."""
+    return BROKER_LIMIT_PROFILES.get(profile, BROKER_LIMIT_PROFILES["IBKR Safe"])
+
+
+def max_allowed_leverage_pct(values: list[float], profile: str) -> float:
+    """Return the largest available leverage not above the broker profile cap."""
+    if not values:
+        return 20.0
+    clean = sorted(float(v) for v in values)
+    limit = float(broker_profile_limits(profile)["max_cap_pct"])
+    if np.isinf(limit):
+        return 20.0 if 20.0 in clean else clean[0]
+    allowed = [v for v in clean if v <= limit + 1e-9]
+    if not allowed:
+        return clean[0]
+    preferred = 20.0 if limit <= 20.0 + 1e-9 else 30.0
+    allowed_preferred = [v for v in allowed if v <= preferred + 1e-9]
+    return max(allowed_preferred) if allowed_preferred else max(allowed)
+
+
+def _pct_from_decimal_or_pct(series: pd.Series, pct_name: bool) -> pd.Series:
+    values = pd.to_numeric(series, errors="coerce")
+    return values if pct_name else values * 100.0
+
+
+def broker_limit_columns(df: pd.DataFrame) -> list[tuple[str, bool, str]]:
+    """Return leverage/cap columns as (name, already_pct, limit_kind)."""
+    specs = []
+    for col in ["Overlay Weight (%)", "Max Overlay Weight (%)"]:
+        if col in df:
+            specs.append((col, True, "sleeve"))
+    for col in ["Overlay Weight", "SPY Weight", "GLD Weight"]:
+        if col in df:
+            specs.append((col, False, "sleeve"))
+    if "Global Cap" in df:
+        specs.append(("Global Cap", False, "cap"))
+    return specs
+
+
+def tag_broker_limits(df: pd.DataFrame, profile: str) -> pd.DataFrame:
+    """Annotate rows with broker-limit status without dropping anything."""
+    out = df.copy()
+    limits = broker_profile_limits(profile)
+    max_cap = float(limits["max_cap_pct"])
+    max_sleeve = float(limits["max_sleeve_pct"])
+    cols = broker_limit_columns(out)
+
+    if out.empty:
+        out["Broker Profile"] = profile
+        out["Broker Allowed"] = pd.Series(dtype=bool)
+        out["Aggressive Research"] = pd.Series(dtype=bool)
+        out["Promotion Tier"] = pd.Series(dtype=object)
+        return out
+
+    allowed = pd.Series(True, index=out.index)
+    aggressive = pd.Series(False, index=out.index)
+    max_row_leverage = pd.Series(0.0, index=out.index)
+    for col, already_pct, kind in cols:
+        pct = _pct_from_decimal_or_pct(out[col], already_pct)
+        max_row_leverage = pd.Series(
+            np.maximum(max_row_leverage.to_numpy(dtype=float), pct.fillna(0.0).to_numpy(dtype=float)),
+            index=out.index,
+        )
+        threshold = max_cap if kind == "cap" else max_sleeve
+        if not np.isinf(threshold):
+            allowed &= pct.isna() | (pct <= threshold + 1e-9)
+        aggressive |= pct.fillna(0.0) > 30.0 + 1e-9
+
+    if "Aggressive Cap >30%" in out:
+        flagged_aggressive = out["Aggressive Cap >30%"].astype(str).str.lower().isin(["true", "1", "yes"])
+        aggressive |= flagged_aggressive
+        if not bool(limits["unrestricted"]):
+            allowed &= ~flagged_aggressive
+
+    if bool(limits["unrestricted"]):
+        allowed = pd.Series(True, index=out.index)
+
+    out["Broker Profile"] = profile
+    out["Max Broker-Relevant Leverage (%)"] = max_row_leverage.round(4)
+    out["Broker Allowed"] = allowed.astype(bool)
+    out["Aggressive Research"] = aggressive.astype(bool)
+    out["Promotion Tier"] = np.where(out["Aggressive Research"], "aggressive research", "broker-safe candidate")
+    return out
+
+
+def filter_broker_limits(df: pd.DataFrame, profile: str) -> pd.DataFrame:
+    """Annotate and filter rows according to the selected broker profile."""
+    tagged = tag_broker_limits(df, profile)
+    if bool(broker_profile_limits(profile)["unrestricted"]):
+        return tagged
+    return tagged[tagged["Broker Allowed"]].copy()
+
+
+def broker_filter_impact(df: pd.DataFrame, profile: str, label: str = "Rows") -> pd.DataFrame:
+    """Build a compact before/after summary for the active broker filter."""
+    tagged = tag_broker_limits(df, profile)
+    shown = int(tagged["Broker Allowed"].sum()) if "Broker Allowed" in tagged else len(tagged)
+    hidden = int(len(tagged) - shown)
+    limits = broker_profile_limits(profile)
+    return pd.DataFrame([{
+        "Dataset": label,
+        "Broker Profile": profile,
+        "Max Cap Allowed (%)": "unrestricted" if np.isinf(float(limits["max_cap_pct"])) else float(limits["max_cap_pct"]),
+        "Max Sleeve Allowed (%)": "unrestricted" if np.isinf(float(limits["max_sleeve_pct"])) else float(limits["max_sleeve_pct"]),
+        "Rows Available": int(len(tagged)),
+        "Rows Shown": shown if not bool(limits["unrestricted"]) else int(len(tagged)),
+        "Rows Hidden": 0 if bool(limits["unrestricted"]) else hidden,
+        "Aggressive Rows": int(tagged.get("Aggressive Research", pd.Series(dtype=bool)).sum()),
+    }])
+
+
+def build_candidate_funnel(
+    mixed_pass_fail: pd.DataFrame,
+    mixed_sweep_pass_fail: pd.DataFrame,
+    mixed_sweep_stability: pd.DataFrame,
+    profile: str,
+) -> pd.DataFrame:
+    """Combine mixed OOS and disciplined sweep summaries into one review table."""
+    rows: list[dict[str, object]] = []
+    if not mixed_pass_fail.empty:
+        for _, row in mixed_pass_fail.iterrows():
+            candidate = row.get("Name", "")
+            rows.append({
+                "Source": f"Mixed OOS {row.get('Source', '')}".strip(),
+                "Candidate": candidate,
+                "Selector": candidate,
+                "Benchmark": row.get("Benchmark", "base"),
+                "Control Only": bool(row.get("Control Only", is_control_candidate(candidate))),
+                "Global Cap": row.get("Global Cap", np.nan),
+                "SPY Rule": row.get("SPY Rule", ""),
+                "GLD Rule": row.get("GLD Rule", ""),
+                "Splits Passed": row.get("Splits Passed", np.nan),
+                "Splits Tested": row.get("Splits Tested", np.nan),
+                "Average OOS Calmar": row.get("Average OOS Calmar", np.nan),
+                "Average OOS Calmar Delta": row.get("Average OOS Calmar Delta", np.nan),
+                "Worst OOS Calmar Delta": row.get("Worst OOS Calmar Delta", np.nan),
+                "Worst OOS MaxDD Delta (%)": row.get("Worst OOS MaxDD Delta (%)", np.nan),
+                "Average OOS CAGR Delta (%)": row.get("Average OOS CAGR Delta (%)", np.nan),
+                "RF Cost Pass Splits": row.get("RF Cost Pass Splits", np.nan),
+                "Min OOS Trade Episodes": row.get("Min OOS Trade Episodes", np.nan),
+                "Average OOS Exposure (%)": row.get("Average OOS Exposure (%)", np.nan),
+                "Low Trade Count Splits": row.get("Low Trade Count Splits", np.nan),
+                "MaxDD Breach >3pp": row.get("MaxDD Breach >3pp", False),
+                "Overall Pass": row.get("Overall Pass", False),
+                "Promotion Tier": "broker-safe candidate",
+            })
+    if not mixed_sweep_pass_fail.empty:
+        stability = (
+            mixed_sweep_stability.set_index("Selector")
+            if not mixed_sweep_stability.empty and "Selector" in mixed_sweep_stability
+            else pd.DataFrame()
+        )
+        for _, row in mixed_sweep_pass_fail.iterrows():
+            selector = row.get("Selector", "")
+            stable_row = stability.loc[selector] if not stability.empty and selector in stability.index else {}
+            candidate = label_selector(selector)
+            rows.append({
+                "Source": "Disciplined Sweep",
+                "Candidate": candidate,
+                "Selector": selector,
+                "Benchmark": row.get("Benchmark", "base"),
+                "Control Only": bool(row.get("Control Only", is_control_candidate(selector))),
+                "Global Cap": row.get("Global Cap", np.nan),
+                "SPY Rule": row.get("SPY Rule", ""),
+                "GLD Rule": row.get("GLD Rule", ""),
+                "Splits Passed": row.get("Structural Splits Passed", np.nan),
+                "Splits Tested": row.get("Structural Splits Tested", np.nan),
+                "Average OOS Calmar": row.get("Average OOS Calmar", np.nan),
+                "Average OOS Calmar Delta": row.get("Average OOS Calmar Delta", np.nan),
+                "Worst OOS Calmar Delta": row.get("Worst OOS Calmar Delta", np.nan),
+                "Worst OOS MaxDD Delta (%)": row.get("Worst OOS MaxDD Delta (%)", np.nan),
+                "Average OOS CAGR Delta (%)": row.get("Average OOS CAGR Delta (%)", np.nan),
+                "RF Cost Pass Splits": row.get("RF Cost Pass Splits", np.nan),
+                "Min OOS Trade Episodes": row.get("Min OOS Trade Episodes", np.nan),
+                "Average OOS Exposure (%)": row.get("Average OOS Exposure (%)", np.nan),
+                "Low Trade Count Splits": np.nan,
+                "MaxDD Breach >3pp": row.get("Worst OOS MaxDD Delta (%)", 0) < -3.0,
+                "Overall Pass": row.get("Overall Pass", False),
+                "Annual Calmar Improvement Years": row.get("Annual Calmar Improvement Years", np.nan),
+                "Stable Neighborhood Pass": row.get("Stable Neighborhood Pass", np.nan),
+                "Most Common Config": stable_row.get("Most Common Config", "") if isinstance(stable_row, pd.Series) else "",
+                "Promotion Tier": row.get("Promotion Tier", ""),
+                "Aggressive Cap >30%": row.get("Aggressive Cap >30%", False),
+            })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out = out[~out["Control Only"].fillna(False).astype(bool)].copy()
+    if out.empty:
+        return out
+    out["Caveat"] = ""
+    out.loc[pd.to_numeric(out.get("Low Trade Count Splits"), errors="coerce").fillna(0) > 0, "Caveat"] = "Low trade count"
+    breach = (
+        out["MaxDD Breach >3pp"].fillna(False).astype(bool)
+        if "MaxDD Breach >3pp" in out
+        else pd.Series(False, index=out.index)
+    )
+    out.loc[breach, "Caveat"] = "MaxDD breach"
+    out["Broker Profile"] = profile
+    aggressive_cap = (
+        out["Aggressive Cap >30%"].fillna(False).astype(bool)
+        if "Aggressive Cap >30%" in out
+        else pd.Series(False, index=out.index)
+    )
+    out["Broker Allowed"] = ~aggressive_cap
+    if bool(broker_profile_limits(profile)["unrestricted"]):
+        out["Broker Allowed"] = True
+    out = out[out["Broker Allowed"]].copy()
+    if out.empty:
+        return out
+    return out.sort_values(
+        ["Overall Pass", "Average OOS Calmar", "Worst OOS Calmar Delta", "Worst OOS MaxDD Delta (%)"],
+        ascending=[False, False, False, False],
+        na_position="last",
+    )
 
 
 def compute_heatmap_pivot(

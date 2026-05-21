@@ -25,7 +25,6 @@ def _():
 
     return (
         PROJECT_ROOT,
-        config,
         data_quality_report,
         date,
         fetch_prices_from_fmp_db,

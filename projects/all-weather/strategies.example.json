@@ -1,5 +1,32 @@
 {
   "strategies": {
+    "6asset_tip_gsg_rpavg": {
+      "display_name": "6 Asset RP Baseline",
+      "aliases": ["6_asset_rp_baseline"],
+      "description": "Risk parity optimised 6-asset allocation (production)",
+      "status": "validated",
+      "tier": "Production",
+      "is_production": true,
+      "allow_live_trading": true,
+      "validated_date": "2026-03-27",
+      "allocation": {
+        "SPY": 0.134,
+        "QQQ": 0.103,
+        "TLT": 0.175,
+        "TIP": 0.348,
+        "GLD": 0.142,
+        "GSG": 0.098
+      },
+      "live_tickers": {
+        "SPY": "SPY",
+        "QQQ": "QQQ",
+        "TLT": "TLT",
+        "TIP": "TIP",
+        "GLD": "GLDM",
+        "GSG": "GSG"
+      },
+      "notes": "Production allocation. RP weights averaged across 3 OOS splits."
+    },
     "5asset_dalio": {
       "description": "Classic Dalio All Weather allocation",
       "status": "validated",

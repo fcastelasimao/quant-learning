@@ -14,17 +14,16 @@ Run with:
 
 import argparse
 
+import pandas as pd
+
 from engine import config
 from engine.config import RuntimeConfig, validate_config
 
 from engine.data      import fetch_prices, get_price_provenance
-from live.portfolio   import (load_holdings, save_holdings, initialise_holdings,
-                               rebalancing_instructions)
 from engine.backtest  import run_backtest, compute_stats
 from engine.optimiser import optimise_allocation
 from research.export  import (make_results_dir, export_results,
-                               append_to_master_log, print_header,
-                               print_rebalancing, print_stats,
+                               append_to_master_log, print_header, print_stats,
                                start_run_log, stop_run_log)
 
 
@@ -165,36 +164,16 @@ def main():
         BACKTEST_MODES = {"backtest", "optimise", "oos_evaluate", "full_backtest"}
 
         if config.RUN_MODE in BACKTEST_MODES:
-
-            # ---- Current holdings & rebalancing ----
-            latest_prices = port_prices.iloc[-1]
-
-            # Translate backtest tickers → live tickers (e.g. GLD → GLDM)
-            live_tickers  = config.LIVE_TICKERS  # {backtest_ticker: live_ticker}
-            live_alloc    = {live_tickers.get(t, t): w for t, w in allocation.items()}
-            # Rename price columns so they match live tickers for holdings lookup
-            live_prices   = latest_prices.rename(
-                {t: live_tickers.get(t, t) for t in allocation}
-            )
-
-            holdings = load_holdings()
-            if holdings is None:
-                print("No existing holdings found. Initialising with target allocation...\n")
-                holdings = initialise_holdings(live_prices, live_alloc,
-                                               config.INITIAL_PORTFOLIO_VALUE)
-                save_holdings(holdings)
-            elif set(holdings.keys()) != set(live_alloc.keys()):
-                print("Target allocation has changed -- resetting holdings...\n")
-                print(f"  Old tickers: {sorted(holdings.keys())}")
-                print(f"  New tickers: {sorted(live_alloc.keys())}\n")
-                holdings = initialise_holdings(live_prices, live_alloc,
-                                               config.INITIAL_PORTFOLIO_VALUE)
-                save_holdings(holdings)
-
-            instructions, total_value = rebalancing_instructions(
-                holdings, live_prices, live_alloc, config.REBALANCE_THRESHOLD
-            )
-            print_rebalancing(instructions, total_value)
+            instructions = pd.DataFrame(columns=[
+                "Ticker",
+                "Current Weight",
+                "Target Weight",
+                "Drift (%)",
+                "Action",
+                "$ Amount",
+                "Current Price",
+                "Current Shares",
+            ])
 
             # ---- Backtest ----
             print_header(
