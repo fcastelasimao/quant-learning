@@ -28,10 +28,10 @@ Safety defaults
 
 Environment
 -----------
-Set Alpaca keys in your shell before running:
+Set Alpaca keys in /Users/franciscosimao/Documents/QuantFinance/api_keys.env:
 
-    export APCA_API_KEY_ID="..."
-    export APCA_API_SECRET_KEY="..."
+    ALPACA_API_KEY="..."
+    ALPACA_SECRET_KEY="..."
 
 For multiple accounts, add a suffix (e.g. --account live):
 
@@ -67,6 +67,9 @@ import pandas as pd
 import yfinance as yf
 
 from engine import config
+from live.env import load_api_keys_env
+
+load_api_keys_env()
 
 try:
     from alpaca.trading.client import TradingClient
@@ -1001,9 +1004,10 @@ def parse_args() -> argparse.Namespace:
         "--account",
         default=None,
         help=(
-            "Named account suffix for env vars. E.g. --account live reads "
+            "Named account suffix for api_keys.env vars. E.g. --account live reads "
+            "BROKER_ALPACA_LIVE_KEY / BROKER_ALPACA_LIVE_SECRET or "
             "APCA_API_KEY_ID_LIVE / APCA_API_SECRET_KEY_LIVE. "
-            "Omit to use the default APCA_API_KEY_ID / APCA_API_SECRET_KEY."
+            "Omit to use ALPACA_API_KEY / ALPACA_SECRET_KEY."
         ),
     )
     parser.add_argument(
@@ -1053,21 +1057,34 @@ def main() -> None:
     trading_mode = "paper" if paper_trading else "live"
     logger.info(f"Trading environment: {trading_mode.upper()}")
 
-    # Resolve credentials: --account <suffix> reads APCA_API_KEY_ID_<SUFFIX>
+    # Resolve credentials loaded from api_keys.env.
     if args.account:
         suffix = args.account.upper()
-        key_var = f"APCA_API_KEY_ID_{suffix}"
-        secret_var = f"APCA_API_SECRET_KEY_{suffix}"
+        credential_pairs = [
+            (f"BROKER_ALPACA_{suffix}_KEY", f"BROKER_ALPACA_{suffix}_SECRET"),
+            (f"APCA_API_KEY_ID_{suffix}", f"APCA_API_SECRET_KEY_{suffix}"),
+        ]
     else:
-        key_var = "APCA_API_KEY_ID"
-        secret_var = "APCA_API_SECRET_KEY"
+        credential_pairs = [
+            ("BROKER_ALPACA_DEFAULT_KEY", "BROKER_ALPACA_DEFAULT_SECRET"),
+            ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY"),
+            ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
+        ]
 
-    api_key = os.getenv(key_var)
-    secret_key = os.getenv(secret_var)
+    api_key = None
+    secret_key = None
+    key_var = credential_pairs[0][0]
+    for candidate_key, candidate_secret in credential_pairs:
+        api_key = os.getenv(candidate_key)
+        secret_key = os.getenv(candidate_secret)
+        if api_key and secret_key:
+            key_var = candidate_key
+            break
     if not api_key or not secret_key:
-        logger.error(f"Missing Alpaca credentials. Set {key_var} and {secret_var}.")
+        tried = ", ".join(f"{key}/{secret}" for key, secret in credential_pairs)
+        logger.error(f"Missing Alpaca credentials. Set one of: {tried}.")
         raise SystemExit(
-            f"Missing Alpaca credentials. Set {key_var} and {secret_var}."
+            f"Missing Alpaca credentials. Set one of these pairs in api_keys.env: {tried}."
         )
 
     account_label = args.account or "default"

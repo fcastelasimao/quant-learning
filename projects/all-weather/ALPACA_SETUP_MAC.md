@@ -2,6 +2,13 @@
 
 This guide walks you through setting up and running `python -m live.alpaca_rebalance` on macOS.
 
+> **Note (2026-05-27):** This guide covers the legacy single-broker rebalancer.
+> The current production pipeline is the broker-agnostic `live/rebalance.py`,
+> which supports both Alpaca and Tastytrade plus a 31-day holding-period gate,
+> per-account budget cap, dry-execute mode, and structured run logging.
+> See **[docs/BROKER_SETUP.md](docs/BROKER_SETUP.md)** for the new setup guide.
+> The legacy `live/alpaca_rebalance.py` is preserved unchanged.
+
 ---
 
 ## Step 1: Get Your Alpaca Paper Trading Credentials

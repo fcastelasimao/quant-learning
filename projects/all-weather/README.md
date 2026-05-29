@@ -236,19 +236,54 @@ The active notebooks live in `notebooks/strategy_comparison.py` and
 under `archive/notebooks/` because the production validation bundle now covers
 that review surface.
 
-### Paper trading via Alpaca
+### Live trading — broker-agnostic pipeline
+
+The production rebalancer is `live/rebalance.py`. It talks to a `Broker`
+protocol so the same code runs against Alpaca or Tastytrade. See
+[`docs/BROKER_SETUP.md`](docs/BROKER_SETUP.md) for credentials, budget cap,
+31-day hold gate, notifications, and macOS launchd scheduling.
+
+API keys are loaded automatically from
+`/Users/franciscosimao/Documents/QuantFinance/api_keys.env`. Keep broker,
+FMP, notification, and optional data-provider secrets there rather than in
+shell profiles or launchd plists.
 
 ```bash
-# Preview what trades would be made (no orders placed)
-conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER --use-live-tickers
+# 1. Pre-flight health check (no network calls against the broker)
+conda run -n allweather python -m live.healthcheck --broker alpaca
 
-# Execute the rebalance
-conda run -n allweather python -m live.alpaca_rebalance --paper --account PAPER --use-live-tickers --execute
+# 2. Dry-execute — simulates fills from current price, writes a full RunSummary
+#    to logs/runs/, logs/run_summary.jsonl, and logs/monthly_runs.csv.
+#    No real orders are placed and cadence/lots/budget state is NOT advanced.
+make rebalance-dry-execute BROKER=alpaca ACCOUNT=default MODE=--paper
 
-# Read-only preview against a live account
-conda run -n allweather python -m live.alpaca_rebalance --live --account LIVE --use-live-tickers
+# 3. Preview (real account data, no orders)
+make rebalance-new-preview BROKER=alpaca ACCOUNT=default MODE=--paper
 
-# or via Make:
+# 4. Execute — places real orders.  Enforces:
+#    • ≥31-day minimum interval since last execute (`--min-rebalance-interval-days`)
+#    • 31-day per-lot holding period (FIFO ledger in logs/lots_*.json)
+#    • Optional budget cap (`--budget AMOUNT` + `--initialize-budget`)
+make rebalance-new-execute BROKER=alpaca ACCOUNT=default MODE=--paper
+```
+
+Tastytrade is supported via the pinned community SDK (`tastytrade==12.4.1`).
+Set `TASTYTRADE_PROVIDER_SECRET` / `TASTYTRADE_REFRESH_TOKEN` for the default
+account, or `BROKER_TASTYTRADE_<LABEL>_PROVIDER_SECRET` /
+`BROKER_TASTYTRADE_<LABEL>_REFRESH_TOKEN` for named accounts, then validate
+OAuth credentials with
+`python -m live.brokers.tastytrade login --account default`.
+
+Every run — preview, dry-execute, or execute — writes a structured
+`RunSummary` to `logs/run_summary.jsonl`, a per-run JSON archive to
+`logs/runs/`, and an aggregate row to `logs/monthly_runs.csv`.  Slack +
+SMTP notifications are sent automatically when `ALLW_SLACK_WEBHOOK_URL`
+or `ALLW_NOTIFY_EMAIL` are set.
+
+#### Legacy Alpaca rebalancer (kept for backward compatibility)
+
+```bash
+# Old Alpaca-only entry point (unchanged, all tests still pass)
 make rebalance-preview ACCOUNT=PAPER
 make rebalance-live-preview ACCOUNT=LIVE
 make rebalance-execute ACCOUNT=PAPER
@@ -259,6 +294,13 @@ refuses non-production strategies unless explicitly overridden. Live execution
 requires explicit `--live` and `--execute`. Rejected, canceled, expired, or
 timed-out orders fail the run, and final positions are checked against target
 weights before the run is marked successful.
+
+### JEPQ comparison & live-vs-backtest reconciliation
+
+```bash
+make compare-jepq        # AW 6-asset RP vs JEPQ since 2022-05-03 inception
+make backtest-shadow     # Live performance CSV vs engine-simulated returns
+```
 
 ---
 
@@ -278,12 +320,26 @@ projects/all-weather/
 │   ├── optimiser.py          compute_risk_parity_weights (SLSQP) + random search
 │   └── plotting.py           dark-theme matplotlib charts
 │
-├── live/                     Alpaca + holdings
+├── live/                     broker-agnostic live execution
 │   ├── portfolio.py          load/save holdings + rebalancing instructions
-│   └── alpaca_rebalance.py   paper/live trading (multi-account, preview + execute)
+│   ├── alpaca_rebalance.py   legacy Alpaca-only rebalancer (preserved unchanged)
+│   ├── rebalance.py          broker-agnostic rebalancer — see docs/BROKER_SETUP.md
+│   ├── budget.py             virtual sub-portfolio cap (--budget AMOUNT)
+│   ├── lots.py               FIFO lot ledger + 31-day hold enforcement
+│   ├── runlog.py             RunSummary → JSONL + monthly_runs.csv + per-run JSON
+│   ├── notify.py             Slack webhook + SMTP email (never raises)
+│   ├── healthcheck.py        pre-flight: env, creds, strategies.json, cadence
+│   ├── brokers/              Broker Protocol + concrete implementations
+│   │   ├── base.py           Broker, PositionSnapshot, OrderResult, ActivityEvent
+│   │   ├── factory.py        make_broker(broker_name, trading_mode, account_label)
+│   │   ├── alpaca.py         AlpacaBroker (alpaca-py)
+│   │   └── tastytrade.py     TastytradeBroker (community SDK, qty-only)
+│   └── scheduler/            launchd plist templates (macOS)
 │
 ├── research/                 analyses that run periodically but are not production
-│   ├── compare_allw.py       ALLW ETF head-to-head (charts + Excel + metrics)
+│   ├── compare_allw.py       ALLW ETF head-to-head — JEPQ added as 4th benchmark
+│   ├── compare_jepq.py       JEPQ vs AW since 2022-05-03 inception
+│   ├── backtest_shadow.py    live performance CSV vs engine simulation
 │   ├── compare_fmp_rp.py     local FMP SQLite RP-weight comparison
 │   ├── rerun_rp_validation.py  4-scenario yfinance/FMP RP rerun matrix
 │   ├── plot_linkedin.py      two-panel LinkedIn figure

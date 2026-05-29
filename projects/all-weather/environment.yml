@@ -13,5 +13,6 @@ dependencies:
   - pip
   - pip:
       - alpaca-py==0.43.2
+      - tastytrade==12.4.1
       - marimo==0.23.5
       - yfinance==1.2.0

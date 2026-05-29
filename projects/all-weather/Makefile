@@ -1,7 +1,25 @@
 CONDA_RUN = conda run -n allweather python
-ACCOUNT ?= PAPER
+ACCOUNT  ?= default
+BROKER   ?= alpaca
+MODE     ?= --paper
 
-.PHONY: test backtest compare-allw compare-fmp-rp leverage-comparison leverage-oos-validation mixed-leverage mixed-leverage-oos-validation mixed-leverage-oos-validation-ibkr-safe mixed-leverage-oos-validation-strict-pilot mixed-leverage-oos-validation-ibkr-safe-funding-plus-2 mixed-leverage-oos-validation-ibkr-safe-funding-plus-4 mixed-leverage-oos-validation-ibkr-safe-fmp mixed-leverage-sweep mixed-leverage-sweep-ibkr-safe mixed-leverage-sweep-strict-pilot mixed-leverage-sweep-ibkr-safe-funding-plus-2 mixed-leverage-sweep-ibkr-safe-funding-plus-4 mixed-leverage-full-grid-oos-ibkr-safe notebook-data notebook-comparison notebook-leverage rebalance-preview rebalance-live-preview rebalance-execute
+.PHONY: test backtest compare-allw compare-fmp-rp compare-jepq backtest-shadow \
+        leverage-comparison leverage-oos-validation \
+        mixed-leverage mixed-leverage-oos-validation \
+        mixed-leverage-oos-validation-ibkr-safe \
+        mixed-leverage-oos-validation-strict-pilot \
+        mixed-leverage-oos-validation-ibkr-safe-funding-plus-2 \
+        mixed-leverage-oos-validation-ibkr-safe-funding-plus-4 \
+        mixed-leverage-oos-validation-ibkr-safe-fmp \
+        mixed-leverage-sweep mixed-leverage-sweep-ibkr-safe \
+        mixed-leverage-sweep-strict-pilot \
+        mixed-leverage-sweep-ibkr-safe-funding-plus-2 \
+        mixed-leverage-sweep-ibkr-safe-funding-plus-4 \
+        mixed-leverage-full-grid-oos-ibkr-safe \
+        notebook-data notebook-comparison notebook-leverage \
+        rebalance-preview rebalance-live-preview rebalance-execute \
+        rebalance-dry-execute rebalance-tastytrade-preview \
+        healthcheck install-launchd
 
 test:
 	$(CONDA_RUN) -m pytest tests/ -v
@@ -14,6 +32,12 @@ compare-allw:
 
 compare-fmp-rp:
 	$(CONDA_RUN) -m research.compare_fmp_rp
+
+compare-jepq:
+	$(CONDA_RUN) -m research.compare_jepq
+
+backtest-shadow:
+	$(CONDA_RUN) -m research.backtest_shadow
 
 leverage-comparison:
 	$(CONDA_RUN) -m research.build_leverage_comparison_report
@@ -69,6 +93,7 @@ notebook-comparison:
 notebook-leverage:
 	conda run -n allweather marimo edit notebooks/leverage_comparison.py
 
+## ── Legacy Alpaca rebalancer (preserved for backward compat) ────────────────
 rebalance-preview:
 	$(CONDA_RUN) -m live.alpaca_rebalance --paper --account $(ACCOUNT) --use-live-tickers
 
@@ -77,3 +102,25 @@ rebalance-live-preview:
 
 rebalance-execute:
 	$(CONDA_RUN) -m live.alpaca_rebalance --paper --account $(ACCOUNT) --use-live-tickers --execute
+
+## ── Broker-agnostic rebalancer (live.rebalance) ─────────────────────────────
+## Usage: make rebalance-dry-execute BROKER=alpaca ACCOUNT=default MODE=--paper
+
+rebalance-dry-execute:
+	$(CONDA_RUN) -m live.rebalance $(MODE) --broker $(BROKER) --account $(ACCOUNT) --dry-execute
+
+rebalance-new-preview:
+	$(CONDA_RUN) -m live.rebalance $(MODE) --broker $(BROKER) --account $(ACCOUNT)
+
+rebalance-new-execute:
+	$(CONDA_RUN) -m live.rebalance $(MODE) --broker $(BROKER) --account $(ACCOUNT) --execute
+
+rebalance-tastytrade-preview:
+	$(CONDA_RUN) -m live.rebalance --paper --broker tastytrade --account $(ACCOUNT)
+
+## ── System ────────────────────────────────────────────────────────────────────
+healthcheck:
+	$(CONDA_RUN) -m live.healthcheck --broker $(BROKER) --account $(ACCOUNT)
+
+install-launchd:
+	bash scripts/install_launchd.sh --broker $(BROKER) --account $(ACCOUNT)

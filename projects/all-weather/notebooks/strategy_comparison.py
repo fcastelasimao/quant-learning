@@ -31,16 +31,32 @@ with app.setup:
         plot_risk_diagnostics,
         plot_rolling_behaviour,
     )
+    from research.rebalance_thresholds import (
+        SERIES_LABELS as POLICY_SERIES_LABELS,
+        SERIES_ORDER as POLICY_SERIES_ORDER,
+    )
 
     BUNDLE_ROOTS = [
         ROOT / "results" / "production_validation",
         ROOT / "results" / "strategy_comparison",
     ]
     FULL_GRID_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_full_grid_oos"
+    REBALANCE_BUNDLE_ROOT = ROOT / "results" / "rebalance_thresholds"
 
 
 @app.cell
 def choose_bundle():
+    def _latest_rebalance_bundle(root):
+        if not root.exists():
+            return ""
+        candidates = [
+            p for p in root.iterdir()
+            if p.is_dir()
+            and (p / "run_config.json").exists()
+            and (p / "threshold_summary.csv").exists()
+        ]
+        return str(max(candidates, key=lambda p: p.stat().st_mtime)) if candidates else ""
+
     bundle_path = mo.ui.text(
         value=latest_bundle(BUNDLE_ROOTS),
         label="Result bundle path",
@@ -51,12 +67,18 @@ def choose_bundle():
         label="Full-grid leverage validation bundle",
         full_width=True,
     )
+    rebalance_bundle_path = mo.ui.text(
+        value=_latest_rebalance_bundle(REBALANCE_BUNDLE_ROOT),
+        label="Rebalance thresholds bundle",
+        full_width=True,
+    )
     mo.vstack([
         mo.md("# Bank-Facing Strategy Comparison"),
         bundle_path,
         full_grid_bundle_path,
+        rebalance_bundle_path,
     ])
-    return bundle_path, full_grid_bundle_path
+    return bundle_path, full_grid_bundle_path, rebalance_bundle_path
 
 
 @app.cell
@@ -422,6 +444,113 @@ def plot_implementation_realism_cell(risk_contrib, stress, turnover):
         ], gap=2),
         mo.ui.table(stress, label="Stress Period Metrics"),
     ])
+    return
+
+
+@app.cell
+def load_rebalance_bundle(rebalance_bundle_path):
+    from pathlib import Path as _Path
+
+    _raw = rebalance_bundle_path.value.strip().strip("'\"")
+    rebalance_bundle_dir = None
+    rebalance_manifest = {}
+    rebalance_summary = pd.DataFrame()
+    rebalance_values = pd.DataFrame()
+    if _raw:
+        _bundle = _Path(_raw).expanduser()
+        if not _bundle.is_absolute():
+            _bundle = ROOT / _bundle
+        _config_path = _bundle / "run_config.json"
+        _summary_path = _bundle / "threshold_summary.csv"
+        _values_path = _bundle / "threshold_values.csv"
+        if _config_path.exists() and _summary_path.exists():
+            rebalance_bundle_dir = _bundle
+            with open(_config_path, "r", encoding="utf-8") as _handle:
+                rebalance_manifest = json.load(_handle)
+            rebalance_summary = pd.read_csv(_summary_path)
+            if _values_path.exists():
+                rebalance_values = pd.read_csv(
+                    _values_path, parse_dates=["Date"]
+                ).set_index("Date")
+    return (
+        rebalance_bundle_dir,
+        rebalance_manifest,
+        rebalance_summary,
+        rebalance_values,
+    )
+
+
+@app.cell
+def rebalancing_policy_section(
+    rebalance_bundle_dir,
+    rebalance_manifest,
+    rebalance_summary,
+):
+    if rebalance_bundle_dir is None or rebalance_summary.empty:
+        blocks = [
+            mo.md("## Rebalancing Policy"),
+            mo.callout(
+                mo.md(
+                    "No rebalance thresholds bundle loaded. Generate one with "
+                    "`python -m research.rebalance_thresholds`, then paste the path above."
+                ),
+                kind="warn",
+            ),
+        ]
+    else:
+        summary_view = rebalance_summary.copy()
+        summary_view.insert(
+            0,
+            "Policy Label",
+            summary_view.apply(
+                lambda row: POLICY_SERIES_LABELS.get(
+                    f"{row['Policy']} | {row['Rebalance Action']}", row["Policy"]
+                ),
+                axis=1,
+            ),
+        )
+        summary_view = summary_view.sort_values(
+            by="Policy Label",
+            key=lambda col: col.map(
+                lambda label: POLICY_SERIES_ORDER.index(label)
+                if label in POLICY_SERIES_ORDER
+                else len(POLICY_SERIES_ORDER)
+            ),
+        )
+        summary_cols = [
+            "Policy Label",
+            "CAGR (%)",
+            "Max Drawdown (%)",
+            "Calmar",
+            "Sharpe",
+            "Rebalance Count",
+            "Avg Annual Turnover $",
+            "Max Relative Drift Before (%)",
+        ]
+        summary_view = summary_view[[col for col in summary_cols if col in summary_view.columns]]
+
+        blocks = [
+            mo.md("## Rebalancing Policy"),
+            mo.md(
+                f"Threshold policies generated over "
+                f"{rebalance_manifest.get('start_date', '?')} to "
+                f"{rebalance_manifest.get('end_date', '?')}."
+            ),
+        ]
+        growth_png = rebalance_bundle_dir / "threshold_growth.png"
+        if growth_png.exists():
+            blocks.append(mo.image(str(growth_png), alt="Threshold policies growth"))
+        blocks.append(mo.ui.table(summary_view, label="Threshold Policy Summary"))
+
+        overlap_png = rebalance_bundle_dir / "threshold_allw_overlap.png"
+        if overlap_png.exists():
+            blocks.append(mo.md("### ALLW overlap window (daily resolution)"))
+            blocks.append(mo.image(str(overlap_png), alt="Threshold policies ALLW overlap"))
+
+        for window_png in sorted(rebalance_bundle_dir.glob("threshold_rolling_*.png")):
+            blocks.append(mo.image(str(window_png), alt=window_png.stem))
+
+    mo.vstack(blocks)
     return
 
 

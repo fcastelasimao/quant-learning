@@ -214,6 +214,9 @@ BENCHMARK_REGISTRY: list[BenchmarkDef] = [
     BenchmarkDef("ALLW",  "ALLW (Bridgewater, 0.85% fee)", "#f0b429", 2.2, "-",  80),
     BenchmarkDef("SPY",   "SPY (S&P 500)",                 "#f78166", 1.5, ":",  90),
     BenchmarkDef("60/40", "60/40 (SPY/TLT)",               "#3fb950", 1.5, "-.", 95),
+    # JEPQ: JPMorgan Nasdaq Equity Premium Income ETF (inception 2022-05-03)
+    # Shows in ALLW-window comparisons only when price history overlaps.
+    BenchmarkDef("JEPQ",  "JEPQ (covered-call QQQ)",       "#c678dd", 1.5, "--", 98),
 ]
 
 
@@ -233,7 +236,8 @@ _resolve_allocations()
 # ── Derived ticker lists (auto-computed from enabled strategies) ──────────
 ALL_TICKERS = sorted({t for s in STRATEGY_REGISTRY if s.enabled for t in s.allocation})
 # SPY and TLT are always needed: SPY as benchmark, TLT for the 60/40 series.
-FETCH_TICKERS = sorted(set(ALL_TICKERS + ["ALLW", "SPY", "TLT"]))
+# JEPQ: inception 2022-05-03; added as an income/covered-call benchmark.
+FETCH_TICKERS = sorted(set(ALL_TICKERS + ["ALLW", "SPY", "TLT", "JEPQ"]))
 
 
 # DATA FETCHING ------------------------------------------------------------------
@@ -827,6 +831,17 @@ def main() -> None:
     if s_6040 is not None:
         rows.append(_daily_stats(s_6040, "60/40  (SPY 60% / TLT 40%)"))
 
+    # JEPQ — JPMorgan Nasdaq Equity Premium Income ETF (inception 2022-05-03)
+    # Only shown when we have data for the full comparison window.
+    s_jepq = None
+    if "JEPQ" in prices.columns and prices["JEPQ"].notna().any():
+        jepq_first = prices["JEPQ"].first_valid_index()
+        if jepq_first is not None:
+            jepq_prices = prices["JEPQ"].loc[jepq_first:]
+            s_jepq = jepq_prices / jepq_prices.iloc[0] * 100.0
+            rows.append(None)
+            rows.append(_daily_stats(s_jepq, "JEPQ  (JPM Nasdaq covered-call)"))
+
     # ── 3. Print table ───────────────────────────────────────────────────────
     print_comparison_table(rows, period_label)
 
@@ -840,6 +855,9 @@ def main() -> None:
 
     if s_6040 is not None:
         daily_series["60/40"] = s_6040
+
+    if s_jepq is not None:
+        daily_series["JEPQ"] = s_jepq
 
     plot_growth_chart(daily_series)
 

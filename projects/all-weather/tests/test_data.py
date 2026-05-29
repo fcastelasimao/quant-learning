@@ -271,8 +271,8 @@ def _write_fmp_test_db(path, rows):
 
 
 def _load_root_fmp_downloader():
-    root = Path(__file__).resolve().parents[3]
-    path = root / "91_1_XXX_Data_Manager_FMP_single_database_v2_no_api.py"
+    root = Path(__file__).resolve().parents[4]
+    path = root / "data_manager.py"
     spec = importlib.util.spec_from_file_location("fmp_downloader_test_module", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
