@@ -180,8 +180,76 @@ leverage sweep; all other ETFs use 15%-50%.
 
 ---
 
+## Phase 16 — Repo cleanup + central data plumbing (2026-05-30)
+
+Preparation for tax-aware backtest research (Section D) and for the June 1 live
+launch on the boss's Alpaca account.
+
+### Repo cleanup (Phase 1A)
+- Deleted `archive/` (graveyard of superseded scripts; nothing imported anywhere).
+- Folded `ALPACA_SETUP_MAC.md` into `docs/BROKER_SETUP.md` (already pointed there).
+- Moved `ToDo.md`, `research_log.md`, `linkedin_post.md` → `docs/internal/`.
+- Moved `scripts/install_launchd.sh` → `live/scheduler/install_launchd.sh`.
+- Renamed `live/alpaca_rebalance.py` → `live/_legacy/alpaca_rebalance.py`. Updated test imports, Makefile, `docs/BROKER_SETUP.md`, `README.md`, `learning/CURRICULUM.md`, docstring refs in `live/rebalance.py` and `live/brokers/alpaca.py`. Fixed `_PROJECT_ROOT` resolution in the moved module (one extra `dirname` because it now sits two levels deep).
+- Refreshed `CLAUDE.md` to match the real tree (11 engine files, 3 notebooks, all `live/` modules including `_legacy/`, `env.py`, `healthcheck.py`).
+- Deleted `portfolio_holdings.json` (ad-hoc state, already gitignored).
+- All 211 tests still pass.
+
+### Live rebalancer preview enrichment
+- Cadence gate is now computed unconditionally (was only on `--execute`). Enforcement still fires only on real execute without `--force-cadence` / `--force`.
+- Preview / dry-execute output now prints inline:
+  - Cadence status (`ELIGIBLE` / `BLOCKED` + days-since / days-remaining)
+  - Budget snapshot (cap, positions value, reserved cash, managed capital)
+  - Lot-ledger summary (blocked symbols with days remaining, eligible symbols with days held)
+- One-page human-review report before pressing execute on the boss's account.
+
+### Central data manager — dividend support
+The shared `QuantFinance/data_manager.py` (one directory above this project) now
+also fetches per-symbol dividend history from FMP and writes it to a `dividends`
+table inside each per-symbol SQLite cache.
+
+- New CLI: `--with-dividends`, `--dividends-only`.
+- New schema: `dividends(ex_date PK, amount, adj_amount, record_date, payment_date, declaration_date, label)`.
+- Idempotent upsert keyed on `ex_date`. Reruns are safe.
+- JEPQ added to `DEFAULT_SYMBOLS`. Price history backfilled to inception 2022-05-03.
+- Live-tested coverage:
+
+| Ticker | Dividend rows | First         | Last        |
+|--------|--------------:|---------------|-------------|
+| SPY    | 134           | 1993-03-19    | 2026-03-20  |
+| QQQ    | 87            | 2003-12-24    | 2026-03-23  |
+| TLT    | 285           | 2002-09-03    | 2026-05-01  |
+| TIP    | 198           | 2003-12-31    | 2026-05-01  |
+| JEPQ   | 48            | 2022-06-01    | 2026-05-01  |
+| GLD    | 0             | (no distributions — bullion ETF)        |
+| GLDM   | 0             | (no distributions — bullion ETF)        |
+| GSG    | 0             | (partnership ETF, K-1 instead of cash)  |
+
+### engine/data.py reader
+- Added `fetch_dividends(tickers, start, end, data_dir=None)` reading the new `dividends` table from the central per-symbol DB. Long-form output: `Ticker, ExDate, Amount, AdjAmount, RecordDate, PaymentDate, DeclarationDate`.
+- The existing `fetch_prices_from_fmp_db` already resolved `data_dir` to `QuantFinance/data/` via `_repo_data_dir()`, so no duplicate FMP fetch logic in this project. The plumbing was already correct — the dividend reader just rides the same path.
+
+### Alpaca lot-level capability check
+- Verified `alpaca-py 0.43.2` `MarketOrderRequest` has no `lot_id` / `tax_lot_method` / `cost_basis_method` field. Alpaca uses Compressed FIFO for end-of-day positions. Feature request open since 2020.
+- Implication: in the upcoming tax model the **tax-optimal lot selector is a research counterfactual on Alpaca**; FIFO is the broker-reality default. Documented in `docs/research/alpaca_lot_selection.md`.
+
+### Documentation
+- New: `docs/data/central_data_manager.md` (contract between projects + the shared fetcher).
+- New: `docs/research/alpaca_lot_selection.md`.
+
+### What's next — Section D
+Tax model + drift trigger inside `engine/`, gated by a golden regression test on
+the current production weights. **Active plan in `docs/internal/session_handoff.md`**
+(`ToDo.md` is retired as the active worklist). **Decision gate:** the closed
+`failed_strategies/weekly_rebalance/` verdict was made without taxes; under
+realistic US tax + tax-optimal lot selection the question re-opens, with kill
+criterion ≥5% Calmar improvement on ≥2 of 3 OOS windows required to flip the
+production policy.
+
+---
+
 ## Open questions
 - Brand name, FCA compliance, GBP/EUR adjustment
 - Live vs backtest ETF performance divergence over time
-- Optimal rebalancing trigger (threshold-based vs calendar-based)
+- Optimal rebalancing trigger (threshold-based vs calendar-based) — **active under D**
 - OOS validation for RSI ETF leverage overlays, especially GLD higher leverage

@@ -3,7 +3,7 @@ live/rebalance.py
 =================
 Broker-agnostic monthly / ≥31-day ETF rebalancer.
 
-This module supersedes live/alpaca_rebalance.py and talks ONLY to the Broker
+This module supersedes live/_legacy/alpaca_rebalance.py and talks ONLY to the Broker
 protocol defined in live/brokers/base.py.  The concrete broker is chosen at
 startup via --broker and constructed by live/brokers/factory.make_broker.
 
@@ -1161,9 +1161,13 @@ def main() -> None:
         cadence_path = _cadence_state_path(
             args.broker, trading_mode, account_label, args.strategy_id
         )
+        # Always compute cadence status so the preview block can display it.
+        # Enforcement only fires on real --execute without override flags.
+        cadence_due, cadence_msg = is_cadence_due(
+            cadence_path, args.min_rebalance_interval_days
+        )
+        logger.info(f"Cadence: {cadence_msg}")
         if is_execute and not args.force_cadence and not args.force:
-            cadence_due, cadence_msg = is_cadence_due(cadence_path, args.min_rebalance_interval_days)
-            logger.info(f"Cadence: {cadence_msg}")
             if not cadence_due:
                 raise SystemExit(
                     f"Refusing to execute: {cadence_msg}. "
@@ -1280,6 +1284,39 @@ def main() -> None:
         print(f"Market open: {market_open}")
         print(f"Mode:        {'DRY-EXECUTE' if is_dry else 'EXECUTE' if is_execute else 'PREVIEW ONLY'}")
         print(f"Drift thr:   {args.drift_threshold:.1%}   Rebalance mode: {args.rebalance_mode}")
+
+        # Cadence gate
+        cadence_label = "ELIGIBLE" if cadence_due else "BLOCKED"
+        print(f"Cadence:     {cadence_label} — {cadence_msg}")
+
+        # Budget snapshot
+        if budget_snap is not None:
+            print(
+                f"Budget:      cap ${budget_snap.budget_cap:,.2f}  "
+                f"positions ${budget_snap.positions_value:,.2f}  "
+                f"reserved ${budget_snap.reserved_cash:,.2f}  "
+                f"managed ${budget_snap.managed_capital:,.2f}"
+            )
+        elif args.budget is not None:
+            print(f"Budget:      ${args.budget:,.2f} requested — state not initialised (run --initialize-budget)")
+        else:
+            print("Budget:      none — sizing against full account equity")
+
+        # Lot-ledger summary (held days, blocked status)
+        blocked_rows = [r for r in lot_summary if r.get("blocked")]
+        unblocked_rows = [r for r in lot_summary if not r.get("blocked") and r.get("days_held") is not None]
+        if blocked_rows:
+            blocked_str = ", ".join(
+                f"{r['symbol']} ({r['note']})" for r in blocked_rows
+            )
+            print(f"Held lots:   {len(blocked_rows)} BLOCKED — {blocked_str}")
+        if unblocked_rows:
+            ages = ", ".join(
+                f"{r['symbol']} ({r['days_held']}d)" for r in unblocked_rows
+            )
+            print(f"             eligible — {ages}")
+        if not blocked_rows and not unblocked_rows:
+            print("Held lots:   no ledger entries yet (consider --initialize-lots)")
 
         if args.use_live_tickers:
             remap = {bt: tr for bt, tr in mapping.items() if bt != tr}

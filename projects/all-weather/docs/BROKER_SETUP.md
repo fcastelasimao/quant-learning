@@ -222,12 +222,12 @@ export ALLW_NOTIFY_EMAIL="you@gmail.com,partner@gmail.com"
 
 ## Automated scheduling (macOS launchd)
 
-The `scripts/install_launchd.sh` script installs a launchd agent that runs
-`--dry-execute` every weekday morning at 09:05 UTC (market open).
+The `live/scheduler/install_launchd.sh` script installs a launchd agent that
+runs `--dry-execute` every weekday morning at 09:05 UTC (market open).
 
 ```bash
 # Preview (dry-execute) — installed by default
-bash scripts/install_launchd.sh --broker alpaca --account default
+bash live/scheduler/install_launchd.sh --broker alpaca --account default
 
 # Load it
 launchctl load ~/Library/LaunchAgents/com.allweather.rebalance.plist
@@ -243,9 +243,9 @@ conda run -n allweather python -m live.rebalance --paper \
 
 ---
 
-## Switching from `live.alpaca_rebalance` (legacy)
+## Switching from `live._legacy.alpaca_rebalance` (legacy)
 
-The old `live/alpaca_rebalance.py` is preserved unchanged for backward
+The old `live/_legacy/alpaca_rebalance.py` is preserved unchanged for backward
 compatibility. All existing `make rebalance-*` targets continue to work.
 
 To migrate to the new broker-agnostic rebalancer:

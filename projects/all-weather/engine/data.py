@@ -303,3 +303,83 @@ def fetch_prices_from_fmp_db(tickers: list[str],
         pricing_model=None,
         data_dir=data_dir,
     )
+
+
+def fetch_dividends(tickers: list[str],
+                    start_date: str,
+                    end_date: str,
+                    data_dir: str | None = None) -> pd.DataFrame:
+    """
+    Load per-symbol dividend / distribution history from the central FMP SQLite store.
+
+    Reads the `dividends` table (populated by QuantFinance/data_manager.py
+    --with-dividends) from each `DB_<TICKER>_historical_data.db` file.
+
+    Parameters
+    ----------
+    tickers   : list of symbols to query
+    start_date, end_date : inclusive-start, exclusive-end window on ex_date (YYYY-MM-DD strings)
+    data_dir  : override for the central data directory; defaults to QuantFinance/data
+
+    Returns
+    -------
+    pd.DataFrame in **long form** with columns:
+        Ticker, ExDate, Amount, AdjAmount, RecordDate, PaymentDate, DeclarationDate
+    Empty DataFrame (same columns) if no rows in window for any ticker.
+
+    Notes
+    -----
+    - Symbols with no `dividends` table (GLD, GLDM, GSG — commodity ETFs that
+      don't pay cash distributions) are silently skipped. This is correct
+      behaviour: their total-return comes from the underlying, not from cash.
+    - `ExDate` is the canonical date for tax purposes (the date a holder of
+      record becomes entitled to the distribution). `PaymentDate` is when
+      cash actually arrives.
+    """
+    if data_dir is None:
+        data_dir = _repo_data_dir()
+
+    cols = [
+        "Ticker", "ExDate", "Amount", "AdjAmount",
+        "RecordDate", "PaymentDate", "DeclarationDate",
+    ]
+    frames: list[pd.DataFrame] = []
+    for ticker in tickers:
+        path = os.path.join(data_dir, f"DB_{ticker}_historical_data.db")
+        if not os.path.exists(path):
+            continue
+        uri = f"file:{path}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as conn:
+            tbl = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='dividends';"
+            ).fetchone()
+            if not tbl:
+                continue
+            query = """
+                SELECT ex_date, amount, adj_amount, record_date, payment_date, declaration_date
+                FROM dividends
+                WHERE ex_date >= ? AND ex_date < ?
+                ORDER BY ex_date
+            """
+            df = pd.read_sql_query(query, conn, params=(start_date, end_date))
+        if df.empty:
+            continue
+        df.insert(0, "Ticker", ticker)
+        df.rename(columns={
+            "ex_date": "ExDate",
+            "amount": "Amount",
+            "adj_amount": "AdjAmount",
+            "record_date": "RecordDate",
+            "payment_date": "PaymentDate",
+            "declaration_date": "DeclarationDate",
+        }, inplace=True)
+        frames.append(df[cols])
+
+    if not frames:
+        return pd.DataFrame(columns=cols)
+    out = pd.concat(frames, ignore_index=True)
+    out["ExDate"] = pd.to_datetime(out["ExDate"]).dt.date
+    out["RecordDate"] = pd.to_datetime(out["RecordDate"], errors="coerce").dt.date
+    out["PaymentDate"] = pd.to_datetime(out["PaymentDate"], errors="coerce").dt.date
+    out["DeclarationDate"] = pd.to_datetime(out["DeclarationDate"], errors="coerce").dt.date
+    return out

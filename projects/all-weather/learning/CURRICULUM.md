@@ -815,7 +815,7 @@ to deepen specific areas.
 | Daily MDD | `engine/stats.py:compute_max_drawdown_daily` | Implement daily MDD via daily-return reconstruction. Compare against monthly MDD on production weights — gap is typically 4–8%. |
 | Compare ALLW | `research/compare_allw.py` | Read this through. It's a polished comparison artefact; understand the fee-adjustment math and Excel/PNG outputs. |
 | Live ETF substitution | `research/compare_live_etfs.py` | Read this through. Note how the GSG→PDBC substitution looks acceptable at the pair level but degrades the portfolio. |
-| Alpaca rebalance | `live/alpaca_rebalance.py` | Operational, not pedagogical. Read the preview logic; understand the order-placement contract; do not rewrite. |
+| Alpaca rebalance | `live/_legacy/alpaca_rebalance.py` | Operational, not pedagogical. Read the preview logic; understand the order-placement contract; do not rewrite. |
 
 ---
 

@@ -322,7 +322,8 @@ projects/all-weather/
 │
 ├── live/                     broker-agnostic live execution
 │   ├── portfolio.py          load/save holdings + rebalancing instructions
-│   ├── alpaca_rebalance.py   legacy Alpaca-only rebalancer (preserved unchanged)
+│   ├── _legacy/              legacy modules preserved for back-compat
+│   │   └── alpaca_rebalance.py   pre-broker-agnostic Alpaca-only rebalancer
 │   ├── rebalance.py          broker-agnostic rebalancer — see docs/BROKER_SETUP.md
 │   ├── budget.py             virtual sub-portfolio cap (--budget AMOUNT)
 │   ├── lots.py               FIFO lot ledger + 31-day hold enforcement

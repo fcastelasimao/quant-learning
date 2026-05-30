@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from live.alpaca_rebalance import (
+from live._legacy.alpaca_rebalance import (
     OrderExecutionError,
     PositionSnapshot,
     RebalanceRow,
@@ -90,7 +90,7 @@ def test_wait_for_orders_raises_on_rejected_order():
 
 def test_wait_for_orders_raises_on_timeout(monkeypatch):
     client = _OrderClient({"order-1": "accepted"})
-    monkeypatch.setattr("live.alpaca_rebalance.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("live._legacy.alpaca_rebalance.time.sleep", lambda _seconds: None)
 
     with pytest.raises(OrderExecutionError, match="timeout"):
         wait_for_orders(client, ["order-1"], timeout_seconds=0, logger=_Logger())
@@ -147,7 +147,7 @@ def test_performance_tracking_headers_follow_live_symbols(tmp_path, monkeypatch)
     }
     csv_path = tmp_path / "tracking.csv"
     monkeypatch.setattr(
-        "live.alpaca_rebalance.calculate_benchmark_returns",
+        "live._legacy.alpaca_rebalance.calculate_benchmark_returns",
         lambda _logger: {"SPY_Return%": 0.0, "ALLW_Return%": 0.0, "60_40_Return%": 0.0},
     )
 

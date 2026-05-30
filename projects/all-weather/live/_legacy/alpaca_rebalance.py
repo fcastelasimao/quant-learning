@@ -84,7 +84,7 @@ except ImportError as exc:  # pragma: no cover - import guard for environments w
 
 NY_TZ = ZoneInfo("America/New_York")
 DEFAULT_TIMEOUT_SECONDS = 60
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 LOGS_DIR = os.path.join(_PROJECT_ROOT, "logs")
 HOLDINGS_PATH = os.path.join(_PROJECT_ROOT, "portfolio_holdings.json")
 RUN_REGISTRY_PATH = os.path.join(LOGS_DIR, "rebalance_run_registry.json")

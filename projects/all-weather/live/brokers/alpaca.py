@@ -10,7 +10,7 @@ Credentials precedence (account_label="my_label"):
     4. ALPACA_API_KEY              / ALPACA_SECRET_KEY                (api_keys.env default)
 
 This ordering preserves the env-var convention from the original
-live/alpaca_rebalance.py while also loading the shared QuantFinance
+live/_legacy/alpaca_rebalance.py while also loading the shared QuantFinance
 api_keys.env file.
 """
 

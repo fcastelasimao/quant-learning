@@ -10,10 +10,9 @@ rebalance_run_registry.json
 
 # Private strategy data and drafts
 strategies.json
-linkedin_post.md
+docs/internal/linkedin_post.md
 
 # Session-specific notes (not for public repo)
-session_handoff.md
 .claude/
 
 # Python

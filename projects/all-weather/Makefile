@@ -95,13 +95,13 @@ notebook-leverage:
 
 ## ── Legacy Alpaca rebalancer (preserved for backward compat) ────────────────
 rebalance-preview:
-	$(CONDA_RUN) -m live.alpaca_rebalance --paper --account $(ACCOUNT) --use-live-tickers
+	$(CONDA_RUN) -m live._legacy.alpaca_rebalance --paper --account $(ACCOUNT) --use-live-tickers
 
 rebalance-live-preview:
-	$(CONDA_RUN) -m live.alpaca_rebalance --live --account $(ACCOUNT) --use-live-tickers
+	$(CONDA_RUN) -m live._legacy.alpaca_rebalance --live --account $(ACCOUNT) --use-live-tickers
 
 rebalance-execute:
-	$(CONDA_RUN) -m live.alpaca_rebalance --paper --account $(ACCOUNT) --use-live-tickers --execute
+	$(CONDA_RUN) -m live._legacy.alpaca_rebalance --paper --account $(ACCOUNT) --use-live-tickers --execute
 
 ## ── Broker-agnostic rebalancer (live.rebalance) ─────────────────────────────
 ## Usage: make rebalance-dry-execute BROKER=alpaca ACCOUNT=default MODE=--paper
