@@ -36,15 +36,19 @@ projects/all-weather/
 │
 ├── engine/                   pure backtest math — no live IO
 │   ├── analytics.py          monthly rebal series, drawdowns, turnover helpers
-│   ├── backtest.py           run_backtest (monthly rebalance simulation)
+│   ├── backtest.py           run_backtest (monthly rebal sim) + RebalancePolicy (drift trigger)
 │   ├── calendar.py           date/frequency helpers (MONTH_END alias)
 │   ├── config.py             parameters; loads allocation from strategies.json
-│   ├── data.py               yfinance/FMP fetch wrapper, quality checks
+│   ├── data.py               yfinance/FMP fetch wrapper, fetch_dividends, quality checks
 │   ├── explorers.py          universe-exploration helpers
 │   ├── leverage.py           RSI ETF overlay engine; research-only
+│   ├── lot_ledger.py         tax-lot ledger + FIFO/HIFO/tax_optimal selectors (backtest)
 │   ├── optimiser.py          compute_risk_parity_weights (SLSQP) + random search
 │   ├── plotting.py           dark-theme matplotlib chart helpers
-│   └── stats.py              CAGR, MDD, Sharpe, Sortino, Calmar, Ulcer
+│   ├── stats.py              CAGR, MDD, Sharpe, Sortino, Calmar, Ulcer
+│   ├── tax.py                US fed tax: TaxSchedule, TaxRegime, compute_tax_on_event
+│   ├── tax_rates_us.yaml     year-keyed top-marginal rate schedule (ST/LT/QDI/NIIT)
+│   └── tax_backtest.py       run_tax_aware_backtest (research; share engine stays golden-locked)
 │
 ├── live/                     broker-agnostic live execution
 │   ├── _legacy/              preserved for back-compat
@@ -163,11 +167,20 @@ projects/all-weather/
 
 Tax-aware backtesting and drift-trigger rebalancing.
 **Live plan and decisions:** `docs/internal/session_handoff.md`.
-The closed `failed_strategies/weekly_rebalance/` verdict was made under
-transaction-cost-only modelling; under realistic US tax + tax-optimal lot
-selection, drift triggers may reopen the question. New investigations should
-land documentation in `docs/research/<topic>.md` (TQQQ/SQQQ project style),
-and produce CSV/JSON artifacts the marimos read without recomputation.
+
+**Tax model + drift trigger (Section D, DONE 2026-06-03).** Built:
+`engine/tax_rates_us.yaml` + `engine/tax.py` (US fed top-marginal schedule,
+per-asset characterization: GLD/GLDM 28% collectibles, GSG §1256 60/40 + year-end
+MTM), `engine/lot_ledger.py` (FIFO=Alpaca reality / HIFO / tax_optimal=research-only),
+`engine/backtest.py::RebalancePolicy` (drift trigger; default `monthly_unconditional`
+is golden-locked byte-identical), `engine/tax_backtest.py::run_tax_aware_backtest`.
+**D.18 verdict (`research/tax_threshold_sweep.py`): drift beats monthly under US
+tax** — every drift policy wins Calmar on all 3 OOS windows; best FIFO candidate
+`drift_absolute(0.05)`. This **reopens** the closed `failed_strategies/weekly_rebalance/`
+verdict (which was transaction-cost-only). See `docs/research/tax_model.md`,
+`drift_trigger.md`, `tax_threshold_sweep.md`. **Promotion to production is gated by
+handoff F.26 (human gate) — do NOT auto-flip live.** New investigations land docs
+in `docs/research/<topic>.md` (TQQQ/SQQQ style) + CSV/JSON artifacts the marimos read.
 
 ## Closed Investigations
 
