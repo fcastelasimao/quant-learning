@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from research.tax_threshold_sweep import (
+from research.tax_drift_trigger.tax_threshold_sweep import (
     KILL_CRITERION_PCT,
     OOS_WINDOWS,
     evaluate_kill_criterion,

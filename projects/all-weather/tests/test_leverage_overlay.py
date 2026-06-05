@@ -14,9 +14,9 @@ from engine.leverage import (
     generate_hysteresis_signal,
     selected_window_metrics,
 )
-from research.build_leverage_comparison_report import build_report_bundle
-from research.build_leverage_comparison_report import DEFAULT_ENTRY_GRID, DEFAULT_EXIT_GRID
-from research.build_mixed_leverage_report import build_mixed_report_bundle
+from research.rsi_leverage_overlay.build_leverage_comparison_report import build_report_bundle
+from research.rsi_leverage_overlay.build_leverage_comparison_report import DEFAULT_ENTRY_GRID, DEFAULT_EXIT_GRID
+from research.rsi_leverage_overlay.build_mixed_leverage_report import build_mixed_report_bundle
 
 
 EXPECTED_LEVERAGE_ARTIFACTS = {

@@ -15,7 +15,7 @@ Selectors
 * ``TAX_OPTIMAL``  long-term lots first, then highest basis. Prefers the lower
                    LT rate and the smallest gain. **Research counterfactual
                    only on Alpaca** (orders can't carry a lot id — see
-                   ``docs/research/alpaca_lot_selection.md``).
+                   ``research/tax_drift_trigger/findings_alpaca_lot_selection.md``).
 
 Relationship to ``live/lots.py``
 --------------------------------

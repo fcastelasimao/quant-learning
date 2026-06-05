@@ -175,7 +175,7 @@ conda run -n allweather python -m live.rebalance --paper \
 
 The state file is stored at:
 ```
-logs/budget_tastytrade_paper_main_<strategy_id>.json
+live/logs/budget_tastytrade_paper_main_<strategy_id>.json
 ```
 
 ---
@@ -260,9 +260,9 @@ make rebalance-dry-execute BROKER=tastytrade ACCOUNT=main MODE=--live
 ```
 
 The new rebalancer writes additional state files:
-- `logs/cadence_*.json` — minimum-interval tracking
-- `logs/lots_*.json` — lot ledger for 31-day hold enforcement
-- `logs/budget_*.json` — strategy budget state
-- `logs/run_summary.jsonl` — structured run log (one JSON line per run)
-- `logs/monthly_runs.csv` — aggregate monthly view
-- `logs/runs/*.json` — per-run detail archive
+- `live/logs/cadence_*.json` — minimum-interval tracking
+- `live/logs/lots_*.json` — lot ledger for 31-day hold enforcement
+- `live/logs/budget_*.json` — strategy budget state
+- `live/logs/run_summary.jsonl` — structured run log (one JSON line per run)
+- `live/logs/monthly_runs.csv` — aggregate monthly view
+- `live/logs/runs/*.json` — per-run detail archive

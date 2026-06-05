@@ -28,7 +28,7 @@ while the younger lot exists.
 
 Ledger file
 -----------
-    logs/lots_<broker>_<mode>_<account>_<strategy>.json
+    live/logs/lots_<broker>_<mode>_<account>_<strategy>.json
 
 Schema::
 

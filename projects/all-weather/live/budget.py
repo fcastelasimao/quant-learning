@@ -26,7 +26,7 @@ move; managed_capital floats with the market.  It grows only from:
 
 State file
 ----------
-    logs/budget_<broker>_<mode>_<account>_<strategy>.json
+    live/logs/budget_<broker>_<mode>_<account>_<strategy>.json
 
 Schema::
 

@@ -8,7 +8,7 @@ Log layout
 ----------
 ::
 
-    logs/
+    live/logs/
         run_summary.jsonl           — one JSON line per run (append-only)
         monthly_runs.csv            — aggregate monthly view (all runs)
         runs/
@@ -16,7 +16,7 @@ Log layout
 
 Retention
 ---------
-``_prune_runs(max_files=200)`` keeps the ``logs/runs/`` folder from growing
+``_prune_runs(max_files=200)`` keeps the ``live/logs/runs/`` folder from growing
 unbounded.  Oldest files are deleted first when the count exceeds max_files.
 The JSONL and CSV are never pruned (they are append-only audit trails).
 
@@ -231,9 +231,9 @@ def write_run(logs_dir: str, summary: RunSummary, max_run_files: int = 200) -> N
     """Persist a RunSummary to all three sinks.
 
     1. Append one JSON line to run_summary.jsonl
-    2. Write full detail to logs/runs/<timestamp>_...json
+    2. Write full detail to live/logs/runs/<timestamp>_...json
     3. Append one row to monthly_runs.csv
-    4. Prune logs/runs/ if it exceeds max_run_files
+    4. Prune live/logs/runs/ if it exceeds max_run_files
     """
     os.makedirs(_runs_dir(logs_dir), exist_ok=True)
 

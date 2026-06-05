@@ -9,7 +9,7 @@ Checks:
   3. Tastytrade SDK availability (optional)
   4. Broker credentials are set in api_keys.env / the environment
   5. strategies.json is valid and the target strategy exists
-  6. logs/ directory is writable
+  6. live/logs/ directory is writable
   7. Cadence state — how many days until the next run is due
 
 Exit codes:
@@ -136,16 +136,16 @@ def check_strategies_json(strategy_id: str) -> bool:
 
 
 def check_logs_writable() -> bool:
-    logs_dir = os.path.join(_PROJECT_ROOT, "logs")
+    logs_dir = os.path.join(_PROJECT_ROOT, "live", "logs")
     os.makedirs(logs_dir, exist_ok=True)
     probe = os.path.join(logs_dir, ".healthcheck_probe")
     try:
         with open(probe, "w") as fh:
             fh.write("ok")
         os.remove(probe)
-        return _check("logs/ directory writable", True)
+        return _check("live/logs/ directory writable", True)
     except Exception as exc:
-        return _check("logs/ directory writable", False, str(exc))
+        return _check("live/logs/ directory writable", False, str(exc))
 
 
 def check_cadence(
@@ -156,7 +156,7 @@ def check_cadence(
     interval_days: int,
 ) -> bool:
     """Preview cadence state without importing rebalance.py (avoids heavy deps)."""
-    logs_dir = os.path.join(_PROJECT_ROOT, "logs")
+    logs_dir = os.path.join(_PROJECT_ROOT, "live", "logs")
     safe_a = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in account)
     safe_s = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in strategy_id)
     path = os.path.join(logs_dir, f"cadence_{broker}_{trading_mode}_{safe_a}_{safe_s}.json")

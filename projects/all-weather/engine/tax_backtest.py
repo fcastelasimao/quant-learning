@@ -31,7 +31,7 @@ cost basis, so the ledger stays internally consistent — economically this is
 
 Caveat: a monthly engine taxes at month-end granularity and uses month-end
 share counts for dividend sizing. Good enough for a strategy that only trades
-monthly; documented in docs/research/tax_model.md.
+monthly; documented in research/tax_drift_trigger/findings_tax_model.md.
 """
 
 from __future__ import annotations

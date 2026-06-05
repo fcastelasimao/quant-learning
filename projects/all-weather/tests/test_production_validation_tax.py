@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from research.production_validation import _resolve_policy
+from research.production_validation.production_validation import _resolve_policy
 
 
 def test_resolve_policy_monthly():
@@ -57,7 +57,7 @@ def test_build_tax_addendum_writes_artifacts(tmp_path):
     from engine import config
     config.DATA_SOURCE = "fmp"
     config.FMP_PRICE_COLUMN = "adj_close"
-    from research.production_validation import build_tax_addendum
+    from research.production_validation.production_validation import build_tax_addendum
 
     build_tax_addendum(
         tmp_path, config.DEFAULT_STRATEGY, "2018-01-01", "2022-12-31",
@@ -65,7 +65,8 @@ def test_build_tax_addendum_writes_artifacts(tmp_path):
         policy_spec="drift_absolute:0.05", transaction_cost_pct=0.001,
     )
     for name in ("rebalance_events.csv", "tax_summary.csv",
-                 "tax_monthly_series.csv", "tax_addendum_manifest.json"):
+                 "tax_monthly_series.csv", "tax_regime_comparison.csv",
+                 "tax_addendum_manifest.json"):
         assert (tmp_path / name).exists(), name
 
     manifest = json.loads((tmp_path / "tax_addendum_manifest.json").read_text())

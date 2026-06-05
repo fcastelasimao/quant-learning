@@ -4,8 +4,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from research.build_strategy_comparison_report import build_report_bundle, load_strategy
-from research.strategy_plotting import (
+from research.production_validation.build_strategy_comparison_report import build_report_bundle, load_strategy
+from research._shared.strategy_plotting import (
     clean_strategy_labels,
     plot_growth,
     plot_risk_diagnostics,
@@ -40,8 +40,11 @@ def _synthetic_bank_pack_prices() -> pd.DataFrame:
         "TIP": 100 * np.cumprod(1 + 0.00008 - cycle * 0.2),
         "GLD": 100 * np.cumprod(1 + 0.00012 + np.cos(np.arange(n) / 39) / 1200),
         "GSG": 100 * np.cumprod(1 + 0.00005 + np.sin(np.arange(n) / 31) / 1100),
+        "JEPQ": np.nan,
         "ALLW": np.nan,
     }, index=dates)
+    jepq_mask = prices.index >= pd.Timestamp("2022-05-04")
+    prices.loc[jepq_mask, "JEPQ"] = 100 * np.cumprod(1 + 0.00020 + cycle[jepq_mask] * 0.9)
     mask = prices.index >= pd.Timestamp("2025-03-06")
     prices.loc[mask, "ALLW"] = 100 * np.cumprod(1 + 0.00018 + cycle[mask] * 0.4)
     return prices
@@ -97,6 +100,7 @@ def test_report_builder_writes_expected_csv_bundle(tmp_path):
     assert not daily[daily["Strategy"] == "GLD 32/64 @ 30% cap"].empty
     assert not daily[daily["Strategy"] == "SPY 32/42 + GLD 36/52 @ 30% cap"].empty
     assert not daily[daily["Strategy"] == "S&P 500 (SPY)"].empty
+    assert not daily[daily["Strategy"] == "JEPQ (JPM Nasdaq Income)"].empty
     assert not daily[daily["Strategy"] == "ALLW (Bridgewater)"].empty
     assert not summary[summary["Strategy"] == "SPY 34/42 @ 30% cap"].empty
     assert not summary[summary["Strategy"] == "GLD 32/64 @ 30% cap"].empty
@@ -138,6 +142,16 @@ def test_strategy_comparison_notebook_is_presentation_only():
     assert "growth_strategies" in source
     assert "leverage_signal_events.csv" in source
     assert "Show SPY/GLD leverage entry and exit markers" in source
+    assert "show_rebalance_events" in source
+    assert "rebalance_events" in source
+    assert "tax_summary" in source
+    assert "tax_monthly" in source
+    assert "regime_comparison" in source
+    assert "plot_tax_cost" in source
+    assert "plot_regime_comparison" in source
+    assert "plot_sweep_heatmap" in source
+    assert "tax_regime_comparison.csv" in source
+    assert "threshold_sweep_summary.csv" in source
 
 
 def test_growth_plot_accepts_strategy_and_scale_controls(tmp_path):

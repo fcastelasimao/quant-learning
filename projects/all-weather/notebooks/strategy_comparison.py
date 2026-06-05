@@ -15,7 +15,7 @@ with app.setup:
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
 
-    from research.strategy_plotting import (
+    from research._shared.strategy_plotting import (
         COLORS,
         DROPPED_LEGACY_STRATEGIES,
         LEGACY_STRATEGY_RENAMES,
@@ -28,32 +28,34 @@ with app.setup:
         plot_growth,
         plot_implementation_realism,
         plot_monthly_returns,
+        plot_regime_comparison,
         plot_risk_diagnostics,
         plot_rolling_behaviour,
+        plot_sweep_heatmap,
+        plot_tax_cost,
     )
-    from research.rebalance_thresholds import (
+    from research.tax_drift_trigger.rebalance_thresholds import (
         SERIES_LABELS as POLICY_SERIES_LABELS,
         SERIES_ORDER as POLICY_SERIES_ORDER,
     )
 
     BUNDLE_ROOTS = [
-        ROOT / "results" / "production_validation",
-        ROOT / "results" / "strategy_comparison",
+        ROOT / "research" / "production_validation" / "results",
+        ROOT / "research" / "production_validation" / "results" / "strategy_comparison",
     ]
-    FULL_GRID_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_full_grid_oos"
-    REBALANCE_BUNDLE_ROOT = ROOT / "results" / "rebalance_thresholds"
+    FULL_GRID_BUNDLE_ROOT = ROOT / "research" / "rsi_leverage_overlay" / "results" / "mixed_leverage_full_grid_oos"
+    REBALANCE_BUNDLE_ROOT = ROOT / "research" / "tax_drift_trigger" / "results"
+    TAX_SWEEP_BUNDLE_ROOT = ROOT / "research" / "tax_drift_trigger" / "results"
 
 
 @app.cell
 def choose_bundle():
-    def _latest_rebalance_bundle(root):
+    def _latest_bundle_with(root, *required_files):
         if not root.exists():
             return ""
         candidates = [
             p for p in root.iterdir()
-            if p.is_dir()
-            and (p / "run_config.json").exists()
-            and (p / "threshold_summary.csv").exists()
+            if p.is_dir() and all((p / f).exists() for f in required_files)
         ]
         return str(max(candidates, key=lambda p: p.stat().st_mtime)) if candidates else ""
 
@@ -68,8 +70,13 @@ def choose_bundle():
         full_width=True,
     )
     rebalance_bundle_path = mo.ui.text(
-        value=_latest_rebalance_bundle(REBALANCE_BUNDLE_ROOT),
+        value=_latest_bundle_with(REBALANCE_BUNDLE_ROOT, "run_config.json", "threshold_summary.csv"),
         label="Rebalance thresholds bundle",
+        full_width=True,
+    )
+    tax_sweep_bundle_path = mo.ui.text(
+        value=_latest_bundle_with(TAX_SWEEP_BUNDLE_ROOT, "run_config.json", "threshold_sweep_summary.csv"),
+        label="Tax threshold sweep bundle",
         full_width=True,
     )
     mo.vstack([
@@ -77,8 +84,9 @@ def choose_bundle():
         bundle_path,
         full_grid_bundle_path,
         rebalance_bundle_path,
+        tax_sweep_bundle_path,
     ])
-    return bundle_path, full_grid_bundle_path, rebalance_bundle_path
+    return bundle_path, full_grid_bundle_path, rebalance_bundle_path, tax_sweep_bundle_path
 
 
 @app.cell
@@ -132,6 +140,30 @@ def load_bundle(bundle_path):
         if _event_path.exists()
         else pd.DataFrame()
     )
+    _rebal_path = bundle / "rebalance_events.csv"
+    rebalance_events = (
+        pd.read_csv(_rebal_path, parse_dates=["Date"])
+        if _rebal_path.exists()
+        else pd.DataFrame()
+    )
+    _tax_summary_path = bundle / "tax_summary.csv"
+    tax_summary = (
+        pd.read_csv(_tax_summary_path)
+        if _tax_summary_path.exists()
+        else pd.DataFrame()
+    )
+    _tax_monthly_path = bundle / "tax_monthly_series.csv"
+    tax_monthly = (
+        pd.read_csv(_tax_monthly_path, parse_dates=["Date"], index_col="Date")
+        if _tax_monthly_path.exists()
+        else pd.DataFrame()
+    )
+    _regime_cmp_path = bundle / "tax_regime_comparison.csv"
+    regime_comparison = (
+        pd.read_csv(_regime_cmp_path, parse_dates=["Date"], index_col="Date")
+        if _regime_cmp_path.exists()
+        else pd.DataFrame()
+    )
 
     daily = clean_strategy_labels(daily)
     monthly = clean_strategy_labels(monthly)
@@ -170,10 +202,14 @@ def load_bundle(bundle_path):
         manifest,
         monthly,
         price_provenance,
+        rebalance_events,
+        regime_comparison,
         risk_contrib,
         rolling,
         stress,
         summary,
+        tax_monthly,
+        tax_summary,
         turnover,
     )
 
@@ -355,10 +391,14 @@ def growth_controls(daily):
         value=True,
         label="Show SPY/GLD leverage entry and exit markers",
     )
+    show_rebalance_events = mo.ui.checkbox(
+        value=False,
+        label="Show rebalance markers (vertical lines sized by trade notional)",
+    )
     mo.vstack([
         mo.md("## Overview: Growth of Money"),
         mo.hstack([full_history_scale, overlap_scale], gap=2),
-        show_leverage_events,
+        mo.hstack([show_leverage_events, show_rebalance_events], gap=2),
         growth_strategies,
     ])
     return (
@@ -367,6 +407,7 @@ def growth_controls(daily):
         growth_strategies,
         overlap_scale,
         show_leverage_events,
+        show_rebalance_events,
     )
 
 
@@ -378,7 +419,9 @@ def plot_growth_cell(
     growth_strategies,
     leverage_events,
     overlap_scale,
+    rebalance_events,
     show_leverage_events,
+    show_rebalance_events,
 ):
     selected_strategies = growth_strategies.value or available_strategies
     mo.as_html(plot_growth(
@@ -388,6 +431,8 @@ def plot_growth_cell(
         leverage_events=leverage_events,
         overlap_scale=overlap_scale.value,
         show_leverage_events=show_leverage_events.value,
+        rebalance_events=rebalance_events,
+        show_rebalance_events=show_rebalance_events.value,
     ))
     return
 
@@ -487,7 +532,7 @@ def rebalancing_policy_section(
     rebalance_summary,
 ):
     if rebalance_bundle_dir is None or rebalance_summary.empty:
-        blocks = [
+        _blocks = [
             mo.md("## Rebalancing Policy"),
             mo.callout(
                 mo.md(
@@ -529,7 +574,7 @@ def rebalancing_policy_section(
         ]
         summary_view = summary_view[[col for col in summary_cols if col in summary_view.columns]]
 
-        blocks = [
+        _blocks = [
             mo.md("## Rebalancing Policy"),
             mo.md(
                 f"Threshold policies generated over "
@@ -539,18 +584,116 @@ def rebalancing_policy_section(
         ]
         growth_png = rebalance_bundle_dir / "threshold_growth.png"
         if growth_png.exists():
-            blocks.append(mo.image(str(growth_png), alt="Threshold policies growth"))
-        blocks.append(mo.ui.table(summary_view, label="Threshold Policy Summary"))
+            _blocks.append(mo.image(str(growth_png), alt="Threshold policies growth"))
+        _blocks.append(mo.ui.table(summary_view, label="Threshold Policy Summary"))
 
         overlap_png = rebalance_bundle_dir / "threshold_allw_overlap.png"
         if overlap_png.exists():
-            blocks.append(mo.md("### ALLW overlap window (daily resolution)"))
-            blocks.append(mo.image(str(overlap_png), alt="Threshold policies ALLW overlap"))
+            _blocks.append(mo.md("### ALLW overlap window (daily resolution)"))
+            _blocks.append(mo.image(str(overlap_png), alt="Threshold policies ALLW overlap"))
 
         for window_png in sorted(rebalance_bundle_dir.glob("threshold_rolling_*.png")):
-            blocks.append(mo.image(str(window_png), alt=window_png.stem))
+            _blocks.append(mo.image(str(window_png), alt=window_png.stem))
 
-    mo.vstack(blocks)
+    mo.vstack(_blocks)
+    return
+
+
+@app.cell
+def tax_cost_panel(tax_summary, tax_monthly):
+    mo.stop(
+        tax_summary.empty and tax_monthly.empty,
+        mo.vstack([
+            mo.md("## Tax Cost Analysis"),
+            mo.callout(
+                mo.md(
+                    "No tax artifacts found in this bundle. Generate with "
+                    "`python -m research.production_validation` (tax addendum is on by default)."
+                ),
+                kind="warn",
+            ),
+        ]),
+    )
+    mo.vstack([
+        mo.md("## Tax Cost Analysis"),
+        mo.as_html(plot_tax_cost(tax_summary, tax_monthly)),
+        mo.ui.table(tax_summary, label="Annual Tax Breakdown"),
+    ])
+    return
+
+
+@app.cell
+def regime_comparison_panel(regime_comparison):
+    mo.stop(
+        regime_comparison.empty,
+        mo.vstack([
+            mo.md("## Regime Comparison: US Taxable vs ISA"),
+            mo.callout(
+                mo.md(
+                    "No regime comparison data in this bundle. Regenerate with "
+                    "`python -m research.production_validation`."
+                ),
+                kind="warn",
+            ),
+        ]),
+    )
+    mo.vstack([
+        mo.md("## Regime Comparison: US Taxable vs ISA"),
+        mo.as_html(plot_regime_comparison(regime_comparison)),
+    ])
+    return
+
+
+@app.cell
+def load_tax_sweep_bundle(tax_sweep_bundle_path):
+    from pathlib import Path as _Path
+
+    _raw = tax_sweep_bundle_path.value.strip().strip("'\"")
+    tax_sweep_summary = pd.DataFrame()
+    tax_sweep_verdict = {}
+    if _raw:
+        _bundle = _Path(_raw).expanduser()
+        if not _bundle.is_absolute():
+            _bundle = ROOT / _bundle
+        _summary_path = _bundle / "threshold_sweep_summary.csv"
+        _verdict_path = _bundle / "verdict.json"
+        if _summary_path.exists():
+            tax_sweep_summary = pd.read_csv(_summary_path)
+        if _verdict_path.exists():
+            with open(_verdict_path, "r", encoding="utf-8") as _handle:
+                tax_sweep_verdict = json.load(_handle)
+    return tax_sweep_summary, tax_sweep_verdict
+
+
+@app.cell
+def tax_sweep_heatmap_panel(tax_sweep_summary, tax_sweep_verdict):
+    mo.stop(
+        tax_sweep_summary.empty,
+        mo.vstack([
+            mo.md("## Tax Threshold Sweep"),
+            mo.callout(
+                mo.md(
+                    "No tax threshold sweep bundle loaded. Generate one with "
+                    "`python -m research.tax_threshold_sweep`, then paste the path above."
+                ),
+                kind="warn",
+            ),
+        ]),
+    )
+    decision = tax_sweep_verdict.get("decision", "unknown")
+    passing = tax_sweep_verdict.get("passing_policies", [])
+    _blocks = [
+        mo.md("## Tax Threshold Sweep"),
+        mo.md(
+            f"**Verdict:** `{decision}` — "
+            f"{len(passing)} passing policies under kill criterion."
+        ),
+        mo.as_html(plot_sweep_heatmap(tax_sweep_summary, regime="us")),
+    ]
+    if "none" in set(tax_sweep_summary.get("regime", [])):
+        _blocks.append(mo.md("### Zero-tax baseline (ISA)"))
+        _blocks.append(mo.as_html(plot_sweep_heatmap(tax_sweep_summary, regime="none")))
+    mo.vstack(_blocks)
     return
 
 

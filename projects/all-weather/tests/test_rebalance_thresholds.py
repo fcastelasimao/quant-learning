@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from research.rebalance_thresholds import (
+from research.tax_drift_trigger.rebalance_thresholds import (
     DriftPolicy,
     run_threshold_comparison,
     rolling_policy_metrics,

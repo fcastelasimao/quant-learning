@@ -22,7 +22,7 @@ from engine.config import RuntimeConfig, validate_config
 from engine.data      import fetch_prices, get_price_provenance
 from engine.backtest  import run_backtest, compute_stats
 from engine.optimiser import optimise_allocation
-from research.export  import (make_results_dir, export_results,
+from research._shared.export  import (make_results_dir, export_results,
                                append_to_master_log, print_header, print_stats,
                                start_run_log, stop_run_log)
 
@@ -128,7 +128,7 @@ def main():
 
         # ---- Pareto frontier (optional) ----
         if config.RUN_MODE == "pareto":
-            from research.validation import run_pareto_frontier
+            from research._shared.validation import run_pareto_frontier
 
             run_pareto_frontier(
                 prices           = port_prices,
@@ -144,7 +144,7 @@ def main():
 
         # ---- Walk-forward validation (optional) ----
         if config.RUN_MODE == "walk_forward":
-            from research.validation import run_walk_forward
+            from research._shared.validation import run_walk_forward
 
             run_walk_forward(
                 prices           = port_prices,

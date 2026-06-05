@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from research.validate_mixed_leverage_oos import (
+from research.rsi_leverage_overlay.validate_mixed_leverage_oos import (
     FULL_GRID_GLD_WEIGHT_GRID,
     FULL_GRID_SPY_WEIGHT_GRID,
     build_full_grid_oos_bundle,
@@ -17,7 +17,7 @@ from research.validate_mixed_leverage_oos import (
     _robust_calmar_selection,
     _robust_calmar_selection_slow,
 )
-from research.build_mixed_leverage_report import default_mixed_candidates
+from research.rsi_leverage_overlay.build_mixed_leverage_report import default_mixed_candidates
 
 
 EXPECTED_SWEEP_ARTIFACTS = {

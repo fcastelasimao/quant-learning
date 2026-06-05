@@ -12,7 +12,7 @@ Active methods:
 
 All scipy optimisers minimise by convention; objectives are negated.
 
-Differential Evolution is in failed_strategies/differential_evolution/
+Differential Evolution is in research/optimiser_comparison/
 (26 experiments, all failed OOS — structural regime mismatch).
 
 Dependency: backtest.py, config.py

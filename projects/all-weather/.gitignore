@@ -1,15 +1,16 @@
 # Generated outputs — never commit these
 results/
-research/results/
+research/*/results/
+research/*/findings_plot.png
+research/findings_overview.png
 notebooks/__marimo__/
 
 # Live portfolio state and trade logs
 portfolio_holdings.json
-logs/
+live/logs/
 rebalance_run_registry.json
 
-# Private strategy data and drafts
-strategies.json
+# Private drafts
 docs/internal/linkedin_post.md
 
 # Session-specific notes (not for public repo)

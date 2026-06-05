@@ -28,7 +28,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TEMPLATE="$PROJECT_ROOT/live/scheduler/com.allweather.rebalance.plist.template"
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 DEST_PLIST="$LAUNCH_AGENTS/com.allweather.rebalance.plist"
-LOG_DIR="$PROJECT_ROOT/logs"
+LOG_DIR="$PROJECT_ROOT/live/logs"
 
 BROKER="alpaca"
 ACCOUNT="default"

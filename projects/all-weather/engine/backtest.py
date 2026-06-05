@@ -10,7 +10,7 @@ Performance statistics (compute_*, StrategyStats, compute_stats) live in
 engine/stats.py and are re-imported here for caller convenience.
 
 Closed investigations (run_backtest_rolling_rp, run_backtest_with_overlay)
-have been moved to failed_strategies/.
+have been moved to research/ investigation folders.
 """
 
 from __future__ import annotations

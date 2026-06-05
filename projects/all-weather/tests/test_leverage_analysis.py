@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research.leverage_analysis import (
+from research._shared.leverage_analysis import (
     BASE,
     BENCHMARK,
     compute_heatmap_pivot,

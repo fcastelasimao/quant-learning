@@ -253,7 +253,7 @@ shell profiles or launchd plists.
 conda run -n allweather python -m live.healthcheck --broker alpaca
 
 # 2. Dry-execute — simulates fills from current price, writes a full RunSummary
-#    to logs/runs/, logs/run_summary.jsonl, and logs/monthly_runs.csv.
+#    to live/logs/runs/, live/logs/run_summary.jsonl, and live/logs/monthly_runs.csv.
 #    No real orders are placed and cadence/lots/budget state is NOT advanced.
 make rebalance-dry-execute BROKER=alpaca ACCOUNT=default MODE=--paper
 
@@ -262,7 +262,7 @@ make rebalance-new-preview BROKER=alpaca ACCOUNT=default MODE=--paper
 
 # 4. Execute — places real orders.  Enforces:
 #    • ≥31-day minimum interval since last execute (`--min-rebalance-interval-days`)
-#    • 31-day per-lot holding period (FIFO ledger in logs/lots_*.json)
+#    • 31-day per-lot holding period (FIFO ledger in live/logs/lots_*.json)
 #    • Optional budget cap (`--budget AMOUNT` + `--initialize-budget`)
 make rebalance-new-execute BROKER=alpaca ACCOUNT=default MODE=--paper
 ```
@@ -275,8 +275,8 @@ OAuth credentials with
 `python -m live.brokers.tastytrade login --account default`.
 
 Every run — preview, dry-execute, or execute — writes a structured
-`RunSummary` to `logs/run_summary.jsonl`, a per-run JSON archive to
-`logs/runs/`, and an aggregate row to `logs/monthly_runs.csv`.  Slack +
+`RunSummary` to `live/logs/run_summary.jsonl`, a per-run JSON archive to
+`live/logs/runs/`, and an aggregate row to `live/logs/monthly_runs.csv`.  Slack +
 SMTP notifications are sent automatically when `ALLW_SLACK_WEBHOOK_URL`
 or `ALLW_NOTIFY_EMAIL` are set.
 
@@ -367,10 +367,7 @@ projects/all-weather/
 │   ├── test_data.py          data fetch + quality check tests
 │   └── test_rolling_rp.py    rolling RP backtest + weight-history tests
 │
-├── archive/                  historical scripts — for reference only
-├── docs/                     customer pack, bank pack, claim register
-├── learning/                 guided engine rewrite (6-session curriculum)
-└── logs/                     untracked — private paper/live audit logs
+└── docs/                     customer pack, bank pack, claim register
 ```
 
 ---

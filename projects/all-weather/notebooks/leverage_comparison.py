@@ -17,7 +17,7 @@ with app.setup:
         sys.path.insert(0, str(ROOT))
 
     from engine.leverage import selected_window_metrics
-    from research.leverage_analysis import (
+    from research._shared.leverage_analysis import (
         BASE,
         SELECTOR_LABELS,
         broker_filter_impact,
@@ -41,7 +41,7 @@ with app.setup:
         strategy_label,
         visible_strategies,
     )
-    from research.leverage_plotting import (
+    from research._shared.leverage_plotting import (
         colour_map,
         plot_all_etf_rsi_figure,
         plot_calmar_maxdd_scatter_figure,
@@ -61,11 +61,12 @@ with app.setup:
         plot_yearly_figure,
     )
 
-    BUNDLE_ROOT = ROOT / "results" / "leverage_comparison"
-    OOS_BUNDLE_ROOT = ROOT / "results" / "leverage_oos_validation"
-    MIXED_OOS_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_oos_validation"
-    MIXED_SWEEP_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_sweep"
-    MIXED_FULL_GRID_BUNDLE_ROOT = ROOT / "results" / "mixed_leverage_full_grid_oos"
+    _RSI_RESULTS = ROOT / "research" / "rsi_leverage_overlay" / "results"
+    BUNDLE_ROOT = _RSI_RESULTS / "leverage_comparison"
+    OOS_BUNDLE_ROOT = _RSI_RESULTS / "leverage_oos_validation"
+    MIXED_OOS_BUNDLE_ROOT = _RSI_RESULTS / "mixed_leverage_oos_validation"
+    MIXED_SWEEP_BUNDLE_ROOT = _RSI_RESULTS / "mixed_leverage_sweep"
+    MIXED_FULL_GRID_BUNDLE_ROOT = _RSI_RESULTS / "mixed_leverage_full_grid_oos"
 
     # These constants must remain here for the presentation-only regression test.
     BENCHMARK = "S&P 500 (SPY)"

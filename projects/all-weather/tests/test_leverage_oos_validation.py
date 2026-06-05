@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("yfinance")
 
-from research.validate_leverage_oos import (
+from research.rsi_leverage_overlay.validate_leverage_oos import (
     GLD_EXTENDED_LEVERAGE_GRID,
     build_oos_validation_bundle,
     build_pass_fail_summary,

@@ -105,7 +105,7 @@ DEFAULT_TIMEOUT_SECONDS = 90
 DEFAULT_MIN_INTERVAL_DAYS = 31
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGS_DIR = os.path.join(_PROJECT_ROOT, "logs")
+LOGS_DIR = os.path.join(_PROJECT_ROOT, "live", "logs")
 
 
 # ---------------------------------------------------------------------------
