@@ -74,7 +74,7 @@ vol-surface/
 ## Installation
 
 ```bash
-cd quant-learning/projects/vol-surface
+cd personal_projects/projects/vol-surface
 conda create -n volsurf python=3.11
 conda activate volsurf
 pip install -r requirements.txt

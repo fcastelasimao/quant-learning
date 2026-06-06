@@ -82,7 +82,7 @@ stat-arb/
 ## Installation
 
 ```bash
-cd quant-learning/projects/stat-arb
+cd personal_projects/projects/stat-arb
 conda create -n statarb python=3.11
 conda activate statarb
 pip install -r requirements.txt

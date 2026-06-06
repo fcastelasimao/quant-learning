@@ -40,10 +40,8 @@ personal_projects/
 │   ├── qframe/               Factor research harness
 │   ├── reducing_noise/       Signal de-noising experiments
 │   └── funding-rate-arb/     Funding rate arb (planned)
-├── shared/                   Shared utilities (future)
 ├── archive/                  Concluded projects
 ├── notes/                    Learning notes and snippets
-├── mentorship/               Mentorship curriculum and progress
 ├── resources/                Reference material
 └── roadmaps/                 Project planning
 ```
