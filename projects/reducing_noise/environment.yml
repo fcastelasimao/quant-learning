@@ -11,3 +11,4 @@ dependencies:
       - plotly
       - pytest
       - yfinance
+      - -e ../../../quantcore

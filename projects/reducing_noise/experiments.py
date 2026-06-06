@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from filters import rolling_fft_components, rolling_fft_signal, rolling_ssa_signal
+from quantcore import stats as qcs
 
 
 TRADING_DAYS_PER_YEAR = 252
@@ -89,24 +90,15 @@ def _sharpe(returns: pd.Series) -> float:
     clean = returns.dropna()
     if clean.empty or clean.std() <= 1e-12:
         return 0.0
-    return float(clean.mean() / clean.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
+    return qcs.sharpe(clean, periods_per_year=TRADING_DAYS_PER_YEAR, rf_annual=0.0)
 
 
 def _max_drawdown(equity: pd.Series) -> float:
-    if equity.empty:
-        return 0.0
-    drawdown = equity / equity.cummax() - 1.0
-    return float(drawdown.min())
+    return qcs.max_drawdown(equity)
 
 
 def _cagr(equity: pd.Series) -> float:
-    clean = equity.dropna()
-    if len(clean) < 2 or clean.iloc[0] <= 0:
-        return 0.0
-    years = (len(clean) - 1) / TRADING_DAYS_PER_YEAR
-    if years <= 0:
-        return 0.0
-    return float((clean.iloc[-1] / clean.iloc[0]) ** (1 / years) - 1)
+    return qcs.cagr(equity, periods_per_year=TRADING_DAYS_PER_YEAR)
 
 
 def evaluate_method(

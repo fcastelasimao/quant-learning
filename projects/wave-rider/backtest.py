@@ -8,6 +8,7 @@ import pandas as pd
 
 import config
 from portfolio import Portfolio
+from quantcore import stats as qcs
 
 
 StrategyCallback = Callable[[pd.DataFrame], tuple[dict[str, float], dict[str, object]]]
@@ -38,21 +39,11 @@ class BacktestResult:
 
 
 def compute_cagr(value_series: pd.Series, periods_per_year: int = config.TRADING_DAYS_PER_YEAR) -> float:
-    clean = value_series.dropna()
-    if len(clean) < 2 or clean.iloc[0] <= 0:
-        return 0.0
-    years = (len(clean) - 1) / periods_per_year
-    if years <= 0:
-        return 0.0
-    return ((clean.iloc[-1] / clean.iloc[0]) ** (1 / years) - 1) * 100
+    return qcs.cagr(value_series, periods_per_year=periods_per_year) * 100
 
 
 def compute_max_drawdown(value_series: pd.Series) -> float:
-    clean = value_series.dropna()
-    if clean.empty:
-        return 0.0
-    peak = clean.cummax()
-    return ((clean - peak) / peak).min() * 100
+    return qcs.max_drawdown(value_series) * 100
 
 
 def compute_sharpe(
@@ -60,11 +51,7 @@ def compute_sharpe(
     rf_annual: float = config.RISK_FREE_RATE,
     periods_per_year: int = config.TRADING_DAYS_PER_YEAR,
 ) -> float:
-    clean = return_series.dropna()
-    if clean.empty or clean.std() < 1e-10:
-        return 0.0
-    rf_period = (1 + rf_annual) ** (1 / periods_per_year) - 1
-    return float(((clean.mean() - rf_period) / clean.std()) * np.sqrt(periods_per_year))
+    return qcs.sharpe(return_series, periods_per_year=periods_per_year, rf_annual=rf_annual)
 
 
 def compute_sortino(
@@ -72,29 +59,15 @@ def compute_sortino(
     rf_annual: float = config.RISK_FREE_RATE,
     periods_per_year: int = config.TRADING_DAYS_PER_YEAR,
 ) -> float:
-    clean = return_series.dropna()
-    if clean.empty:
-        return 0.0
-    rf_period = (1 + rf_annual) ** (1 / periods_per_year) - 1
-    downside = clean[clean < rf_period]
-    if downside.empty or downside.std() < 1e-10:
-        return 0.0
-    return float(((clean.mean() - rf_period) / downside.std()) * np.sqrt(periods_per_year))
+    return qcs.sortino(return_series, periods_per_year=periods_per_year, rf_annual=rf_annual, downside="std")
 
 
 def compute_calmar(cagr_pct: float, max_drawdown_pct: float) -> float:
-    if max_drawdown_pct == 0.0:
-        return 0.0
-    return cagr_pct / abs(max_drawdown_pct)
+    return qcs.calmar(cagr_pct, max_drawdown_pct)
 
 
 def compute_ulcer_index(value_series: pd.Series) -> float:
-    clean = value_series.dropna()
-    if clean.empty:
-        return 0.0
-    peak = clean.cummax()
-    drawdown_pct = ((clean - peak) / peak) * 100
-    return float(np.sqrt((drawdown_pct ** 2).mean()))
+    return qcs.ulcer_index(value_series, pct=True)
 
 
 def build_stats(
