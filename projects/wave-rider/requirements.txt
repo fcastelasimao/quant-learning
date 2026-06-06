@@ -3,3 +3,6 @@ pandas==3.0.1
 yfinance==1.2.0
 pytest==9.0.2
 matplotlib==3.10.8
+scipy
+scikit-learn
+hmmlearn

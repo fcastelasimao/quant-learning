@@ -28,6 +28,7 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
+from quantcore.validation import SealedHoldout
 
 # ---------------------------------------------------------------------------
 # Hold-out protection
@@ -38,6 +39,7 @@ import pandas as pd
 #: has been pre-registered for final go/no-go decision.
 #: Unlock by passing ``allow_holdout=True`` to WalkForwardValidator.
 HOLDOUT_START = "2024-06-01"
+_HOLDOUT_GUARD = SealedHoldout(HOLDOUT_START)
 
 from qframe.factor_harness import DEFAULT_OOS_START
 from qframe.factor_harness.ic import (
@@ -307,15 +309,8 @@ class WalkForwardValidator:
         prices = prices.sort_index()
 
         # 0. Hold-out guard — prevent accidental evaluation on sealed test data
-        data_end = prices.index[-1].strftime("%Y-%m-%d")
-        if data_end >= HOLDOUT_START and not self.allow_holdout:
-            raise RuntimeError(
-                f"Price data ends {data_end}, which is at or past the sealed "
-                f"hold-out date ({HOLDOUT_START}).\n"
-                f"Do NOT evaluate any strategy on this data until a strategy has been\n"
-                f"pre-registered for final go/no-go live-trading validation.\n"
-                f"To unseal, pass allow_holdout=True to WalkForwardValidator."
-            )
+        if not self.allow_holdout:
+            _HOLDOUT_GUARD.assert_safe(prices.index)
 
         # 1. Compute returns
         returns = prices.pct_change()
