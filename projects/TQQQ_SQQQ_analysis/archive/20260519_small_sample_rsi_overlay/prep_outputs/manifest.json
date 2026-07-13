@@ -1,0 +1,8 @@
+{
+  "input_dir": "/Users/franciscosimao/Documents/QuantFinance/personal_projects/projects/RSI_tests/trades_backtest",
+  "output_dir": "/Users/franciscosimao/Documents/QuantFinance/personal_projects/projects/RSI_tests/prep_outputs",
+  "n_files": 6,
+  "n_trades": 4273,
+  "rsi_available_rows": 0,
+  "rsi_missing_rows": 4273
+}

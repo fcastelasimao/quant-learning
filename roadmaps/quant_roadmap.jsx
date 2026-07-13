@@ -187,7 +187,7 @@ const roadmap = [
         title: "HMM for Channel Regime Detection (Univariate → Multivariate)",
         tag: "Applied Finance",
         difficulty: "Advanced",
-        yourBackground: "This is the direct core deliverable for VicTecs",
+        yourBackground: "This is the direct core deliverable",
         description: "Fit a baseline Gaussian HMM on raw returns, then refit using your full channel feature vector. Compare regime boundaries. For multivariate HMM: each state has a mean vector and covariance matrix — the covariance encodes how features co-move within each regime. Use covariance_type='diag' for regularisation when data is limited. Interpret each state's mean vector as a regime fingerprint: bull channel = positive slope, low vol, mid position; bear = negative slope, high vol; sideways = zero slope, mean-reverting position.",
         resources: [
           { label: "Library: hmmlearn — GaussianHMM documentation", type: "web" },
@@ -420,7 +420,7 @@ function QuantRoadmap() {
       }}>
         <div>
           <div style={{ fontSize: "0.62rem", letterSpacing: "0.25em", color: "#38bdf8", fontFamily: "monospace", textTransform: "uppercase" }}>
-            VicTecs · Channel Regime Detection · v3
+            Channel Regime Detection · v3
           </div>
           <div style={{ fontSize: "1rem", color: "#e0e0f8" }}>Quant Researcher Roadmap</div>
         </div>

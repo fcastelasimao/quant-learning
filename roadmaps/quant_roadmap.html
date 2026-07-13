@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Quant Researcher Roadmap · VicTecs</title>
+<title>Quant Researcher Roadmap</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -209,7 +209,7 @@ const roadmap = [
         title: "HMM for Channel Regime Detection (Univariate → Multivariate)",
         tag: "Applied Finance",
         difficulty: "Advanced",
-        yourBackground: "This is the direct core deliverable for VicTecs",
+        yourBackground: "This is the direct core deliverable",
         description: "Fit a baseline Gaussian HMM on raw returns, then refit using your full channel feature vector. Compare regime boundaries. For multivariate HMM: each state has a mean vector and covariance matrix — the covariance encodes how features co-move within each regime. Use covariance_type='diag' for regularisation when data is limited. Interpret each state's mean vector as a regime fingerprint: bull channel = positive slope, low vol, mid position; bear = negative slope, high vol; sideways = zero slope, mean-reverting position.",
         resources: [
           { label: "Library: hmmlearn — GaussianHMM documentation", type: "web" },
@@ -425,7 +425,7 @@ function App() {
     <div style={{ fontFamily: "'EB Garamond', 'Palatino Linotype', Georgia, serif", background: "#07080f", minHeight: "100vh", color: "#d4d4e8" }}>
       <div style={{ background: "#0b0c17", borderBottom: "1px solid #151528", padding: "0.85rem 1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", position: "sticky", top: 0, zIndex: 100 }}>
         <div>
-          <div style={{ fontSize: "0.62rem", letterSpacing: "0.25em", color: "#38bdf8", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase" }}>VicTecs · Channel Regime Detection · v3</div>
+          <div style={{ fontSize: "0.62rem", letterSpacing: "0.25em", color: "#38bdf8", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase" }}>Channel Regime Detection · v3</div>
           <div style={{ fontSize: "1rem", color: "#e0e0f8" }}>Quant Researcher Roadmap</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>

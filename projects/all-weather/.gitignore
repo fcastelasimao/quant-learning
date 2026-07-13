@@ -1,0 +1,40 @@
+# Generated outputs — never commit these
+results/
+research/*/results/
+research/*/findings_plot.png
+research/findings_overview.png
+notebooks/__marimo__/
+
+# Live portfolio state and trade logs
+portfolio_holdings.json
+live/logs/
+rebalance_run_registry.json
+
+# Private drafts
+docs/internal/linkedin_post.md
+
+# Session-specific notes (not for public repo)
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+ALPACA_MONTHLY_REBALANCE_LOGS/
+      

@@ -1,0 +1,19 @@
+name: allweather
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy=2.4.3
+  - pandas=3.0.1
+  - pyarrow
+  - scipy=1.17.1
+  - matplotlib=3.10.8
+  - openpyxl=3.1.5
+  - pytest=9.0.2
+  - pip
+  - pip:
+      - -e ../../quantcore
+      - alpaca-py==0.43.2
+      - tastytrade==12.4.1
+      - marimo==0.23.5
+      - yfinance==1.2.0

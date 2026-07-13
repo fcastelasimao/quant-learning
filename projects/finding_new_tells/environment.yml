@@ -1,0 +1,23 @@
+name: quant
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - -e ../../quantcore
+    - numpy
+    - pandas
+    - scipy
+    - statsmodels
+    - scikit-learn
+    - plotly
+    - matplotlib
+    - marimo
+    - pyarrow
+    - ta
+    - hmmlearn
+    - pytest
+    - pandas-market-calendars
+    - requests

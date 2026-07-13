@@ -1,0 +1,22 @@
+# All-Weather server requirements
+# ================================
+# Minimal dependencies for running the live rebalancer on a remote server
+# (EC2, any Linux VPS). Research/backtest dependencies are NOT included.
+#
+# Excluded intentionally:
+#   - quantcore   (editable local install; not needed for live execution)
+#   - scipy       (only needed for risk-parity optimiser)
+#   - matplotlib  (only needed for research plots)
+#   - marimo      (only needed for local notebooks)
+#   - openpyxl    (only needed for Excel export)
+#   - pytest      (only needed for test suite)
+#
+# Install with:
+#   pip install -r server/requirements.txt
+
+yfinance==1.2.0
+pandas==3.0.1
+numpy==2.4.3
+alpaca-py==0.43.2
+# tastytrade==12.4.1  # uncomment if using Tastytrade instead of / in addition to Alpaca
+pyarrow             # pandas optional dependency, avoids FutureWarning

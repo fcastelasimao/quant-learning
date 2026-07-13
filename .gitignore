@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 .DS_Store
 
 # Data files you don't need on GitHub
@@ -21,3 +22,15 @@ projects/qframe/knowledge_base/*.sqlite-*
 
 #Claude environments
 .claude/
+
+# Data/output files (all-weather, TQQQ_SQQQ_analysis, finding_new_tells, volume_research)
+*.csv
+!projects/all-weather/tests/data/backtest_golden.csv
+*.parquet
+*.numbers
+*.xlsx
+*.log
+logs/
+literature/
+.ipynb_checkpoints/
+**/__marimo__/

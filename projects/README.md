@@ -4,14 +4,16 @@ Quantitative finance research and backtesting projects. Each project explores a 
 
 > **Disclaimer:** This is educational and research software, not financial advice. Past performance does not guarantee future results.
 
-> **Note:** The **all-weather** risk-parity portfolio graduated out of this repo into the `victecs` product repo (`victecs/all-weather/`). Its full history remains in this repo's git log (`git log -- projects/all-weather`).
-
 ---
 
 ## Projects
 
 | Project | Status | Description |
 |---------|--------|-------------|
+| [all-weather](projects/all-weather/) | Active | Risk-parity portfolio engine (Ray Dalio-style All Weather), leverage overlay research, tax-aware rebalancing, live broker execution |
+| [TQQQ_SQQQ_analysis](projects/TQQQ_SQQQ_analysis/) | Active | Loss-region research on TQQQ/SQQQ intraday trades; deployable continuous-sizing + skip-rule strategy |
+| [volume_research](projects/volume_research/) | Active | Market-impact/slippage modeling and execution-cost-aware order scheduling, packaged as a drop-in cost library |
+| [finding_new_tells](projects/finding_new_tells/) | Active | TQQQ daily strategy research framework (regime detection, indicator workbench) |
 | [vol-surface](projects/vol-surface/) | Starting | Volatility surface construction, Heston/SABR calibration, exotic pricing |
 | [stat-arb](projects/stat-arb/) | Starting | Cross-sectional equity factor model and long/short backtesting |
 | [wave-rider](projects/wave-rider/) | Active | Momentum + regime-based tactical cross-asset strategy |
@@ -34,6 +36,10 @@ Quantitative finance research and backtesting projects. Each project explores a 
 ```
 personal_projects/
 ├── projects/
+│   ├── all-weather/          Risk-parity portfolio engine + live execution
+│   ├── TQQQ_SQQQ_analysis/   Leveraged-ETF loss-region research
+│   ├── volume_research/      Slippage / market-impact & order scheduling
+│   ├── finding_new_tells/    TQQQ daily strategy research framework
 │   ├── vol-surface/          Options pricing & vol surface engine
 │   ├── stat-arb/             Equity factor model & statistical arbitrage
 │   ├── wave-rider/           Cross-asset trend strategy

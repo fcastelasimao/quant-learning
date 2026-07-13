@@ -1,0 +1,94 @@
+{
+  "horizon": 5,
+  "selected_rule": {
+    "mode": "binary",
+    "threshold": 0.0,
+    "medium_threshold": 0.0
+  },
+  "selection_basis": "train_only",
+  "metrics": [
+    {
+      "metric": "qqq_sma50_200_regime",
+      "direction": 1,
+      "weight": 1.0
+    },
+    {
+      "metric": "qqq_bb_z20",
+      "direction": 1,
+      "weight": 1.0
+    },
+    {
+      "metric": "qqq_williams_vix_fix",
+      "direction": 1,
+      "weight": 1.0
+    },
+    {
+      "metric": "qqq_rsi2",
+      "direction": 1,
+      "weight": 1.0
+    },
+    {
+      "metric": "tnx_20d_chg",
+      "direction": 1,
+      "weight": 0.5689744399760656
+    },
+    {
+      "metric": "qqq_spy_ratio_slope",
+      "direction": 1,
+      "weight": 0.05582133197896679
+    },
+    {
+      "metric": "qqq_rv_60d",
+      "direction": -1,
+      "weight": 1.0
+    },
+    {
+      "metric": "qqq_yz_vol_20d",
+      "direction": -1,
+      "weight": 1.0
+    },
+    {
+      "metric": "vix_term_structure",
+      "direction": -1,
+      "weight": 1.0
+    },
+    {
+      "metric": "qqq_rv_ratio",
+      "direction": -1,
+      "weight": 0.9932220686307192
+    },
+    {
+      "metric": "tqqq_volume_z",
+      "direction": -1,
+      "weight": 0.9776675213433391
+    },
+    {
+      "metric": "qqq_20d_slope",
+      "direction": -1,
+      "weight": 0.8146358434834923
+    },
+    {
+      "metric": "hyg_lqd_ratio_chg",
+      "direction": -1,
+      "weight": 0.6978269824865402
+    },
+    {
+      "metric": "qqq_rv_20d",
+      "direction": -1,
+      "weight": 0.4774254808237778
+    },
+    {
+      "metric": "tqqq_path_residual",
+      "direction": -1,
+      "weight": 0.45930906425967805
+    },
+    {
+      "metric": "tqqq_vol_drag_est",
+      "direction": -1,
+      "weight": 0.32970153306387495
+    }
+  ],
+  "train_window": "<= 2017-12-31",
+  "val_window": "2018-01-01 to 2021-12-31",
+  "frozen_test_window": "2022-01-01 onward"
+}

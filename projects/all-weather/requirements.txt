@@ -1,0 +1,16 @@
+# Secondary pip-only dependency file.
+# Canonical reproducible environment: environment.yml
+# Keep versions synchronized with environment.yml.
+
+-e ../../quantcore
+yfinance==1.2.0
+pandas==3.0.1
+pyarrow
+matplotlib==3.10.8
+scipy==1.17.1
+numpy==2.4.3
+pytest==9.0.2
+openpyxl==3.1.5
+alpaca-py==0.43.2
+tastytrade==12.4.1
+marimo==0.23.5

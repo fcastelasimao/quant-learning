@@ -1,0 +1,7 @@
+research/**/results/
+literature/
+LIVE_alpaca_cycle_*/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
